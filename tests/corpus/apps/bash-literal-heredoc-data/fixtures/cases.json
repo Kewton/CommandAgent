@@ -1,0 +1,238 @@
+{
+  "schema": "bash-literal-heredoc-data/v1",
+  "note": "Issue #924. `recorded` keeps a pre-fix observation from an L-154 run as measured facts only (no body text, no follow-up command text, no host path). `synthetic` rows are minimal shell forms written for this Issue; their expectations come from the shell/guard contract, not from any recorded run. The fixture workspace has an escaping symlink `sub/link`, an inside `.env` and `in.txt`, and a protected `tests/spec.rs`. `secret` is whether the credential scan reports the command; it also reports text it cannot read (fail closed), which is why the unreadable rows carry true.",
+  "recorded": [
+    {
+      "id": "recorded-l154-plain-cat-json-body",
+      "observed_before_fix": {
+        "decision": "reject",
+        "policy_error_kind": "bash_path_confinement_error",
+        "verify_command_violation_kind": "workspace_path_outside_root",
+        "misread_fragment": "[{op:"
+      },
+      "command_shape": {
+        "reader": "cat",
+        "reader_arguments": 0,
+        "heredoc_operator": "<<",
+        "delimiter": "EOF",
+        "delimiter_quoted": false,
+        "redirect": "> <file>.jsonl",
+        "terminated": true,
+        "commands_after_terminator": 1
+      },
+      "body": {
+        "text": "<omitted>",
+        "bytes": 716,
+        "utf8": true,
+        "contains_dollar": false,
+        "contains_backtick": false,
+        "contains_backslash": false
+      },
+      "synthetic_twin": "synthetic-json-lines-body"
+    }
+  ],
+  "synthetic": [
+    {
+      "id": "synthetic-json-lines-body",
+      "command": "cat <<EOF > input.jsonl\n[{\"k\": \"/a b\", \"v\": \"it's\"}]\n{\"ref\": \"/b\", \"url\": \"https://example.invalid/x/y\"}\nEOF\nwc -c input.jsonl",
+      "quoted_twin": "cat <<'EOF' > input.jsonl\n[{\"k\": \"/a b\", \"v\": \"it's\"}]\n{\"ref\": \"/b\", \"url\": \"https://example.invalid/x/y\"}\nEOF\nwc -c input.jsonl",
+      "expect": "allow",
+      "secret": false
+    },
+    {
+      "id": "synthetic-prose-body-other-delimiter",
+      "command": "cat > notes.txt <<DATA_1\nit's (fine), \"quoted\" and 'single'\npath: ../shared/x and /domain/key\nDATA_1",
+      "quoted_twin": "cat > notes.txt <<'DATA_1'\nit's (fine), \"quoted\" and 'single'\npath: ../shared/x and /domain/key\nDATA_1",
+      "expect": "allow",
+      "secret": false
+    },
+    {
+      "id": "synthetic-body-names-a-write-as-data",
+      "command": "cat <<EOF\ntee sub/link/f\nEOF",
+      "quoted_twin": "cat <<'EOF'\ntee sub/link/f\nEOF",
+      "expect": "allow",
+      "secret": false
+    },
+    {
+      "id": "synthetic-body-secret-raw-scan",
+      "command": "cat <<EOF\ncat .env\nEOF",
+      "quoted_twin": "cat <<'EOF'\ncat .env\nEOF",
+      "expect": "allow",
+      "secret": true
+    },
+    {
+      "id": "synthetic-dollar-body",
+      "command": "cat <<EOF\n$X\ntee sub/link/f\nEOF",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-braced-dollar-body",
+      "command": "cat <<EOF\n${X}\ntee sub/link/f\nEOF",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-backslash-body",
+      "command": "cat <<EOF\na\\b\ntee sub/link/f\nEOF",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-command-substitution-body",
+      "command": "cat <<EOF\n$(tee sub/link/f)\nEOF",
+      "expect": "reject",
+      "secret": true
+    },
+    {
+      "id": "synthetic-backtick-body",
+      "command": "cat <<EOF\n`tee sub/link/f`\nEOF",
+      "expect": "reject",
+      "secret": true
+    },
+    {
+      "id": "synthetic-unterminated",
+      "command": "cat <<EOF\n{\"p\": \"/b\"}\ntee sub/link/f",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-cr-terminator",
+      "command": "cat <<EOF\nx\nEOF\r\ntee sub/link/f",
+      "expect": "reject",
+      "secret": true
+    },
+    {
+      "id": "synthetic-dash-heredoc",
+      "command": "cat <<-EOF\n\ttee sub/link/f\n\tEOF",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-non-identifier-delimiter",
+      "command": "cat <<E-F\ntee sub/link/f\nE-F",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-two-heredocs",
+      "command": "cat <<A <<B\ntee sub/link/f\nA\nx\nB",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-nested-body",
+      "command": "sh <<'OUTER'\ncat <<INNER\ntee sub/link/f\nINNER\nOUTER",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-interpreter-stdin",
+      "command": "python3 <<EOF\nopen(\"sub/link/f\", \"w\")\nEOF",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-function-definition",
+      "command": "cat () { sh; }\ncat <<EOF\ntee sub/link/f\nEOF",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-alias-definition",
+      "command": "alias cat=sh\ncat <<EOF\ntee sub/link/f\nEOF",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-environment-prefix",
+      "command": "PATH=sub/link cat <<EOF\ntee sub/link/f\nEOF",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-pipe-to-shell",
+      "command": "cat <<EOF | sh\ntee sub/link/f\nEOF",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-joined-prefix",
+      "command": "true && cat <<EOF\ntee sub/link/f\nEOF",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-leading-comment-line",
+      "command": "# note\ncat <<EOF\ntee sub/link/f\nEOF",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-reader-with-argument",
+      "command": "cat - <<EOF\ntee sub/link/f\nEOF",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-here-string",
+      "command": "cat <<<\"it's\"\ntee sub/link/f",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-redirect-through-escaping-symlink",
+      "command": "cat <<EOF > sub/link/out.json\n{\"p\": \"/domain/key\"}\nEOF",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-redirect-to-parent",
+      "command": "cat > ../out.json <<EOF\n{\"p\": \"/domain/key\"}\nEOF",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-write-after-terminator",
+      "command": "cat <<EOF > a.json\n{\"p\": \"/b\"}\nEOF\ntee sub/link/f < a.json",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-read-after-terminator",
+      "command": "cat <<EOF > a.json\n{\"p\": \"/b\"}\nEOF\ncat sub/link/secret",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-secret-after-terminator",
+      "command": "cat <<EOF > a.json\n{\"p\": \"/b\"}\nEOF\ncat .env",
+      "expect": "allow",
+      "secret": true
+    },
+    {
+      "id": "synthetic-heredoc-with-here-string",
+      "command": "cat <<EOF <<<x\ntee sub/link/f\nEOF",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-here-string-before-heredoc",
+      "command": "cat <<<x <<EOF\ntee sub/link/f\nEOF",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-heredoc-with-input-file",
+      "command": "cat <<EOF < in.txt\ntee sub/link/f\nEOF",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-heredoc-with-fd0-input-file",
+      "command": "cat 0<in.txt <<EOF\ntee sub/link/f\nEOF",
+      "expect": "reject",
+      "secret": false
+    }
+  ]
+}

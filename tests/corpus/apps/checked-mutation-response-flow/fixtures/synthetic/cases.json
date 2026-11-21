@@ -1,0 +1,327 @@
+{
+  "_comment": "Host-authored synthetic cases. Each case replaces the single /* CASE */ marker of fixtures/synthetic/page.tsx with code, after expanding PATCH_FETCH and POST_FETCH to the literal fetch calls. accept: the public final and invariant checks both pass. reject: both report exactly one profile failure containing unchecked_reason. d2 names the Issue #899 D2 item a reject case covers. fallback_trap marks a case the old textual fallback (return prefix, `).ok` suffix or assigned `name.ok`) accepts, so it fails if an Unconfirmed chain falls back.",
+  "fetch": {
+    "PATCH_FETCH": "fetch(\"/api/bookmarks\", { method: \"PATCH\", body })",
+    "POST_FETCH": "fetch(\"/api/bookmarks\", { method: \"POST\", body })"
+  },
+  "unchecked_reason": "/api/bookmarks used by src/app/page.tsx does not check Response.ok before accepting the mutation",
+  "cases": [
+    {
+      "name": "ternary with cast, trailing comma and a sentinel guard in the next then",
+      "expect": "accept",
+      "code": "PATCH_FETCH\n      .then((reply) =>\n        reply.ok ? (reply.json() as Promise<{ items: Bookmark[] }>) : null,\n      )\n      .then((payload) => {\n        if (!payload || payload.items.length === 0) return;\n        setItems(payload.items);\n      })\n      .catch(() => undefined);"
+    },
+    {
+      "name": "failure throws and the next then is skipped",
+      "expect": "accept",
+      "code": "PATCH_FETCH\n      .then((outcome) => {\n        if (!outcome.ok) throw new Error(`save failed: ${outcome.status}`);\n        return outcome.json();\n      })\n      .then((payload) => setItems(payload.items))\n      .catch(() => {});"
+    },
+    {
+      "name": "awaited chain whose failure throws",
+      "expect": "accept",
+      "code": "const payload = await POST_FETCH.then(async (result: Response) => {\n      if (!result.ok) {\n        setNotice(\"保存に失敗しました\");\n        throw new Error(\"save failed\");\n      }\n      return result.json();\n    });\n    setItems(payload.items);"
+    },
+    {
+      "name": "failure returns and the sentinel is guarded next",
+      "expect": "accept",
+      "code": "PATCH_FETCH\n      .then((r) => {\n        if (!r.ok) return null;\n        return r.json();\n      })\n      .then((data) => {\n        if (!data) return;\n        setItems(data.items);\n      });"
+    },
+    {
+      "name": "success closed inside if (ok)",
+      "expect": "accept",
+      "code": "PATCH_FETCH.then((response) => {\n      if (response.ok) {\n        setNotice(\"saved\");\n      }\n    });"
+    },
+    {
+      "name": "existing two-branch await ternary with one guard",
+      "expect": "accept",
+      "code": "const reply = isNew\n      ? await POST_FETCH\n      : await PATCH_FETCH;\n    if (!reply.ok) {\n      setNotice(\"failed\");\n      return;\n    }\n    setNotice(\"saved\");"
+    },
+    {
+      "name": "json only",
+      "expect": "reject",
+      "d2": "json_only",
+      "code": "PATCH_FETCH\n      .then((reply) => reply.json())\n      .then((payload) => setItems(payload.items));"
+    },
+    {
+      "name": "returned json only",
+      "expect": "reject",
+      "d2": "json_only",
+      "fallback_trap": true,
+      "code": "return PATCH_FETCH.then((reply) => reply.json());"
+    },
+    {
+      "name": "payload ok only",
+      "expect": "reject",
+      "d2": "payload_ok_only",
+      "code": "PATCH_FETCH\n      .then((reply) => reply.json())\n      .then((payload) => {\n        if (!payload.ok) return;\n        setItems(payload.items);\n      });"
+    },
+    {
+      "name": "awaited payload ok only",
+      "expect": "reject",
+      "d2": "payload_ok_only",
+      "fallback_trap": true,
+      "code": "const payload = await PATCH_FETCH.then((reply) => reply.json());\n    if (!payload.ok) return;\n    setItems(payload.items);"
+    },
+    {
+      "name": "payload ok cast after the chain",
+      "expect": "reject",
+      "d2": "payload_ok_only",
+      "fallback_trap": true,
+      "code": "PATCH_FETCH\n      .then((reply) => reply.json())\n      .then((payload) => setNotice(String((payload as { ok: boolean }).ok)));"
+    },
+    {
+      "name": "ok read and ignored",
+      "expect": "reject",
+      "d2": "ok_ignored",
+      "code": "PATCH_FETCH.then((reply) => {\n      reply.ok;\n      return reply.json();\n    }).then((payload) => setItems(payload.items));"
+    },
+    {
+      "name": "ok in a comma expression",
+      "expect": "reject",
+      "d2": "ok_ignored",
+      "code": "PATCH_FETCH.then((reply) => (reply.ok, reply.json())).then((payload) => setItems(payload.items));"
+    },
+    {
+      "name": "both branches succeed",
+      "expect": "reject",
+      "d2": "both_branches_succeed",
+      "code": "PATCH_FETCH\n      .then((reply) => (reply.ok ? reply.json() : reply.json()))\n      .then((payload) => {\n        if (!payload) return;\n        setItems(payload.items);\n      });"
+    },
+    {
+      "name": "if (ok) with a succeeding else",
+      "expect": "reject",
+      "d2": "both_branches_succeed",
+      "code": "PATCH_FETCH.then((reply) => {\n      if (reply.ok) {\n        setNotice(\"saved\");\n      } else {\n        setNotice(\"saved\");\n      }\n    });"
+    },
+    {
+      "name": "unconditional success after the sentinel",
+      "expect": "reject",
+      "d2": "unconditional_success_after_sentinel",
+      "code": "PATCH_FETCH\n      .then((reply) => (reply.ok ? reply.json() : null))\n      .then(() => setNotice(\"saved\"));"
+    },
+    {
+      "name": "success before the sentinel guard",
+      "expect": "reject",
+      "d2": "unconditional_success_after_sentinel",
+      "code": "PATCH_FETCH\n      .then((reply) => (reply.ok ? reply.json() : null))\n      .then((payload) => {\n        setNotice(\"saved\");\n        if (!payload) return;\n        setItems(payload.items);\n      });"
+    },
+    {
+      "name": "sentinel with no later guard",
+      "expect": "reject",
+      "d2": "unconditional_success_after_sentinel",
+      "code": "PATCH_FETCH.then((reply) => (reply.ok ? reply.json() : null));\n    setNotice(\"saved\");"
+    },
+    {
+      "name": "awaited guarded sentinel then success",
+      "expect": "reject",
+      "d2": "unconditional_success_after_sentinel",
+      "code": "await PATCH_FETCH\n      .then((reply) => (reply.ok ? reply.json() : null))\n      .then((payload) => {\n        if (!payload) return;\n        setItems(payload.items);\n      });\n    setNotice(\"saved\");"
+    },
+    {
+      "name": "returned sentinel",
+      "expect": "reject",
+      "d2": "unconditional_success_after_sentinel",
+      "fallback_trap": true,
+      "code": "return PATCH_FETCH.then((reply) => (reply.ok ? reply.json() : null));"
+    },
+    {
+      "name": "un-awaited throw chain followed by success",
+      "expect": "reject",
+      "d2": "unconditional_success_after_sentinel",
+      "code": "PATCH_FETCH\n      .then((reply) => { if (!reply.ok) throw new Error(\"x\"); });\n    setNotice(\"saved\");"
+    },
+    {
+      "name": "un-awaited guarded sentinel chain followed by success",
+      "expect": "reject",
+      "d2": "unconditional_success_after_sentinel",
+      "code": "PATCH_FETCH\n      .then((reply) => (reply.ok ? reply.json() : null))\n      .then((payload) => { if (!payload) return; setItems(payload.items); });\n    setNotice(\"saved\");"
+    },
+    {
+      "name": "assigned un-awaited throw chain followed by success",
+      "expect": "reject",
+      "d2": "unconditional_success_after_sentinel",
+      "code": "const pending = PATCH_FETCH\n      .then((reply) => { if (!reply.ok) throw new Error(\"x\"); });\n    setNotice(\"saved\");"
+    },
+    {
+      "name": "un-awaited throw chain passed as an argument followed by success",
+      "expect": "reject",
+      "d2": "unconditional_success_after_sentinel",
+      "code": "track(PATCH_FETCH\n      .then((reply) => { if (!reply.ok) throw new Error(\"x\"); }));\n    setNotice(\"saved\");"
+    },
+    {
+      "name": "object property throw chain followed by success",
+      "expect": "reject",
+      "d2": "unconditional_success_after_sentinel",
+      "code": "const tasks = { save: PATCH_FETCH\n      .then((reply) => { if (!reply.ok) throw new Error(\"x\"); }) };\n    setNotice(\"saved\");"
+    },
+    {
+      "name": "object argument throw chain followed by success",
+      "expect": "reject",
+      "d2": "unconditional_success_after_sentinel",
+      "code": "setState({ saving: PATCH_FETCH\n      .then((reply) => { if (!reply.ok) throw new Error(\"x\"); }) });\n    setNotice(\"saved\");"
+    },
+    {
+      "name": "concise arrow whose throw chain closes a JSX expression",
+      "expect": "accept",
+      "code": "const retry = <button onClick={() => PATCH_FETCH.then((reply) => { if (!reply.ok) throw new Error(\"x\"); })}>retry</button>;\n    setNotice(String(retry));"
+    },
+    {
+      "name": "truthy failure branch passes the next guard",
+      "expect": "reject",
+      "d2": "both_branches_succeed",
+      "code": "PATCH_FETCH\n      .then((reply) => (reply.ok ? reply.json() : reply.text()))\n      .then((payload) => { if (!payload) return; setItems(payload.items); });"
+    },
+    {
+      "name": "identifier failure branch passes the next guard",
+      "expect": "reject",
+      "d2": "both_branches_succeed",
+      "code": "PATCH_FETCH\n      .then((reply) => (reply.ok ? reply.json() : cached))\n      .then((payload) => { if (!payload) return; setItems(payload.items); });"
+    },
+    {
+      "name": "catch block returns a success object before a guarded then",
+      "expect": "reject",
+      "d2": "catch_returns_success",
+      "code": "PATCH_FETCH\n      .then((reply) => { if (!reply.ok) throw new Error(\"x\"); return reply.json(); })\n      .catch(() => { return { items: [] }; })\n      .then((payload) => { if (!payload) return; setItems(payload.items); });"
+    },
+    {
+      "name": "success on the failure branch",
+      "expect": "reject",
+      "d2": "both_branches_succeed",
+      "code": "PATCH_FETCH.then((r) => (r.ok ? null : r.json()));"
+    },
+    {
+      "name": "logical and instead of a ternary",
+      "expect": "reject",
+      "d2": "ok_ignored",
+      "code": "PATCH_FETCH.then((r) => r.ok && r.json());"
+    },
+    {
+      "name": "return first then an unguarded then",
+      "expect": "reject",
+      "d2": "unconditional_success_after_sentinel",
+      "code": "PATCH_FETCH\n      .then((reply) => {\n        if (!reply.ok) return;\n        return reply.json();\n      })\n      .then((payload) => setItems(payload.items));"
+    },
+    {
+      "name": "catch returns a success object",
+      "expect": "reject",
+      "d2": "catch_returns_success",
+      "code": "const payload = await PATCH_FETCH\n      .then((reply) => {\n        if (!reply.ok) throw new Error(\"save failed\");\n        return reply.json();\n      })\n      .catch(() => ({ saved: true, items: [] }));\n    setItems(payload.items);"
+    },
+    {
+      "name": "catch runs success handling",
+      "expect": "reject",
+      "d2": "catch_returns_success",
+      "code": "PATCH_FETCH\n      .then((reply) => {\n        if (!reply.ok) throw new Error(\"save failed\");\n        setNotice(\"saved\");\n      })\n      .catch(() => setNotice(\"saved\"));"
+    },
+    {
+      "name": "inert catch then an unguarded then",
+      "expect": "reject",
+      "d2": "catch_returns_success",
+      "code": "PATCH_FETCH\n      .then((reply) => {\n        if (!reply.ok) throw new Error(\"save failed\");\n        return reply.json();\n      })\n      .catch(() => undefined)\n      .then(() => setNotice(\"saved\"));"
+    },
+    {
+      "name": "success side effect before the guard",
+      "expect": "reject",
+      "d2": "success_before_guard",
+      "code": "PATCH_FETCH.then((reply) => {\n      setNotice(\"saved\");\n      if (!reply.ok) throw new Error(\"save failed\");\n    });"
+    },
+    {
+      "name": "success after a closed if (ok)",
+      "expect": "reject",
+      "d2": "success_before_guard",
+      "code": "PATCH_FETCH.then((reply) => {\n      if (reply.ok) {\n        setItems([]);\n      }\n      setNotice(\"saved\");\n    });"
+    },
+    {
+      "name": "another fetch's ok in the ternary",
+      "expect": "reject",
+      "d2": "other_fetch_ok",
+      "code": "const probe = await fetch(\"/api/health\");\n    PATCH_FETCH\n      .then((reply) => (probe.ok ? reply.json() : null))\n      .then((payload) => {\n        if (!payload) return;\n        setItems(payload.items);\n      });"
+    },
+    {
+      "name": "another fetch's ok in the guard",
+      "expect": "reject",
+      "d2": "other_fetch_ok",
+      "fallback_trap": true,
+      "code": "const probe = await fetch(\"/api/health\");\n    return PATCH_FETCH.then((reply) => {\n      if (!probe.ok) throw new Error(\"offline\");\n      setNotice(\"saved\");\n    });"
+    },
+    {
+      "name": "reassigned before the guard",
+      "expect": "reject",
+      "d2": "shadowing_or_reassignment",
+      "code": "const backup = new Response(null, { status: 200 });\n    PATCH_FETCH.then((reply) => {\n      reply = backup;\n      if (!reply.ok) throw new Error(\"save failed\");\n      setNotice(\"saved\");\n    });"
+    },
+    {
+      "name": "destructured ok shadows the Response",
+      "expect": "reject",
+      "d2": "shadowing_or_reassignment",
+      "code": "PATCH_FETCH\n      .then(({ ok, json }) => (ok ? json() : null))\n      .then((payload) => {\n        if (!payload) return;\n        setItems(payload.items);\n      });"
+    },
+    {
+      "name": "sentinel guard tests another name",
+      "expect": "reject",
+      "d2": "shadowing_or_reassignment",
+      "code": "PATCH_FETCH\n      .then((reply) => (reply.ok ? reply.json() : null))\n      .then((payload) => {\n        if (!items) return;\n        setItems(payload.items);\n      });"
+    },
+    {
+      "name": "return only inside an inner function",
+      "expect": "reject",
+      "d2": "inner_function_return",
+      "code": "PATCH_FETCH.then((reply) => {\n      if (!reply.ok) {\n        const stop = () => {\n          return;\n        };\n        stop();\n      }\n      setNotice(\"saved\");\n    });"
+    },
+    {
+      "name": "check only inside an uncalled function",
+      "expect": "reject",
+      "d2": "inner_function_return",
+      "code": "PATCH_FETCH.then((reply) => {\n      const verify = () => {\n        if (!reply.ok) throw new Error(\"save failed\");\n      };\n      setNotice(\"saved\");\n    });"
+    },
+    {
+      "name": "conditional exit",
+      "expect": "reject",
+      "d2": "inner_function_return",
+      "code": "PATCH_FETCH.then((reply) => {\n      if (!reply.ok) {\n        if (title.length > 0) return;\n      }\n      setNotice(\"saved\");\n    });"
+    },
+    {
+      "name": "conditional exit across a line break",
+      "expect": "reject",
+      "d2": "inner_function_return",
+      "code": "PATCH_FETCH.then((reply) => {\n      if (!reply.ok) {\n        if (title.length > 0)\n          return;\n      }\n      setNotice(\"saved\");\n    });"
+    },
+    {
+      "name": "ternary only in a comment",
+      "expect": "reject",
+      "d2": "string_comment_template",
+      "code": "PATCH_FETCH\n      .then((reply) => /* reply.ok ? reply.json() : null */ reply.json())\n      .then((payload) => {\n        if (!payload) return;\n        setItems(payload.items);\n      });"
+    },
+    {
+      "name": "ternary only in a string",
+      "expect": "reject",
+      "d2": "string_comment_template",
+      "code": "PATCH_FETCH\n      .then((reply) => \"reply.ok ? reply.json() : null\" && reply.json())\n      .then((payload) => {\n        if (!payload) return;\n        setItems(payload.items);\n      });"
+    },
+    {
+      "name": "ok only in a template",
+      "expect": "reject",
+      "d2": "string_comment_template",
+      "code": "PATCH_FETCH\n      .then((reply) => `${reply.ok ? \"y\" : \"n\"}` && reply.json())\n      .then((payload) => {\n        if (!payload) return;\n        setItems(payload.items);\n      });"
+    },
+    {
+      "name": "sentinel guard only in a comment",
+      "expect": "reject",
+      "d2": "string_comment_template",
+      "code": "PATCH_FETCH\n      .then((reply) => (reply.ok ? reply.json() : null))\n      .then((payload) => {\n        // if (!payload) return;\n        setItems(payload.items);\n      });"
+    },
+    {
+      "name": "truncated callback",
+      "expect": "reject",
+      "d2": "truncated_syntax",
+      "code": "PATCH_FETCH\n      .then((reply) => (reply.ok ? reply.json() : null))\n      .then((payload) => {\n        if (!payload) return;\n        setItems(payload.items);\n"
+    },
+    {
+      "name": "unclosed template after a returned chain",
+      "expect": "reject",
+      "d2": "truncated_syntax",
+      "fallback_trap": true,
+      "code": "return PATCH_FETCH.then((reply) => {\n      if (!reply.ok) throw new Error(\"save failed\");\n    });\n    const label = `unclosed"
+    }
+  ]
+}

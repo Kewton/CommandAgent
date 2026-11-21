@@ -1,0 +1,10 @@
+{
+  "issue": "#903 (IC-41)",
+  "owner": "minimal_loop repair start write guidance",
+  "capture": "recorded-sequences.jsonl is a hand-reduced excerpt of six recorded step repairs (G1 stage 3a campaigns 3a13, 3a14, 3a15). Each line names its source events.jsonl (home directory replaced by <user>), the SHA-256 of that file, the source commit the campaign binary was built from, and the physical event line range. Only the seed, provider-turn tool outcomes, feedback stage, rejection counts, and stop are kept; provider_turn_duration and context_truncation_suspected lines are omitted. The recorded events do not store the feedback text sent to the model, so no feedback text is quoted.",
+  "derived_fixture": "scripted-cases.json is synthetic: hand-authored scripted cases run by src/minimal_loop/loop_run/repair_start_feedback/tests.rs. Streaks and budgets are written relative to the write_required threshold T.",
+  "fixture_sha256": {
+    "recorded-sequences.jsonl": "8bae74e8b14ecc8538a64521b6d2925a3f8e8c72be4ba57d1d2c4922253194c7",
+    "scripted-cases.json": "a9f8ce8c0e7a7258ae8eff62f0df10aafeddcccce3d8a28e730e7281b412098e"
+  }
+}

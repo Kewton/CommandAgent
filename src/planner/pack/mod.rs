@@ -94,7 +94,18 @@ impl LoadedPack {
     }
 }
 
+/// A decoded pack with the tool declaration of the same bytes.
+#[derive(Debug)]
+pub(crate) struct DeclaredPack {
+    pub(crate) pack: LoadedPack,
+    pub(crate) profile_tools: Option<crate::tools::profile_tools::ProfileToolDeclaration>,
+}
+
 pub fn load_directory(path: &Path) -> Result<LoadedPack, PackError> {
+    load_declared_directory(path).map(|declared| declared.pack)
+}
+
+pub(crate) fn load_declared_directory(path: &Path) -> Result<DeclaredPack, PackError> {
     validate_pack_directory(path)?;
     let assist = read_optional(path.join(ASSIST_FILE))?;
     let eval = read_optional(path.join(EVAL_FILE))?;
@@ -106,14 +117,14 @@ pub fn parse_bytes(
     assist_bytes: Option<&[u8]>,
     eval_bytes: Option<&[u8]>,
 ) -> Result<LoadedPack, PackError> {
-    parse_members(assist_bytes, eval_bytes, BTreeMap::new())
+    parse_members(assist_bytes, eval_bytes, BTreeMap::new()).map(|declared| declared.pack)
 }
 
 fn parse_members(
     assist_bytes: Option<&[u8]>,
     eval_bytes: Option<&[u8]>,
     materials: BTreeMap<String, Vec<u8>>,
-) -> Result<LoadedPack, PackError> {
+) -> Result<DeclaredPack, PackError> {
     if assist_bytes.is_none() && eval_bytes.is_none() {
         return Err(PackError::Empty);
     }
@@ -128,7 +139,9 @@ fn parse_members(
         })?;
     let eval = eval_bytes
         .map(|bytes| strict_yaml::decode::<EvalPack>(EVAL_FILE, bytes))
-        .transpose()?
+        .transpose()?;
+    let profile_tools = eval.as_ref().and_then(EvalPack::profile_tools);
+    let eval = eval
         .map(EvalPack::validate)
         .transpose()
         .map_err(|reason| PackError::Invalid {
@@ -142,12 +155,15 @@ fn parse_members(
         (None, Some(eval)) => eval.pack.clone(),
         (None, None) => unreachable!("empty pack rejected above"),
     };
-    Ok(LoadedPack {
-        identity,
-        hash: exact_byte_hash_with_materials(assist_bytes, eval_bytes, &materials),
-        assist,
-        eval,
-        materials,
+    Ok(DeclaredPack {
+        pack: LoadedPack {
+            identity,
+            hash: exact_byte_hash_with_materials(assist_bytes, eval_bytes, &materials),
+            assist,
+            eval,
+            materials,
+        },
+        profile_tools,
     })
 }
 
@@ -189,9 +205,34 @@ fn read_optional(path: PathBuf) -> Result<Option<Vec<u8>>, PackError> {
     if metadata.len() > MAX_FILE_BYTES {
         return Err(PackError::TooLarge { path });
     }
-    std::fs::read(&path)
-        .map(Some)
-        .map_err(|cause| PackError::Io { path, cause })
+    // Opened without following a symlink or waiting on a FIFO, and read with
+    // the same bound, so a member swapped after the check above fails.
+    match crate::planner::artifact_contract_checks::read_regular_bounded(&path, MAX_FILE_BYTES) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(error) => Err(pack_read_error(path, error, |path| PackError::TooLarge {
+            path,
+        })),
+    }
+}
+
+/// Map a safe-read failure onto the loader's existing error kinds.
+fn pack_read_error(
+    path: PathBuf,
+    error: crate::planner::artifact_contract_checks::SafeReadError,
+    too_large: fn(PathBuf) -> PackError,
+) -> PackError {
+    use crate::planner::artifact_contract_checks::SafeReadError;
+    if error.is_symlink_refusal() {
+        return PackError::NotRegularFile { path };
+    }
+    match error {
+        SafeReadError::NotRegular => PackError::NotRegularFile { path },
+        SafeReadError::TooLarge(_) => too_large(path),
+        SafeReadError::BudgetExceeded => PackError::MaterialsTooLarge,
+        SafeReadError::Open(cause) | SafeReadError::Inspect(cause) | SafeReadError::Read(cause) => {
+            PackError::Io { path, cause }
+        }
+    }
 }
 
 fn validate_pack_directory(path: &Path) -> Result<(), PackError> {
@@ -260,6 +301,7 @@ fn read_materials(path: &Path) -> Result<BTreeMap<String, Vec<u8>>, PackError> {
     }
     let mut materials = BTreeMap::new();
     let mut total = 0_u64;
+    let mut remaining = MAX_TOTAL_MATERIAL_BYTES;
     for entry in std::fs::read_dir(&directory).map_err(|cause| PackError::Io {
         path: directory.clone(),
         cause,
@@ -295,9 +337,17 @@ fn read_materials(path: &Path) -> Result<BTreeMap<String, Vec<u8>>, PackError> {
         if total > MAX_TOTAL_MATERIAL_BYTES {
             return Err(PackError::MaterialsTooLarge);
         }
-        let bytes = std::fs::read(&member).map_err(|cause| PackError::Io {
-            path: member.clone(),
-            cause,
+        // Both limits are enforced on the bytes actually read, so a member
+        // that grew after the checks above cannot exceed either one.
+        let bytes = crate::planner::artifact_contract_checks::read_regular_within_budget(
+            &member,
+            MAX_MATERIAL_BYTES,
+            &mut remaining,
+        )
+        .map_err(|error| {
+            pack_read_error(member.clone(), error, |path| PackError::MaterialTooLarge {
+                path,
+            })
         })?;
         std::str::from_utf8(&bytes).map_err(|_| PackError::MaterialNotUtf8 { path: member })?;
         materials.insert(name, bytes);

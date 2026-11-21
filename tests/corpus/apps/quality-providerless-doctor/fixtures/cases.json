@@ -811,7 +811,7 @@
       "purpose": "Generated man page mentions every action flag",
       "source": "docs/guide/ja/cli-reference.md#シェル補完と-man-ページ",
       "setup": [],
-      "command": "\"$BIN\" --generate-man </dev/null | sed \"s/[\\\\]-/-/g\" > m.txt; for f in extensions packs pack-verify pack-pin workflow prompt plan-steps plan-run run-plan ultra-plan ultra-plan-run run-ultra-plan validate-plan setup-interaction-probe runs ux-demo model-probe doctor completions generate-man init-config validate-manifest init-profile; do grep -qF -- \"--$f\" m.txt || echo \"MISSING $f\"; done; echo MAN_DONE",
+      "command": "\"$BIN\" --generate-man </dev/null | sed \"s/[\\\\]-/-/g\" > m.txt; for f in extensions packs pack-verify pack-pin workflow prompt plan-steps plan-run run-plan ultra-plan ultra-plan-run run-ultra-plan validate-plan setup-interaction-probe runs ux-demo model-probe doctor operator-check completions generate-man init-config validate-manifest init-profile; do grep -qF -- \"--$f\" m.txt || echo \"MISSING $f\"; done; echo MAN_DONE",
       "timeout_sec": 60,
       "expected": {
         "exit_code": 0,

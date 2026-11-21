@@ -66,6 +66,12 @@ pub enum IntentArg {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum RequestPatternArg {
+    Off,
+    Jev,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum RunEventFilterArg {
     Phase,
     Tool,
@@ -105,7 +111,7 @@ fn parse_positive_usize(value: &str) -> Result<usize, String> {
 ))]
 #[command(group(
     ArgGroup::new("json_action")
-        .args(["doctor", "extensions", "runs"])
+        .args(["doctor", "extensions", "runs", "operator_check"])
         .multiple(false)
 ))]
 pub struct Cli {
@@ -267,6 +273,14 @@ pub struct Cli {
     pub intent: Option<IntentArg>,
     #[arg(
         long,
+        value_enum,
+        value_name = "off|jev",
+        help_heading = "Planning and Verification",
+        help = "Classify a direct `--prompt` request with TypeSafe jev (key from JEV_API_KEY) to add request guidance. Default off."
+    )]
+    pub request_pattern: Option<RequestPatternArg>,
+    #[arg(
+        long,
         conflicts_with = "intent",
         help_heading = "Actions (use one)",
         help = "Run a declarative workflow-circle definition. Mutually exclusive with `--intent`."
@@ -412,9 +426,23 @@ pub struct Cli {
     #[arg(
         long,
         action = ArgAction::SetTrue,
+        conflicts_with_all = [
+            "extensions", "packs", "pack_verify", "pack_pin", "workflow", "prompt",
+            "plan_steps", "plan_run", "run_plan", "ultra_plan", "ultra_plan_run", "run_ultra_plan",
+            "validate_plan", "setup_interaction_probe", "runs", "ux_demo", "model_probe", "doctor",
+            "completions", "generate_man", "init_config", "validate_manifest", "init_profile",
+            "summary_json", "goal"
+        ],
+        help_heading = "Actions (use one)",
+        help = "Check, without a provider call and leaving nothing behind, whether a non-interactive --prompt run's admission accepts the operator root's declarations (profile tools, structured stages, run budget) for this configuration, and show their pins. The isolation probe makes and removes a temporary area under the system temporary directory, holds a loopback socket, and starts a sandboxed child. Exit 0 when every check passes, 1 when one fails."
+    )]
+    pub operator_check: bool,
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
         requires = "json_action",
         help_heading = "Display",
-        help = "Render --doctor, --extensions, or --runs output as stable machine-readable JSON."
+        help = "Render --doctor, --extensions, --runs, or --operator-check output as stable machine-readable JSON."
     )]
     pub json: bool,
     #[arg(

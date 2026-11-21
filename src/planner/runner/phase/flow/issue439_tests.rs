@@ -292,8 +292,22 @@ mod tests {
         assert_eq!(
             event["weak_evidence_sources"],
             serde_json::json!([{
-                "source": "contract_verify_command", "command": "node app.js", "reason": "node_smoke_without_assertion"
+                "source": "contract_verify_command", "command": "node app.js", "reason": "node_smoke_without_assertion", "detail": "no_assert_binding"
             }])
+        );
+        // The create-path repair prompt names the command, the first refusal and the
+        // accepted shape, and still carries the bare reason line.
+        let failures = &report.profile_failures;
+        assert!(
+            failures.iter().any(|failure| failure
+                .starts_with("repair guidance: `node app.js` ran, but")
+                && failure.contains("first rejection: no_assert_binding")
+                && failure.contains("const assert = require(")),
+            "{failures:?}"
+        );
+        assert!(
+            failures.contains(&"repair guidance: node_smoke_without_assertion".to_string()),
+            "{failures:?}"
         );
     }
 

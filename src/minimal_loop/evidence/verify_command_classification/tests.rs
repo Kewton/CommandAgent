@@ -194,3 +194,190 @@ fn issue439_reviewed_noop_scripts_must_not_supply_test_evidence() {
     }
     assert!(promoted.is_empty(), "No-op scripts promoted: {promoted:?}");
 }
+
+mod issue817 {
+    use super::super::super::{WorkspaceEvidence, verify_command_kind};
+    use super::super::package_script_check::{formed_predicate_command, predicate, weak_predicate};
+    use crate::minimal_loop::evidence::VerifyCommandKind;
+
+    fn weak_command(flag: &str, method: &str, value: &str) -> String {
+        format!("node {flag} \"require('./package.json').scripts.dev.{method}('{value}')\"")
+    }
+
+    fn kind(command: &str) -> VerifyCommandKind {
+        verify_command_kind(command, &WorkspaceEvidence::default())
+    }
+
+    #[test]
+    fn issue817_grammar_accepts_three_predicates_with_both_print_flags() {
+        for flag in ["-p", "--print"] {
+            for method in ["includes", "startsWith", "endsWith"] {
+                let command = weak_command(flag, method, "next dev -p 3011");
+                assert_eq!(
+                    weak_predicate(&command),
+                    Some(("dev".into(), method.into(), "next dev -p 3011".into())),
+                    "{command}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn issue817_grammar_rejects_everything_outside_the_closed_form() {
+        let rejected = [
+            "node -p \"require('./package.json').scripts[k].includes('3011')\"",
+            "node -p \"require('./package.json').scripts.constructor.includes('3011')\"",
+            "node -p \"require('./package.json').scripts.__proto__.includes('3011')\"",
+            "node -p \"require('./package.json').scripts.dev.includes('30;11')\"",
+            "node -p \"require('./package.json').scripts.dev.includes('3011\\'')\"",
+            "node -p \"require('./package.json').scripts.dev.includes('$HOME')\"",
+            "node -p \"require('./package.json').scripts.dev.includes('`id`')\"",
+            "node -p \"require('./package.json').scripts.dev.includes('')\"",
+            "node -p \"require('./package.json').scripts.dev.includes(' 3011')\"",
+            "node -p \"require('./package.json').scripts.dev.includes('3011');1\"",
+            "node -p \"require('./package.json').scripts.dev.includes('3011')\" || true",
+            "node -p \"require('./package.json').scripts.dev.includes('3011')\"; echo ok",
+            "node -p \"require('./package.json').scripts.dev.includes('3011')\" | cat",
+            "node -e \"require('./package.json').scripts.dev.includes('3011')\"",
+            "node -p \"require('./package.json').scripts.dev.includes('3011')&&require('./package.json').scripts.start.includes('3011')\"",
+            "node -p \"require('./package.json').scripts.dev.includes(port)\"",
+            "node -p \"require('./package.json').scripts.dev.includes(3011)\"",
+            "node -p \"require('./other.json').scripts.dev.includes('3011')\"",
+            "node -p \"require('./package.json').scripts.dev.match('3011')\"",
+            "node -p \"require('./package.json').scripts.dev.trim().includes('3011')\"",
+            "node -p \"require('./package.json').scripts.dev\"",
+            "npm -p \"require('./package.json').scripts.dev.includes('3011')\"",
+        ];
+        for command in rejected {
+            assert_eq!(weak_predicate(command), None, "{command}");
+        }
+    }
+
+    #[test]
+    fn issue817_weak_form_stays_weak_and_formed_form_is_static_syntax() {
+        for flag in ["-p", "--print"] {
+            for method in ["includes", "startsWith", "endsWith"] {
+                let weak = weak_command(flag, method, "3011");
+                assert_eq!(
+                    kind(&weak),
+                    VerifyCommandKind::Weak("node_smoke_without_assertion".into()),
+                    "{weak}"
+                );
+                let formed = formed_predicate_command("dev", method, "3011");
+                assert_eq!(
+                    predicate(&formed),
+                    Some(("dev".into(), method.into(), "3011".into()))
+                );
+                assert_eq!(kind(&formed), VerifyCommandKind::StaticSyntax, "{formed}");
+            }
+        }
+    }
+
+    #[test]
+    fn issue817_hand_weakened_formed_forms_are_weak() {
+        let formed = formed_predicate_command("dev", "includes", "3011");
+        let weakened = [
+            formed.replace(
+                "ok(actual.includes(\\\"3011\\\"))",
+                "ok(actual.includes(\\\"3011\\\")||process.exit(0))",
+            ),
+            formed.replace(
+                "require('node:assert/strict').ok(actual.includes(\\\"3011\\\"))",
+                "process.exit(0)",
+            ),
+            formed.replace(
+                "require('node:assert/strict').strictEqual(typeof actual,'string');",
+                "",
+            ),
+            formed.replace("require('node:assert/strict').ok(", "console.log("),
+            formed.replace(";console.log(true)", ";console.log(false)"),
+            formed.replace("includes", "indexOf"),
+            formed.replace("includes(\\\"3011\\\")", "includes(\\\"30'11\\\")"),
+            formed.replace("./package.json", "./other.json"),
+            format!("{formed} || true"),
+        ];
+        for command in weakened {
+            assert_ne!(command, formed);
+            assert!(predicate(&command).is_none(), "{command}");
+            assert!(
+                matches!(kind(&command), VerifyCommandKind::Weak(_)),
+                "{command}: {:?}",
+                kind(&command)
+            );
+        }
+    }
+
+    fn run(dir: &std::path::Path, command: &str) -> (bool, String) {
+        let output = crate::bounded_process::run_with_timeout(
+            std::process::Command::new("sh")
+                .args(["-c", command])
+                .current_dir(dir)
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped()),
+            std::time::Duration::from_secs(10),
+        )
+        .unwrap();
+        (
+            output.success(),
+            String::from_utf8_lossy(&output.stdout).into_owned(),
+        )
+    }
+
+    #[test]
+    fn issue817_formed_form_passes_only_when_the_original_prints_true() {
+        let cases: [(&str, Option<&str>, bool); 9] = [
+            (
+                "true",
+                Some(r#"{"scripts":{"dev":"next dev -p 3011"}}"#),
+                true,
+            ),
+            (
+                "false",
+                Some(r#"{"scripts":{"dev":"vite --port 4000"}}"#),
+                false,
+            ),
+            (
+                "undefined",
+                Some(r#"{"scripts":{"start":"next start"}}"#),
+                false,
+            ),
+            ("number", Some(r#"{"scripts":{"dev":3011}}"#), false),
+            (
+                "array",
+                Some(r#"{"scripts":{"dev":["next dev -p 3011"]}}"#),
+                false,
+            ),
+            (
+                "object",
+                Some(r#"{"scripts":{"dev":{"includes":"3011"}}}"#),
+                false,
+            ),
+            ("no_scripts", Some(r#"{}"#), false),
+            ("invalid_json", Some("{"), false),
+            ("no_package_json", None, false),
+        ];
+        for (name, package, formed_passes) in cases {
+            for method in ["includes", "startsWith", "endsWith"] {
+                let lit = match method {
+                    "includes" => "-p 3011",
+                    "startsWith" => "next dev",
+                    _ => "3011",
+                };
+                let dir = tempfile::tempdir().unwrap();
+                if let Some(package) = package {
+                    std::fs::write(dir.path().join("package.json"), package).unwrap();
+                }
+                let weak = run(dir.path(), &weak_command("-p", method, lit));
+                let formed = run(dir.path(), &formed_predicate_command("dev", method, lit));
+                assert_eq!(formed.0, formed_passes, "{name}/{method}: {formed:?}");
+                if formed.0 {
+                    assert_eq!(weak, (true, "true\n".into()), "{name}/{method}");
+                    assert_eq!(formed.1, weak.1, "{name}/{method}");
+                } else if name == "false" {
+                    // The weak original exits zero for a false predicate.
+                    assert_eq!(weak, (true, "false\n".into()), "{name}/{method}");
+                }
+            }
+        }
+    }
+}

@@ -45,22 +45,129 @@ pub const FIXED_SCHEMA_CONTAINERS: &[&str] = &["evidence_envelope"];
 /// names.
 pub const FIXED_IDENTIFIERS: &[&str] = &[
     "Bash",
+    "COMMANDAGENT_REQUIREMENT_PLAN",
     "Edit",
     "Glob",
     "Grep",
+    "InvalidBudgetId",
+    "KeyIsControl",
+    "KeyReachesCommands",
+    "NoOperatorRoot",
+    "NoSandboxPolicy",
+    "Policy(BudgetIdDiffers)",
+    "Policy(FallbacksAllowed)",
+    "Policy(InvalidAmount)",
+    "Policy(InvalidBudgetId)",
+    "Policy(InvalidLedgerDir)",
+    "Policy(InvalidRoute)",
+    "Policy(InvalidTariff)",
+    "Policy(LimitTooLarge)",
+    "Policy(Malformed)",
+    "Policy(ReasoningNotInOutput)",
+    "Policy(TooLarge)",
+    "Policy(UnsupportedApi)",
+    "Policy(WrongProtocol)",
+    "Policy(ZeroBound)",
+    "PolicyInCommandReach",
+    "PolicyUnreadable",
+    "PolicyV2(BudgetIdDiffers)",
+    "PolicyV2(CacheWritePricesDiffer)",
+    "PolicyV2(InvalidAmount)",
+    "PolicyV2(InvalidBudgetId)",
+    "PolicyV2(InvalidCacheWriteMode)",
+    "PolicyV2(InvalidEndpoint)",
+    "PolicyV2(InvalidInputBound)",
+    "PolicyV2(InvalidLedgerDir)",
+    "PolicyV2(InvalidPriceConditions)",
+    "PolicyV2(InvalidResponseModels)",
+    "PolicyV2(InvalidRoute)",
+    "PolicyV2(InvalidTariff)",
+    "PolicyV2(InvalidTiers)",
+    "PolicyV2(LimitTooLarge)",
+    "PolicyV2(Malformed)",
+    "PolicyV2(TooLarge)",
+    "PolicyV2(UnsupportedApi)",
+    "PolicyV2(UnsupportedServiceTier)",
+    "PolicyV2(WrongAccountingBasis)",
+    "PolicyV2(WrongProtocol)",
+    "PolicyV2(ZeroBound)",
     "Read",
+    "RouteNotCountable",
+    "SandboxOff",
+    "SelectedWithNoWallet",
+    "Unmetered(GuiSend)",
+    "Unmetered(ModelCompletion)",
+    "Unmetered(ModelProbe)",
+    "Unmetered(ProviderCheck)",
+    "Unmetered(RequestPattern)",
+    "Unmetered(StartupProbe)",
+    "Unmetered(Workflow)",
+    "Wallet(AccountingBasisChanged)",
+    "Wallet(Corrupt)",
+    "Wallet(DirectoryInsideWorkspace)",
+    "Wallet(DirectoryWritableByCommands)",
+    "Wallet(Diverged)",
+    "Wallet(Held)",
+    "Wallet(Missing)",
+    "Wallet(PolicyChanged)",
+    "Wallet(ProfileBlank)",
+    "Wallet(ProfileChanged)",
+    "Wallet(SandboxPolicyUnknown)",
+    "Wallet(Unavailable)",
+    "Wallet(Vanished)",
+    "Wallet(WorkspaceChanged)",
     "Write",
     "aborted",
+    "above_maximum",
+    "absent",
+    "accounted_by",
+    "accounting_basis",
+    "accounting_record",
+    "adapter",
+    "adapter_diagnostics",
+    "adopted_unreplayed",
     "anchor_stagnation_interlock",
+    "arguments_too_deep",
+    "arguments_too_large",
+    "arguments_without_receipt",
+    "artifact-check-diagnostics",
+    "artifact_contract_check_result",
+    "artifact_contract_refused",
     "artifact_stagnation_feedback",
+    "attempt",
+    "attempts",
+    "bash_failures_after_last_write",
     "bash_path_confinement_rejected",
+    "bash_results_after_last_write",
+    "bash_results_after_prompt",
     "bash_sandbox_status",
     "bash_sandbox_unavailable",
+    "before_execution",
+    "below_minimum",
     "blocked",
     "blocked_by_dependency_setup",
+    "body_truncated",
     "browser_interaction_probe",
     "browser_probe",
+    "budget_closing",
+    "budget_exhausted",
+    "budget_id",
     "build_pass",
+    "cache_write_field_missing",
+    "cache_write_in_none_mode",
+    "cache_write_split_mismatch",
+    "cached_and_written_over_input",
+    "calculated",
+    "call_index",
+    "cancelled",
+    "captured",
+    "changed_while_read",
+    "check",
+    "check_failed",
+    "check_not_run",
+    "check_unknown",
+    "closed",
+    "code",
     "command_timeout_repetition",
     "commandagent.eval.score/v0",
     "commandagent.extensions/v1",
@@ -71,12 +178,15 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "commandagent.gui-contract/v1",
     "commandagent.gui-working-directory/v1",
     "commandagent.headless-summary/v1",
+    "commandagent.operator-check/v1",
     "commandagent.pack.assist/v0",
     "commandagent.pack.eval/v0",
     "commandagent.pass/v1",
     "commandagent.run-trace/v1",
     "commandagent.runs/v1",
     "commandagent.score-checkpoint/v0",
+    "commit_failed",
+    "committed_sha256",
     "community_profile_verification",
     "compile_error_extraction",
     "compile_no_snapshot_narrow_retry",
@@ -87,28 +197,51 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "compile_snapshot_saved",
     "complete",
     "completed",
+    "completion_contract",
     "completion_contract_bound",
     "completion_contract_command_observation",
+    "completion_obligation_review",
+    "completion_tokens",
     "completion_verify",
+    "conflicting_declaration",
     "context_truncation_suspected",
+    "continues",
     "contract_attribute_repair_guidance",
     "contract_observation_incomplete",
+    "contract_sha256",
+    "cost_missing",
     "declarative_command_check_result",
+    "declared_tariff_charge_usd_total",
     "degraded",
     "dependency_build_lifecycle",
     "dependency_denial_guidance",
+    "dependency_directory",
     "dependency_setup_reconciliation",
     "depth_profile",
+    "descriptor_sha256",
     "deterministic_step_plan_used",
     "dev_server_lifecycle",
     "dev_server_port_in_use_retry",
+    "disposition",
     "draft",
+    "draft_profile",
+    "duplicate_key",
     "edit_anchor_recovery",
     "edit_anchor_salvaged",
+    "edits_after_prompt",
+    "effect_env_refused",
+    "effect_limit_exceeded",
+    "effect_output_refused",
+    "effect_path_refused",
+    "effect_read_only",
     "empty_response_escalation",
     "empty_response_recovered",
+    "enum_mismatch",
     "error",
     "escalation_carryover",
+    "example_count",
+    "executable",
+    "exhausted_after_notice",
     "expected_fail_python_traceback_observed",
     "extension_tool_call",
     "extension_tool_rejected",
@@ -116,6 +249,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "extracted",
     "fail",
     "failed",
+    "failed_checks",
     "fallback",
     "fallback_decision",
     "final_acceptance_cycle_complete",
@@ -126,6 +260,13 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "final_acceptance_repair_failed",
     "final_acceptance_repair_no_source_change",
     "final_acceptance_repair_start",
+    "final_accepted",
+    "final_deferrals",
+    "final_deferred",
+    "final_repair_artifact_unchanged",
+    "final_repair_attempts",
+    "final_repair_seconds",
+    "first_request",
     "fix_evidence_recorded",
     "fix_plan_synthesized",
     "fix_regression_contract_bound",
@@ -136,15 +277,19 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "function",
     "future_phase_annotation",
     "generic_contract_bound",
+    "groups",
+    "guard_reason",
     "gui_trial_stop_completed",
     "gui_trial_stop_requested",
     "h05_collision",
+    "held_usd",
     "hidden_path_feedback",
     "hook_snapshot_feedback",
     "hook_snapshot_restored",
     "hook_snapshot_saved",
     "host_env_contamination",
     "host_env_normalized",
+    "http_error",
     "human_directive_confirmed",
     "human_directive_continuation_started",
     "human_directive_continuation_stopped",
@@ -153,34 +298,102 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "ingest_candidate_ids_injected",
     "ingest_plan_synthesized",
     "ingest_snapshot_structure_injected",
+    "input_over_bound",
+    "input_revision_mismatch",
+    "input_revision_unavailable",
+    "input_zero",
     "inspect_command_normalized",
     "inspect_mutation_tool_rejected",
+    "insufficient_remaining_iterations",
     "intent_resolved",
     "interrupted",
+    "interrupted_after_start",
+    "invalid",
+    "invalid_descriptor",
+    "invalid_pin",
+    "invalid_value",
     "investigation_adjudicated",
     "investigation_plan_synthesized",
+    "isolation.probe_cleanup",
+    "items",
+    "iteration",
+    "iteration_budget_exhausted",
+    "iteration_limit",
+    "iterations_used",
+    "judged_as",
+    "last_bash_after_last_write_succeeded",
+    "last_successful_write_iteration",
+    "ledger_intact",
     "legacy_detail",
+    "limit_usd",
+    "link_directory",
+    "local_pack",
+    "locally_valid",
+    "logical_global",
+    "logical_per_stage",
     "loop_stop",
+    "lossy_number",
+    "malformed_json",
+    "message",
+    "min_remaining_iterations",
+    "missing",
+    "missing_required",
+    "model_missing",
+    "model_not_declared",
+    "name_collision",
     "native_tool_parse_retry_feedback",
     "next_action_selected",
+    "next_final",
     "no_progress_feedback",
+    "no_provider_request",
+    "no_successful_edit",
+    "no_tool_call_at_output_limit",
+    "no_unresolved_failure",
+    "normal_final_after_successful_edit",
     "normal_marker",
+    "not_applied",
+    "not_checked",
+    "not_checked_by_design",
+    "not_provided",
+    "not_ready",
     "not_run",
+    "note_chars",
+    "notice",
+    "num_predict",
+    "obligation_count",
     "observed",
     "ok",
+    "omitted",
+    "openrouter_provider_observed",
+    "os_sandbox",
     "other_path",
+    "output_limit_feedback",
+    "output_over_bound",
+    "over_reservation",
+    "overflow",
+    "oversize",
+    "owner",
     "pack_check_result",
     "pack_injected",
+    "pack_refused",
     "panic_caught",
+    "parse_failed",
     "partial",
     "pass",
     "passed",
     "path_fallback_evaluated",
+    "pattern_mismatch",
     "pending",
     "phase_verification_result",
+    "physical",
+    "physical_sends",
+    "pinned_process",
+    "pipeline_dropped",
     "pipeline_error_extraction",
     "plan_final_contract",
+    "plan_only_turn",
     "plan_preset_resolved",
+    "plan_run_step",
     "plan_step_started",
     "planner_error",
     "planner_fallback_plan",
@@ -192,18 +405,42 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "planner_quality_warning",
     "planner_raw_output_shape",
     "planner_verify_command_normalized",
+    "policy_rejected_bash",
+    "policy_sha256",
     "preclosure_verifier_replacements_validated",
     "preset_step_converted",
     "preset_ultra_plan_used",
+    "probe_area_left",
     "probe_preflight",
+    "process_failed",
+    "profile-tool.commit-receipt/v1",
+    "profile-tool.process/v1",
+    "profile-tool.request/v1",
+    "profile-tool.result/v1",
+    "profile-tool.schema/v1",
     "profile_behavior_probe",
     "profile_inferred",
     "profile_invariant_repair",
     "profile_invariant_repair_build_verify",
+    "profile_not_generic",
     "profile_reinferred",
+    "profile_tool",
+    "profile_tool_commit",
+    "profile_tool_effect_call",
+    "profile_tool_effect_rejected",
+    "profile_tool_refused",
+    "profile_tools",
+    "prompt_version",
+    "propose-artifacts",
     "protected_path_mutation_rejected",
+    "provider_billed",
+    "provider_billed_cost_calls",
+    "provider_billed_cost_complete",
+    "provider_billed_cost_usd",
+    "provider_billed_cost_usd_total",
     "provider_error",
     "provider_parse_error",
+    "provider_reasoning_tokens",
     "provider_request",
     "provider_response",
     "provider_retry",
@@ -211,10 +448,15 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "provider_turn_duration",
     "provider_turn_timeout",
     "provider_turn_timeout_recovered",
+    "provider_unsupported",
     "python_cli_implementation_plan_canonicalized",
     "read_only_stagnation_feedback",
     "read_only_tool_rejected",
+    "read_without_lock",
     "ready",
+    "reasoning_over_output",
+    "received_call",
+    "received_native",
     "recovery_boundary_snapshot",
     "recovery_candidate_completion_requirements_bound",
     "recovery_candidate_verify_commands_bound",
@@ -250,22 +492,88 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "recovery_verifier_plan_admission",
     "recovery_verifier_plan_return_rejected",
     "recovery_verifier_repairability",
+    "registry_unavailable",
+    "released",
+    "remaining_calls",
+    "remaining_calls_reached",
+    "remaining_iterations",
     "repair_applied",
+    "repair_binding",
     "repair_regeneration",
+    "repair_start_write_guidance_queued",
     "repair_target_reclassified",
     "repair_unreachable",
+    "replay_turn_unrecorded",
+    "replayed",
+    "reported",
+    "request",
+    "request_id",
+    "request_pattern_resolved",
+    "requested",
+    "required_field_missing",
+    "requirement_plan",
+    "reserved",
+    "resolved_failures",
+    "response_after_deadline",
+    "response_after_final_repair_window",
+    "response_malformed",
+    "result_rejected",
+    "result_sha256",
     "resume_start",
+    "resumed_conversation",
     "route_confirmed",
     "route_proposed",
     "route_unbound_recovery",
+    "row_status",
+    "run_budget",
+    "run_budget.controls",
+    "run_budget.declaration",
+    "run_budget.ledger",
+    "run_budget.route.executor",
+    "run_budget.route.planner",
+    "run_budget_refused",
+    "run_budget_selected",
+    "run_budget_summary",
+    "run_completed",
+    "run_failed",
+    "run_interrupted",
+    "run_nonce",
     "run_start",
     "run_stop",
     "running",
     "runtime_bash_policy",
+    "runtime_sha256",
+    "schema_limit_exceeded",
+    "schema_mismatch",
+    "schema_refusal_limit",
+    "schema_scrubbed",
+    "schema_sha256",
+    "schema_unsupported",
+    "schema_violation",
+    "scope_exit_before_next_final",
     "score_checkpoint",
+    "secret_scope",
+    "secret_scope_refused",
+    "selected_pack_invalid",
+    "send_error",
     "server_reaped",
+    "service_tier_missing",
+    "service_tier_not_default",
     "setup_scaffold_completed",
     "side_effect_path_dropped",
+    "skipped",
+    "source",
+    "speculative_phase_plan_adopted",
+    "speculative_phase_plan_discarded",
+    "speculative_phase_plan_not_started",
+    "speculative_phase_plan_provider_call",
+    "speculative_phase_plan_started",
+    "spent_usd",
+    "stage_contract_refused",
+    "stage_incomplete",
+    "stage_ledger_refused",
+    "stage_run_ended",
+    "stage_schema_refusal_limit",
     "state_binding_diagnosis",
     "step_capability_evidence_check",
     "step_completion_blocked",
@@ -275,15 +583,34 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "step_short_circuited",
     "step_verify_failure",
     "step_verify_repair",
+    "string_too_long",
+    "string_too_short",
+    "structured_stage_checks",
+    "structured_stage_incomplete",
+    "structured_stage_refused",
+    "structured_stage_unmet",
+    "structured_stages",
+    "structured_stages_summary",
     "success",
+    "successful_bash_after_prompt",
+    "successful_bash_since_latest_edit",
+    "successful_write_count",
+    "target",
+    "targets",
+    "tariff_inconsistent",
+    "temporary_parent",
     "test_node_event",
     "time_profile",
+    "too_few_items",
+    "too_many_elements",
+    "too_many_items",
     "tool",
     "tool_args_path_malformed",
     "tool_args_path_near_root_corruption",
     "tool_args_path_normalized",
     "tool_args_path_salvaged",
     "tool_args_recovered",
+    "tool_arguments_truncated_at_output_limit",
     "tool_call",
     "tool_call_raw",
     "tool_execute",
@@ -291,6 +618,12 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "tool_policy_error",
     "tool_read_unchanged",
     "tool_validation_error",
+    "total_mismatch",
+    "trailing_data",
+    "transport",
+    "triggered",
+    "triggered_iteration",
+    "truncated",
     "tui_command_start",
     "tui_command_stop",
     "ultra_context_initialized",
@@ -313,6 +646,28 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "ultra_plan_raw_output_shape",
     "unavailable",
     "unchanged",
+    "unconsumed",
+    "union_no_match",
+    "unknown",
+    "unknown_billing",
+    "unknown_field",
+    "unknown_key",
+    "unknown_tool_id",
+    "unparseable",
+    "unrequested",
+    "unresolved",
+    "unresolved_bash_failures",
+    "unresolved_failure",
+    "unresolved_write_failures",
+    "unsettled",
+    "unsuccessful_bash_after_prompt",
+    "unverified",
+    "usage_inconsistent",
+    "usage_missing",
+    "usage_not_object",
+    "usage_tariff",
+    "user_update",
+    "valid_block",
     "verify_canonicalized",
     "verify_command_normalized_at_runtime",
     "verify_command_observed",
@@ -322,8 +677,10 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "verify_default_bound",
     "verify_demoted_advisory",
     "verify_install_substituted",
+    "verify_refusal_feedback_queued",
     "verify_repair_progress",
     "verify_repair_turn",
+    "wall_seconds",
     "workflow_adjudicated",
     "workflow_edge_fired",
     "workflow_node_run_created",
@@ -332,7 +689,12 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "workflow_reproducer_prevalidated",
     "workflow_started",
     "workspace_cd_stripped",
+    "workspace_descriptor",
+    "workspace_sha256",
+    "write_failure_after_last_write",
     "write_required_off_target_write_allowed",
+    "wrong_type",
+    "zero_charge",
 ];
 
 /// Whether `key` is a schema key whose value is a fixed identifier.
@@ -366,4 +728,1114 @@ pub fn collides_with_fixed_identifier(value: &str) -> bool {
     FIXED_IDENTIFIERS
         .iter()
         .any(|fixed| *fixed == value || fixed.contains(value))
+}
+
+/// Issue #973: the words the G2 schema protocol owns: its protocol ID, refusal
+/// kinds, receipt stages, and diagnostic codes. A property name or an enum value an
+/// operator chooses is not here: a scrub that changes one refuses the schema instead.
+#[cfg(test)]
+mod profile_tool_schema_tests {
+    use super::{collides_with_fixed_identifier, is_fixed_identifier};
+    use crate::sensitive_data::SecretCatalog;
+
+    const WORDS: [&str; 31] = [
+        "profile-tool.schema/v1",
+        "schema_unsupported",
+        "schema_limit_exceeded",
+        "schema_scrubbed",
+        "schema_mismatch",
+        "input_revision_unavailable",
+        "input_revision_mismatch",
+        "schema_violation",
+        "received_call",
+        "received_native",
+        "before_execution",
+        "arguments_too_deep",
+        "arguments_too_large",
+        "arguments_without_receipt",
+        "too_many_elements",
+        "duplicate_key",
+        "malformed_json",
+        "trailing_data",
+        "lossy_number",
+        "missing_required",
+        "unknown_key",
+        "wrong_type",
+        "enum_mismatch",
+        "union_no_match",
+        "string_too_short",
+        "string_too_long",
+        "pattern_mismatch",
+        "below_minimum",
+        "above_maximum",
+        "too_few_items",
+        "too_many_items",
+    ];
+
+    #[test]
+    fn each_word_is_reserved_and_a_credential_equal_to_one_is_refused() {
+        for word in WORDS {
+            assert!(is_fixed_identifier(word), "{word}");
+            assert!(collides_with_fixed_identifier(word), "{word}");
+            assert!(
+                SecretCatalog::new()
+                    .register_credential("DUMMY_API_KEY", word)
+                    .is_err(),
+                "{word}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_normal_credential_leaves_the_words_unchanged() {
+        let credential = "fake-credential-973-not-a-real-key";
+        let mut catalog = SecretCatalog::new();
+        catalog
+            .register_credential("DUMMY_API_KEY", credential)
+            .unwrap();
+        for word in WORDS {
+            let text = format!("{word} {credential}");
+            assert_eq!(catalog.scrub(&text), format!("{word} <redacted>"));
+        }
+    }
+}
+
+/// Issue #974: the words the G3 effect owns: its name, runtime kind, protocol IDs, refusal
+/// kinds, events, and the receipt's digest fields. An output ID, a path, and a diagnostic
+/// an operator's tool chooses are not here.
+#[cfg(test)]
+mod profile_tool_effect_tests {
+    use super::{FIXED_IDENTIFIERS, collides_with_fixed_identifier, is_fixed_identifier};
+    use crate::sensitive_data::SecretCatalog;
+
+    const WORDS: [&str; 21] = [
+        "propose-artifacts",
+        "pinned_process",
+        "profile-tool.process/v1",
+        "profile-tool.request/v1",
+        "profile-tool.result/v1",
+        "profile-tool.commit-receipt/v1",
+        "effect_read_only",
+        "effect_limit_exceeded",
+        "effect_output_refused",
+        "effect_path_refused",
+        "effect_env_refused",
+        "process_failed",
+        "result_rejected",
+        "commit_failed",
+        "profile_tool_effect_call",
+        "profile_tool_effect_rejected",
+        "profile_tool_commit",
+        "committed_sha256",
+        "result_sha256",
+        "runtime_sha256",
+        "unavailable",
+    ];
+
+    #[test]
+    fn each_word_is_reserved_once_and_a_credential_equal_to_one_is_refused() {
+        for word in WORDS {
+            assert!(is_fixed_identifier(word), "{word}");
+            assert!(collides_with_fixed_identifier(word), "{word}");
+            assert_eq!(
+                FIXED_IDENTIFIERS
+                    .iter()
+                    .filter(|fixed| **fixed == word)
+                    .count(),
+                1,
+                "{word}"
+            );
+            assert!(
+                SecretCatalog::new()
+                    .register_credential("DUMMY_API_KEY", word)
+                    .is_err(),
+                "{word}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_normal_credential_leaves_the_words_unchanged() {
+        let credential = "fake-credential-974-not-a-real-key";
+        let mut catalog = SecretCatalog::new();
+        catalog
+            .register_credential("DUMMY_API_KEY", credential)
+            .unwrap();
+        for word in WORDS {
+            let text = format!("{word} {credential}");
+            assert_eq!(catalog.scrub(&text), format!("{word} <redacted>"));
+        }
+    }
+}
+
+/// Issue #947 (review B2): the event field `provider_billed_cost_usd` is a
+/// fixed identifier, so a credential equal to it or to a fragment of it is
+/// refused at registration instead of turning the field name into a marker.
+#[cfg(test)]
+mod billed_cost_field_tests {
+    use serde_json::json;
+
+    use super::{FIXED_IDENTIFIERS, collides_with_fixed_identifier, is_fixed_identifier};
+    use crate::sensitive_data::{RegistrationRefusal, ReservedKind, SecretCatalog};
+
+    const FIELD: &str = "provider_billed_cost_usd";
+
+    #[test]
+    fn the_field_is_reserved_once_in_name_order() {
+        assert!(is_fixed_identifier(FIELD));
+        assert_eq!(
+            FIXED_IDENTIFIERS
+                .iter()
+                .filter(|fixed| **fixed == FIELD)
+                .count(),
+            1
+        );
+        let at = FIXED_IDENTIFIERS
+            .iter()
+            .position(|fixed| *fixed == FIELD)
+            .unwrap();
+        assert!(
+            FIXED_IDENTIFIERS[at - 1] < FIELD,
+            "{}",
+            FIXED_IDENTIFIERS[at - 1]
+        );
+        assert!(
+            FIELD < FIXED_IDENTIFIERS[at + 1],
+            "{}",
+            FIXED_IDENTIFIERS[at + 1]
+        );
+    }
+
+    #[test]
+    fn a_credential_equal_to_the_field_or_a_fragment_of_it_is_refused_unnamed() {
+        for value in [
+            FIELD,
+            "provider_billed_cost",
+            "billed_cost_usd",
+            "_billed_cost_",
+            "der_billed_c",
+        ] {
+            assert!(
+                collides_with_fixed_identifier(value),
+                "fragment {}",
+                value.len()
+            );
+            let mut catalog = SecretCatalog::new();
+            let error = catalog
+                .register_credential("COMPAT_API_KEY", value)
+                .unwrap_err();
+            assert_eq!(
+                error,
+                RegistrationRefusal::Reserved {
+                    name: "COMPAT_API_KEY".to_string(),
+                    kind: ReservedKind::FixedIdentifier,
+                }
+            );
+            assert!(catalog.is_empty());
+            for text in [error.to_string(), format!("{error:?}")] {
+                assert!(!text.contains(value), "the refusal names the value");
+            }
+        }
+    }
+
+    #[test]
+    fn a_normal_credential_leaves_the_field_name_and_amount_unchanged() {
+        let credential = "fake-credential-947-not-a-real-key";
+        let mut catalog = SecretCatalog::new();
+        catalog
+            .register_credential("COMPAT_API_KEY", credential)
+            .unwrap();
+        for event in ["provider_response", "provider_turn_duration"] {
+            let mut value = json!({
+                "event": event,
+                "provider": "openai-compatible",
+                FIELD: "0.012345",
+                "body_snippet": format!("echo {credential}"),
+            });
+            catalog.scrub_value_lenient(&mut value);
+            assert_eq!(value[FIELD], "0.012345", "{value}");
+            assert_eq!(value["event"], event, "{value}");
+            assert!(!value.to_string().contains(credential), "{value}");
+            let object = value.as_object().unwrap();
+            assert!(object.contains_key(FIELD), "{value}");
+            assert_eq!(object.len(), 4, "{value}");
+        }
+    }
+}
+
+/// Issue #955: every fixed key and fixed value of the accepted-diagnostics
+/// projection (the receipt field `adapter_diagnostics` and the repair block,
+/// delimited by `artifact-check-diagnostics`) is a fixed identifier, so a
+/// credential equal to one or to a fragment of one is refused and the event
+/// scrub never rewrites the schema. The dynamic values under those keys stay
+/// subject to the scrub.
+#[cfg(test)]
+mod artifact_diagnostics_field_tests {
+    use serde_json::{Value, json};
+
+    use super::{FIXED_IDENTIFIERS, collides_with_fixed_identifier, is_fixed_identifier};
+    use crate::planner::artifact_contract_checks::diagnostics::status_word;
+    use crate::planner::artifact_contract_checks::protocol::RowStatus;
+    use crate::sensitive_data::{MIN_GENERIC_SECRET_LEN, SecretCatalog};
+    use crate::verification::report::artifact_diagnostics::{
+        ArtifactDiagnostic, ArtifactDiagnosticGroup, ArtifactDiagnostics,
+    };
+
+    /// Every name the projection writes itself.
+    const NAMES: [&str; 20] = [
+        "adapter_diagnostics",
+        "artifact-check-diagnostics",
+        "groups",
+        "items",
+        "omitted",
+        "source",
+        "owner",
+        "adapter",
+        "request",
+        "request_id",
+        "truncated",
+        "check",
+        "target",
+        "row_status",
+        "code",
+        "message",
+        "unresolved",
+        "not_provided",
+        "draft_profile",
+        "local_pack",
+    ];
+
+    /// A projection with every optional part present.
+    fn full() -> Value {
+        let group = ArtifactDiagnosticGroup {
+            source: "draft_profile".to_string(),
+            owner: "o".to_string(),
+            adapter: "a".to_string(),
+            request: "r".to_string(),
+            request_id: Some("i".to_string()),
+            truncated: vec!["source", "owner", "adapter", "request", "request_id"],
+            items: vec![ArtifactDiagnostic {
+                check: "c".to_string(),
+                target: Some("t".to_string()),
+                row_status: "failed",
+                code: "k".to_string(),
+                message: "m".to_string(),
+            }],
+            omitted: 1,
+        };
+        serde_json::to_value(ArtifactDiagnostics {
+            groups: vec![group],
+            omitted: 1,
+        })
+        .unwrap()
+    }
+
+    fn keys(value: &Value, out: &mut Vec<String>) {
+        match value {
+            Value::Object(map) => {
+                for (key, child) in map {
+                    out.push(key.clone());
+                    keys(child, out);
+                }
+            }
+            Value::Array(items) => items.iter().for_each(|child| keys(child, out)),
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn every_fixed_key_and_value_of_the_projection_is_reserved() {
+        let mut names = Vec::new();
+        keys(&full(), &mut names);
+        names.extend(
+            full()["groups"][0]["truncated"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|name| name.as_str().unwrap().to_string()),
+        );
+        for status in [
+            RowStatus::Failed,
+            RowStatus::Unresolved,
+            RowStatus::NotRun,
+            RowStatus::NotProvided,
+        ] {
+            names.push(status_word(status).to_string());
+        }
+        names.extend(["draft_profile", "local_pack"].map(str::to_string));
+        for name in &names {
+            assert!(is_fixed_identifier(name), "{name} is not reserved");
+        }
+        let mut written = Vec::new();
+        keys(&full(), &mut written);
+        for key in written {
+            assert!(NAMES.contains(&key.as_str()), "{key} is missing from NAMES");
+        }
+    }
+
+    #[test]
+    fn the_names_are_reserved_once_in_name_order() {
+        for name in NAMES {
+            assert!(is_fixed_identifier(name), "{name}");
+            let at = FIXED_IDENTIFIERS
+                .iter()
+                .position(|fixed| *fixed == name)
+                .unwrap();
+            assert_eq!(
+                FIXED_IDENTIFIERS
+                    .iter()
+                    .filter(|fixed| **fixed == name)
+                    .count(),
+                1,
+                "{name}"
+            );
+            assert!(FIXED_IDENTIFIERS[at - 1] < name, "{name}");
+            assert!(name < FIXED_IDENTIFIERS[at + 1], "{name}");
+        }
+    }
+
+    #[test]
+    fn every_registrable_fragment_of_a_name_is_refused() {
+        for name in NAMES {
+            if name.len() < MIN_GENERIC_SECRET_LEN {
+                // Too short for any credential to be a fragment of it.
+                continue;
+            }
+            for len in MIN_GENERIC_SECRET_LEN..=name.len() {
+                for start in 0..=name.len() - len {
+                    let value = &name[start..start + len];
+                    assert!(collides_with_fixed_identifier(value), "{value}");
+                    let mut catalog = SecretCatalog::new();
+                    assert!(
+                        catalog
+                            .register_credential("COMPAT_API_KEY", value)
+                            .is_err(),
+                        "{value}"
+                    );
+                    assert!(catalog.is_empty(), "{value}");
+                }
+            }
+        }
+        for value in ["row_stat", "ow_statu", "request_", "unresolv", "not_prov"] {
+            let mut catalog = SecretCatalog::new();
+            assert!(
+                catalog
+                    .register_credential("COMPAT_API_KEY", value)
+                    .is_err(),
+                "{value}"
+            );
+        }
+    }
+
+    #[test]
+    fn values_under_the_field_are_still_scrubbed() {
+        let credential = "fake-credential-955-not-a-real-key";
+        let mut catalog = SecretCatalog::new();
+        catalog
+            .register_credential("COMPAT_API_KEY", credential)
+            .unwrap();
+        let mut value = json!({
+            "event": "artifact_contract_check_result",
+            "adapter_diagnostics": {
+                "items": [{"check": "rows/alpha", "row_status": "failed", "code": credential, "message": format!("x {credential}")}],
+                "omitted": 0,
+            },
+        });
+        catalog.scrub_value_lenient(&mut value);
+        assert!(value.get("adapter_diagnostics").is_some(), "{value}");
+        assert!(!value.to_string().contains(credential), "{value}");
+        let item = &value["adapter_diagnostics"]["items"][0];
+        assert_eq!(item["check"], "rows/alpha");
+        assert_eq!(item["row_status"], "failed");
+    }
+}
+
+/// Issue #959: the nine budget-exhaustion `loop_stop` field names are fixed
+/// identifiers, so a credential equal to one of them or to a fragment of one
+/// is refused at registration instead of turning a field name into a marker.
+#[cfg(test)]
+mod budget_exhaustion_field_tests {
+    use serde_json::json;
+
+    use super::{FIXED_IDENTIFIERS, collides_with_fixed_identifier, is_fixed_identifier};
+    use crate::sensitive_data::{RegistrationRefusal, ReservedKind, SecretCatalog};
+
+    const FIELDS: [&str; 9] = [
+        "iteration_limit",
+        "iterations_used",
+        "iteration_budget_exhausted",
+        "successful_write_count",
+        "last_successful_write_iteration",
+        "bash_results_after_last_write",
+        "bash_failures_after_last_write",
+        "last_bash_after_last_write_succeeded",
+        "write_failure_after_last_write",
+    ];
+
+    #[test]
+    fn each_field_is_reserved_once_in_name_order() {
+        for field in FIELDS {
+            assert!(is_fixed_identifier(field), "{field}");
+            assert_eq!(
+                FIXED_IDENTIFIERS
+                    .iter()
+                    .filter(|fixed| **fixed == field)
+                    .count(),
+                1,
+                "{field}"
+            );
+            let at = FIXED_IDENTIFIERS
+                .iter()
+                .position(|fixed| *fixed == field)
+                .unwrap();
+            assert!(FIXED_IDENTIFIERS[at - 1] < field, "{field}");
+            assert!(field < FIXED_IDENTIFIERS[at + 1], "{field}");
+        }
+    }
+
+    #[test]
+    fn a_credential_equal_to_a_field_or_a_fragment_of_it_is_refused_unnamed() {
+        let fragments = [
+            "budget_exhausted",
+            "ations_use",
+            "_successful_write_",
+            "results_after_last_wr",
+            "failures_after_last",
+            "after_last_write_succeeded",
+            "write_failure_after",
+        ];
+        for value in FIELDS.into_iter().chain(fragments) {
+            assert!(collides_with_fixed_identifier(value), "{value}");
+            let mut catalog = SecretCatalog::new();
+            let error = catalog
+                .register_credential("COMPAT_API_KEY", value)
+                .unwrap_err();
+            assert_eq!(
+                error,
+                RegistrationRefusal::Reserved {
+                    name: "COMPAT_API_KEY".to_string(),
+                    kind: ReservedKind::FixedIdentifier,
+                }
+            );
+            assert!(catalog.is_empty());
+            for text in [error.to_string(), format!("{error:?}")] {
+                assert!(!text.contains(value), "the refusal names the value");
+            }
+        }
+    }
+
+    #[test]
+    fn a_normal_credential_leaves_the_field_names_and_values_unchanged() {
+        let credential = "fake-credential-959-not-a-real-key";
+        let mut catalog = SecretCatalog::new();
+        catalog
+            .register_credential("COMPAT_API_KEY", credential)
+            .unwrap();
+        let mut value = json!({
+            "event": "loop_stop",
+            "reason": "model_stagnation:no_progress_recorded",
+            "last_blocking_reason": format!("echo {credential}"),
+            "iteration_limit": 15,
+            "iterations_used": 15,
+            "iteration_budget_exhausted": true,
+            "successful_write_count": 2,
+            "last_successful_write_iteration": 9,
+            "bash_results_after_last_write": 3,
+            "bash_failures_after_last_write": 1,
+            "last_bash_after_last_write_succeeded": null,
+            "write_failure_after_last_write": false,
+        });
+        catalog.scrub_value_lenient(&mut value);
+        assert!(!value.to_string().contains(credential), "{value}");
+        let object = value.as_object().unwrap();
+        assert_eq!(object.len(), 12, "{value}");
+        for field in FIELDS {
+            assert!(object.contains_key(field), "{field}: {value}");
+        }
+        assert_eq!(value["iteration_limit"], 15);
+        assert_eq!(value["iteration_budget_exhausted"], true);
+        assert_eq!(value["last_bash_after_last_write_succeeded"], json!(null));
+        assert_eq!(value["write_failure_after_last_write"], false);
+        assert_eq!(value["reason"], "model_stagnation:no_progress_recorded");
+    }
+}
+
+/// Issue #956: the held-completion reason, the additive `repair_binding`
+/// field, and its count keys are fixed identifiers, so a credential equal to
+/// one of them or to a fragment of one is refused at registration instead of
+/// turning a field name into a marker.
+#[cfg(test)]
+mod repair_binding_field_tests {
+    use serde_json::json;
+
+    use super::{FIXED_IDENTIFIERS, collides_with_fixed_identifier, is_fixed_identifier};
+    use crate::sensitive_data::{RegistrationRefusal, ReservedKind, SecretCatalog};
+
+    const NAMES: [&str; 6] = [
+        "final_repair_artifact_unchanged",
+        "repair_binding",
+        "targets",
+        "unchanged",
+        "absent",
+        "unknown",
+    ];
+
+    #[test]
+    fn each_name_is_reserved_once_in_name_order() {
+        for name in NAMES {
+            assert!(is_fixed_identifier(name), "{name}");
+            assert_eq!(
+                FIXED_IDENTIFIERS
+                    .iter()
+                    .filter(|fixed| **fixed == name)
+                    .count(),
+                1,
+                "{name}"
+            );
+            let at = FIXED_IDENTIFIERS
+                .iter()
+                .position(|fixed| *fixed == name)
+                .unwrap();
+            assert!(FIXED_IDENTIFIERS[at - 1] < name, "{name}");
+            assert!(name < FIXED_IDENTIFIERS[at + 1], "{name}");
+        }
+    }
+
+    #[test]
+    fn a_credential_equal_to_a_name_or_a_fragment_of_it_is_refused_unnamed() {
+        let fragments = [
+            "repair_bind",
+            "air_bindi",
+            "artifact_unch",
+            "arget",
+            "nknow",
+        ];
+        for value in NAMES.into_iter().chain(fragments) {
+            assert!(collides_with_fixed_identifier(value), "{value}");
+            let mut catalog = SecretCatalog::new();
+            if value.chars().count() < crate::sensitive_data::MIN_GENERIC_SECRET_LEN {
+                // Shorter than any credential: refused before the identifier check.
+                let error = catalog
+                    .register_credential("COMPAT_API_KEY", value)
+                    .unwrap_err();
+                assert_eq!(
+                    error,
+                    RegistrationRefusal::TooShort {
+                        name: "COMPAT_API_KEY".to_string()
+                    }
+                );
+                assert!(catalog.is_empty());
+                continue;
+            }
+            let error = catalog
+                .register_credential("COMPAT_API_KEY", value)
+                .unwrap_err();
+            assert_eq!(
+                error,
+                RegistrationRefusal::Reserved {
+                    name: "COMPAT_API_KEY".to_string(),
+                    kind: ReservedKind::FixedIdentifier,
+                }
+            );
+            assert!(catalog.is_empty());
+            for text in [error.to_string(), format!("{error:?}")] {
+                assert!(!text.contains(value), "the refusal names the value");
+            }
+        }
+    }
+
+    #[test]
+    fn a_normal_credential_leaves_the_event_keys_and_values_unchanged() {
+        let credential = "fake-credential-956-not-a-real-key";
+        let mut catalog = SecretCatalog::new();
+        catalog
+            .register_credential("COMPAT_API_KEY", credential)
+            .unwrap();
+        let mut value = json!({
+            "event": "step_completion_blocked",
+            "reason": "final_repair_artifact_unchanged",
+            "step_kind": "implement",
+            "phase_scope": format!("echo {credential}"),
+            "repair_binding": {"targets": 2, "unchanged": 1, "absent": 0, "unknown": 1},
+        });
+        catalog.scrub_value_lenient(&mut value);
+        assert!(!value.to_string().contains(credential), "{value}");
+        assert_eq!(value["reason"], "final_repair_artifact_unchanged");
+        assert_eq!(
+            value["repair_binding"],
+            json!({"targets": 2, "unchanged": 1, "absent": 0, "unknown": 1})
+        );
+        assert_eq!(value.as_object().unwrap().len(), 5, "{value}");
+    }
+}
+
+/// Issue #957: the `budget_closing` event name, its phases, guard reasons,
+/// and field names are fixed identifiers, so a credential equal to one of
+/// them or to a fragment of one is refused at registration.
+#[cfg(test)]
+mod budget_closing_field_tests {
+    use serde_json::json;
+
+    use super::{FIXED_IDENTIFIERS, collides_with_fixed_identifier, is_fixed_identifier};
+    use crate::sensitive_data::{
+        MIN_GENERIC_SECRET_LEN, RegistrationRefusal, ReservedKind, SecretCatalog,
+    };
+
+    const WORDS: [&str; 19] = [
+        "budget_closing",
+        "notice",
+        "final_accepted",
+        "final_deferred",
+        "exhausted_after_notice",
+        "remaining_calls_reached",
+        "no_unresolved_failure",
+        "unresolved_failure",
+        "iteration_budget_exhausted",
+        "guard_reason",
+        "prompt_version",
+        "iteration",
+        "iteration_limit",
+        "remaining_calls",
+        "unresolved_bash_failures",
+        "unresolved_write_failures",
+        "resolved_failures",
+        "policy_rejected_bash",
+        "final_deferrals",
+    ];
+
+    #[test]
+    fn each_word_is_reserved_once_in_name_order() {
+        for word in WORDS {
+            assert!(is_fixed_identifier(word), "{word}");
+            assert_eq!(
+                FIXED_IDENTIFIERS
+                    .iter()
+                    .filter(|fixed| **fixed == word)
+                    .count(),
+                1,
+                "{word}"
+            );
+            let at = FIXED_IDENTIFIERS
+                .iter()
+                .position(|fixed| *fixed == word)
+                .unwrap();
+            assert!(FIXED_IDENTIFIERS[at - 1] < word, "{word}");
+            assert!(word < FIXED_IDENTIFIERS[at + 1], "{word}");
+        }
+    }
+
+    #[test]
+    fn a_credential_equal_to_a_word_or_a_fragment_of_it_is_refused_unnamed() {
+        let fragments = [
+            "get_closi",
+            "_after_noti",
+            "al_deferr",
+            "calls_reach",
+            "unresolved_fail",
+            "rd_reas",
+            "bash_failur",
+            "write_failures",
+            "olved_failures",
+            "rejected_ba",
+            "deferrals",
+        ];
+        for value in WORDS.into_iter().chain(fragments) {
+            assert!(collides_with_fixed_identifier(value), "{value}");
+            if value.len() < MIN_GENERIC_SECRET_LEN {
+                // Shorter values are refused as too short before the check.
+                continue;
+            }
+            let mut catalog = SecretCatalog::new();
+            let error = catalog
+                .register_credential("COMPAT_API_KEY", value)
+                .unwrap_err();
+            assert_eq!(
+                error,
+                RegistrationRefusal::Reserved {
+                    name: "COMPAT_API_KEY".to_string(),
+                    kind: ReservedKind::FixedIdentifier,
+                }
+            );
+            assert!(catalog.is_empty());
+            for text in [error.to_string(), format!("{error:?}")] {
+                assert!(!text.contains(value), "the refusal names the value");
+            }
+        }
+    }
+
+    #[test]
+    fn a_normal_credential_leaves_the_event_words_unchanged() {
+        let credential = "fake-credential-957-not-a-real-key";
+        let mut catalog = SecretCatalog::new();
+        catalog
+            .register_credential("COMPAT_API_KEY", credential)
+            .unwrap();
+        let mut value = json!({
+            "event": "budget_closing",
+            "phase": "final_deferred",
+            "guard_reason": "unresolved_failure",
+            "prompt_version": 1,
+            "iteration": 14,
+            "iteration_limit": 15,
+            "remaining_calls": 2,
+            "unresolved_bash_failures": 1,
+            "unresolved_write_failures": 0,
+            "resolved_failures": 0,
+            "policy_rejected_bash": 1,
+            "final_deferrals": 1,
+            "note": format!("echo {credential}"),
+        });
+        catalog.scrub_value_lenient(&mut value);
+        assert!(!value.to_string().contains(credential), "{value}");
+        assert_eq!(value["event"], "budget_closing");
+        assert_eq!(value["phase"], "final_deferred");
+        assert_eq!(value["guard_reason"], "unresolved_failure");
+        assert_eq!(value["remaining_calls"], 2);
+        assert_eq!(value["final_deferrals"], 1);
+    }
+}
+
+/// Issue #958: the `output_limit_feedback` event name, its two `kind`
+/// values, its field names, and the already emitted but unreserved
+/// `provider_reasoning_tokens` are fixed identifiers, so a credential equal
+/// to one of them or to a fragment of one is refused at registration.
+#[cfg(test)]
+mod output_limit_feedback_field_tests {
+    use serde_json::json;
+
+    use super::{FIXED_IDENTIFIERS, collides_with_fixed_identifier, is_fixed_identifier};
+    use crate::sensitive_data::{
+        MIN_GENERIC_SECRET_LEN, RegistrationRefusal, ReservedKind, SecretCatalog,
+    };
+
+    /// `kind` itself is a fixed schema key ([`super::FIXED_SCHEMA_KEYS`]),
+    /// whose values must be fixed identifiers to survive the scrub.
+    const WORDS: [&str; 8] = [
+        "output_limit_feedback",
+        "no_tool_call_at_output_limit",
+        "tool_arguments_truncated_at_output_limit",
+        "provider_reasoning_tokens",
+        "attempt",
+        "num_predict",
+        "completion_tokens",
+        "prompt_version",
+    ];
+
+    #[test]
+    fn each_word_is_reserved_once_in_name_order() {
+        assert!(super::FIXED_SCHEMA_KEYS.contains(&"kind"));
+        for word in WORDS {
+            assert!(is_fixed_identifier(word), "{word}");
+            assert_eq!(
+                FIXED_IDENTIFIERS
+                    .iter()
+                    .filter(|fixed| **fixed == word)
+                    .count(),
+                1,
+                "{word}"
+            );
+            let at = FIXED_IDENTIFIERS
+                .iter()
+                .position(|fixed| *fixed == word)
+                .unwrap();
+            assert!(FIXED_IDENTIFIERS[at - 1] < word, "{word}");
+            assert!(word < FIXED_IDENTIFIERS[at + 1], "{word}");
+        }
+    }
+
+    #[test]
+    fn a_credential_equal_to_a_word_or_a_fragment_of_it_is_refused_unnamed() {
+        let fragments = [
+            "limit_feedba",
+            "tool_call_at_outp",
+            "arguments_truncat",
+            "reasoning_tok",
+            "der_reasoni",
+            "num_predi",
+            "letion_toke",
+        ];
+        for value in WORDS.into_iter().chain(fragments) {
+            assert!(collides_with_fixed_identifier(value), "{value}");
+            if value.len() < MIN_GENERIC_SECRET_LEN {
+                // Shorter values are refused as too short before the check.
+                continue;
+            }
+            let mut catalog = SecretCatalog::new();
+            let error = catalog
+                .register_credential("COMPAT_API_KEY", value)
+                .unwrap_err();
+            assert_eq!(
+                error,
+                RegistrationRefusal::Reserved {
+                    name: "COMPAT_API_KEY".to_string(),
+                    kind: ReservedKind::FixedIdentifier,
+                }
+            );
+            assert!(catalog.is_empty());
+            for text in [error.to_string(), format!("{error:?}")] {
+                assert!(!text.contains(value), "the refusal names the value");
+            }
+        }
+    }
+
+    #[test]
+    fn a_normal_credential_leaves_the_event_words_unchanged() {
+        let credential = "fake-credential-958-not-a-real-key";
+        let mut catalog = SecretCatalog::new();
+        catalog
+            .register_credential("COMPAT_API_KEY", credential)
+            .unwrap();
+        for kind in [
+            "no_tool_call_at_output_limit",
+            "tool_arguments_truncated_at_output_limit",
+        ] {
+            let mut value = json!({
+                "event": "output_limit_feedback",
+                "kind": kind,
+                "attempt": 1,
+                "num_predict": 100,
+                "completion_tokens": 100,
+                "prompt_version": 1,
+                "provider_reasoning_tokens": 96,
+                "note": format!("echo {credential}"),
+            });
+            catalog.scrub_value_lenient(&mut value);
+            assert!(!value.to_string().contains(credential), "{value}");
+            assert_eq!(value["event"], "output_limit_feedback");
+            assert_eq!(value["kind"], kind);
+            assert_eq!(value["attempt"], 1);
+            assert_eq!(value["provider_reasoning_tokens"], 96);
+        }
+    }
+}
+
+/// Issue #1015: the three end-of-run events, the two summary keys, their field names, and the
+/// two accounting-basis words are fixed identifiers, so a credential equal to one of them or to
+/// a fragment of one is refused at registration and the scrub never rewrites the schema.
+#[cfg(test)]
+mod run_end_summary_field_tests {
+    use serde_json::json;
+
+    use super::{FIXED_IDENTIFIERS, collides_with_fixed_identifier, is_fixed_identifier};
+    use crate::sensitive_data::{
+        MIN_GENERIC_SECRET_LEN, RegistrationRefusal, ReservedKind, SecretCatalog,
+    };
+
+    const WORDS: [&str; 22] = [
+        "accounting_basis",
+        "budget_id",
+        "contract_sha256",
+        "declared_tariff_charge_usd_total",
+        "failed_checks",
+        "held_usd",
+        "ledger_intact",
+        "limit_usd",
+        "policy_sha256",
+        "provider_billed",
+        "run_budget",
+        "run_budget_summary",
+        "run_nonce",
+        "spent_usd",
+        "structured_stage_checks",
+        "structured_stages",
+        "structured_stages_summary",
+        "unrequested",
+        "usage_tariff",
+        "workspace_sha256",
+        "observed",
+        "unavailable",
+    ];
+
+    #[test]
+    fn each_word_is_reserved_once_in_name_order() {
+        for word in WORDS {
+            assert!(is_fixed_identifier(word), "{word}");
+            assert_eq!(
+                FIXED_IDENTIFIERS
+                    .iter()
+                    .filter(|fixed| **fixed == word)
+                    .count(),
+                1,
+                "{word}"
+            );
+            let at = FIXED_IDENTIFIERS
+                .iter()
+                .position(|fixed| *fixed == word)
+                .unwrap();
+            assert!(FIXED_IDENTIFIERS[at - 1] < word, "{word}");
+            assert!(word < FIXED_IDENTIFIERS[at + 1], "{word}");
+        }
+    }
+
+    #[test]
+    fn a_credential_equal_to_a_word_or_a_fragment_of_it_is_refused_unnamed() {
+        let fragments = ["tariff_charge_us", "red_stages_summ", "budget_summar"];
+        for value in WORDS.into_iter().chain(fragments) {
+            assert!(collides_with_fixed_identifier(value), "{value}");
+            if value.len() < MIN_GENERIC_SECRET_LEN {
+                continue;
+            }
+            let mut catalog = SecretCatalog::new();
+            let error = catalog
+                .register_credential("COMPAT_API_KEY", value)
+                .unwrap_err();
+            assert_eq!(
+                error,
+                RegistrationRefusal::Reserved {
+                    name: "COMPAT_API_KEY".to_string(),
+                    kind: ReservedKind::FixedIdentifier,
+                }
+            );
+            assert!(catalog.is_empty());
+            for text in [error.to_string(), format!("{error:?}")] {
+                assert!(!text.contains(value), "the refusal names the value");
+            }
+        }
+    }
+
+    #[test]
+    fn a_normal_credential_leaves_the_event_words_unchanged() {
+        let credential = "fake-credential-1015-not-a-real-key";
+        let mut catalog = SecretCatalog::new();
+        catalog
+            .register_credential("COMPAT_API_KEY", credential)
+            .unwrap();
+        let mut value = json!({
+            "event": "run_budget_summary",
+            "record": "observed",
+            "accounting_basis": "usage_tariff",
+            "budget_id": format!("wallet {credential}"),
+            "spent_usd": "0.000419",
+            "declared_tariff_charge_usd_total": "0.000419",
+        });
+        catalog.scrub_value_lenient(&mut value);
+        assert!(!value.to_string().contains(credential), "{value}");
+        assert_eq!(value["event"], "run_budget_summary");
+        assert_eq!(value["record"], "observed");
+        assert_eq!(value["accounting_basis"], "usage_tariff");
+        assert_eq!(value["declared_tariff_charge_usd_total"], "0.000419");
+    }
+}
+
+/// Issue #970: the speculative phase plan events. `pipeline.rs` passes these
+/// names to a shared emitter as an argument, so the `"event": "…"` literal scan
+/// (c28) does not see them; they are listed here instead.
+#[cfg(test)]
+mod speculative_phase_plan_event_tests {
+    use serde_json::json;
+
+    use super::{FIXED_IDENTIFIERS, collides_with_fixed_identifier, is_fixed_identifier};
+    use crate::sensitive_data::{
+        MIN_GENERIC_SECRET_LEN, RegistrationRefusal, ReservedKind, SecretCatalog,
+    };
+
+    /// The three names this Issue reserves.
+    const ADDED: [&str; 3] = [
+        "speculative_phase_plan_adopted",
+        "speculative_phase_plan_discarded",
+        "speculative_phase_plan_started",
+    ];
+    /// The two names reserved before this Issue; they stay reserved once.
+    const EXISTING: [&str; 2] = [
+        "speculative_phase_plan_not_started",
+        "speculative_phase_plan_provider_call",
+    ];
+
+    #[test]
+    fn each_name_is_reserved_once_in_name_order() {
+        for name in ADDED.into_iter().chain(EXISTING) {
+            assert!(is_fixed_identifier(name), "{name}");
+            assert_eq!(
+                FIXED_IDENTIFIERS
+                    .iter()
+                    .filter(|fixed| **fixed == name)
+                    .count(),
+                1,
+                "{name}"
+            );
+            let at = FIXED_IDENTIFIERS
+                .iter()
+                .position(|fixed| *fixed == name)
+                .unwrap();
+            assert!(FIXED_IDENTIFIERS[at - 1] < name, "{name}");
+            assert!(name < FIXED_IDENTIFIERS[at + 1], "{name}");
+        }
+        let family = FIXED_IDENTIFIERS
+            .iter()
+            .copied()
+            .filter(|fixed| fixed.starts_with("speculative_phase_plan_"))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            family,
+            [
+                "speculative_phase_plan_adopted",
+                "speculative_phase_plan_discarded",
+                "speculative_phase_plan_not_started",
+                "speculative_phase_plan_provider_call",
+                "speculative_phase_plan_started",
+            ],
+            "the family is listed once each, in name order, and no prefix is reserved"
+        );
+    }
+
+    #[test]
+    fn a_credential_equal_to_a_name_or_a_fragment_of_it_is_refused_unnamed() {
+        for name in ADDED {
+            for len in MIN_GENERIC_SECRET_LEN..=name.len() {
+                for start in 0..=name.len() - len {
+                    let value = &name[start..start + len];
+                    assert!(collides_with_fixed_identifier(value), "{value}");
+                    let mut catalog = SecretCatalog::new();
+                    let error = catalog
+                        .register_credential("COMPAT_API_KEY", value)
+                        .unwrap_err();
+                    assert_eq!(
+                        error,
+                        RegistrationRefusal::Reserved {
+                            name: "COMPAT_API_KEY".to_string(),
+                            kind: ReservedKind::FixedIdentifier,
+                        },
+                        "{value}"
+                    );
+                    assert!(catalog.is_empty(), "{value}");
+                    for text in [error.to_string(), format!("{error:?}")] {
+                        assert!(!text.contains(value), "the refusal names the value");
+                    }
+                    let mut plain = SecretCatalog::new();
+                    plain.register_plain(value).unwrap();
+                    assert!(plain.is_empty(), "{value}");
+                }
+            }
+        }
+        // Fragments only the three names contain, refused only by this Issue.
+        for value in ["phase_plan_adopted", "plan_started", "plan_discarded"] {
+            assert!(collides_with_fixed_identifier(value), "{value}");
+        }
+    }
+
+    #[test]
+    fn a_long_ordinary_value_containing_a_name_keeps_the_collision_rule() {
+        for name in ADDED {
+            let value = format!("synthetic-970-{name}-0123456789");
+            assert!(!collides_with_fixed_identifier(&value), "{value}");
+            let mut catalog = SecretCatalog::new();
+            catalog
+                .register_credential("COMPAT_API_KEY", &value)
+                .unwrap();
+            assert!(catalog.contains(&value));
+            let mut event = json!({
+                "event": name,
+                "current_phase_id": format!("phase {value}"),
+                "next_phase_id": "phase-two",
+                "reason": "gate_passed",
+            });
+            catalog.scrub_value_lenient(&mut event);
+            assert!(!event.to_string().contains(&value), "{event}");
+            assert_eq!(event["event"], name);
+            assert_eq!(event["current_phase_id"], "phase <redacted>");
+            assert_eq!(event["next_phase_id"], "phase-two");
+            assert_eq!(event["reason"], "gate_passed");
+            assert_eq!(event.as_object().unwrap().len(), 4, "{event}");
+        }
+    }
 }

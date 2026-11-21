@@ -1,0 +1,13 @@
+{
+  "issue": "#956",
+  "kind": "synthetic",
+  "owner": "src/minimal_loop/loop_run/implementation_completion/repair_artifact_completion.rs (raw-byte obligation of a host-bound final repair)",
+  "base_sha": "3ec27982218331586f7367591eaf50eb2cfd790c",
+  "base_note": "develop 3ec27982 is the approved base; every base_sequence and base_executor_calls entry in fixtures/events.json was observed by running tests/final_repair_early_completion.rs against the unchanged src/ of that commit (git checkout 3ec27982218331586f7367591eaf50eb2cfd790c -- src), the review cases included; fifo-1 has no base value because the base did not return",
+  "recorded_source": null,
+  "derived_fixture": "fixtures/events.json lists hand-authored synthetic cases only. Each names the test that builds it at run time: generic draft profiles, a POSIX shell adapter run by the operator-pinned /bin/sh, and scripted fake planner and executor clients, all in temporary directories. No external smoke task, grader input, expected value, model output, generated code, host path, or credential is stored or copied here.",
+  "regenerate_digests": "shasum -a 256 fixtures/events.json",
+  "fixture_sha256": {
+    "events.json": "8696a0de080fa59dc41121596bbf9dc8c6edf0c76059263a6cabae08c20b9930"
+  }
+}

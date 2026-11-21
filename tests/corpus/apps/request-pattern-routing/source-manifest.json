@@ -1,0 +1,14 @@
+{
+  "issue": "#918",
+  "owner": "minimal_loop request_pattern routing of a direct prompt",
+  "derived_fixture": "fixtures/cases.json is synthetic: hand-authored jev response bodies, HTTP statuses, and delays, each with the request_pattern_resolved fields and whether the system prompt gains the Request guidance block. tests/request_pattern_routing.rs replays every case through a loopback mock server; no case reaches the real API.",
+  "dataset": {
+    "name": "S-148a v1 frozen routing dataset",
+    "sha256": "6097c5855ccc14648006b5afb7f199b42c3040cad025a6e071fc22de38b6e440",
+    "use": "Provenance only: the four pattern definitions and the jev choice question follow this dataset's frozen definitions. None of its request texts are copied into this corpus."
+  },
+  "regenerate_digests": "shasum -a 256 fixtures/cases.json",
+  "fixture_sha256": {
+    "cases.json": "40d2da05eb4cc853c21f9b81f04ad2943b197cd586169abf479c0cffebbc7c73"
+  }
+}

@@ -1,0 +1,79 @@
+case_id = "budget-closing"
+source = "Issue #957: synthetic scripted runs through the public minimal loop for the opt-in COMMANDAGENT_BUDGET_CLOSING=once; every row's base (outcome, request digests, event-name sequence, a digest of every normalized event payload, unused replies) was recorded from source c141d74028d2384d65668dabe278361596c9d67e before the closing existed, and unset, empty, and off must reproduce it; the once expectations come from the Issue's rules"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/events.jsonl = [
+  "\"kind\":\"synthetic\"",
+  "\"source\":\"c141d740\"",
+  "\"id\":\"accept-after-same-check\"",
+  "\"id\":\"unrelated-bash-success\"",
+  "\"id\":\"write-without-rerun\"",
+  "\"id\":\"other-path-write\"",
+  "\"id\":\"failure-before-notice\"",
+  "\"id\":\"no-write-bash-failure\"",
+  "\"id\":\"read-and-self-report\"",
+  "\"id\":\"other-anchor-edit\"",
+  "\"id\":\"two-failed-edits-one-resolved\"",
+  "\"id\":\"matching-edit-resolves\"",
+  "\"id\":\"consecutive-finals\"",
+  "\"id\":\"default-budget-tool-turns\"",
+  "\"id\":\"limit-three-no-notice\"",
+  "\"id\":\"pending-feedback-then-notice\"",
+  "\"id\":\"fresh-retry-native\"",
+  "\"id\":\"fresh-retry-xml\"",
+  "\"id\":\"gate-missing-required-path\"",
+  "\"id\":\"gate-completion-without-write\"",
+  "\"id\":\"gate-missing-import\"",
+  "\"id\":\"read-only-accepted\"",
+  "\"id\":\"with-review-early-final\"",
+  "\"id\":\"with-review-tail-skip\"",
+  "\"id\":\"profile-not-generic\"",
+  "\"id\":\"completion-contract-run\"",
+  "\"id\":\"policy-rejected-bash\"",
+  "\"id\":\"unchanged-write-after-ambiguous-edit\"",
+  "\"id\":\"hidden-path-bash-rejected\"",
+  "\"id\":\"cancel-before-notice-request\"",
+  "\"id\":\"post-write-read-after-failed-write\"",
+  "\"id\":\"post-write-read-accepted\"",
+  "\"final_text\":\"workspace changes confirmed by post-write reads (unverified)\"",
+  "\"provider_turn_aborted_by_user\"",
+  "\"hidden_path_feedback\"",
+  "\"event_digest\":\"",
+  "\"stop_reason\":\"AssistantFinal\"",
+  "\"error\":\"model_stagnation:no_progress_recorded: objective: Write the notes file and check it with shell commands.\"",
+  "\"empty_response_escalation\"",
+  "\"tool_policy_error\"",
+  "\"native\":false"
+]
+
+[fixture_ordered]
+fixtures/events.jsonl = [
+  "\"id\":\"accept-after-same-check\"",
+  "\"id\":\"consecutive-finals\"",
+  "\"id\":\"default-budget-tool-turns\"",
+  "\"id\":\"fresh-retry-native\"",
+  "\"id\":\"fresh-retry-xml\"",
+  "\"id\":\"policy-rejected-bash\"",
+  "\"id\":\"unchanged-write-after-ambiguous-edit\"",
+  "\"id\":\"post-write-read-accepted\""
+]

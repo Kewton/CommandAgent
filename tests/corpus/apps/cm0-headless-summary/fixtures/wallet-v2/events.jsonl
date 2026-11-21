@@ -1,0 +1,6 @@
+{"event":"run_start","workspace_root":"/tmp/cm0/wallet-v2","provider":"openai","model":"wallet-model","schema_version":"1"}
+{"event":"provider_turn_duration","caller_scope":"executor","duration_ms":2000,"prompt_eval_count":100,"eval_count":30,"schema_version":"1"}
+{"event":"provider_turn_duration","caller_scope":"executor","duration_ms":2000,"prompt_eval_count":1000,"eval_count":7,"schema_version":"1"}
+{"event":"run_budget_summary","record":"observed","accounting_basis":"usage_tariff","budget_id":"wallet-example","policy_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","workspace_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","limit_usd":"5","spent_usd":"0.002475","held_usd":"0","declared_tariff_charge_usd_total":"0.002475","sends":{"settled":2,"reserved":0,"started":0,"unknown":0},"unknown":[],"latch":null,"stop":null,"schema_version":"1"}
+{"event":"tui_command_stop","ok":true,"status":"completed","assurance_level":"static","release_gate_status":"not_applicable","stop_reason":"completed","next_action":"none","failure_kind":"","time_profile_total_ms":4000,"schema_version":"1"}
+{"event":"run_stop","ok":true,"status":"completed","assurance_level":"static","release_gate_status":"not_applicable","stop_reason":"completed","next_action":"none","schema_version":"1"}

@@ -1,0 +1,2132 @@
+//! The start of the real binary: where a credential is after it (Issue #974).
+//!
+//! Every secret here is a dummy, every provider is a disposable fake on 127.0.0.1, and every
+//! child starts from a cleared environment: the binaries through [`command`] or a cleared launch
+//! of their own, this test's own children likewise, and every other program, the compiler of the
+//! reporter included, through [`tool`] or a cleared launch of its own (`lsof`, `ps`).
+
+use std::io::{Read as _, Write as _};
+use std::net::TcpListener;
+use std::path::Path;
+use std::process::{Child, Command, Output, Stdio};
+use std::sync::mpsc;
+use std::time::Duration;
+
+const DUMMY: &str = "fake-startup-credential-974-not-a-real-key";
+
+fn command(workspace: &Path) -> Command {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_commandagent"));
+    command
+        .current_dir(workspace)
+        .env_clear()
+        .env("HOME", workspace)
+        .env("PATH", "/usr/bin:/bin")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    command
+}
+
+/// A tool this test runs that is not one of the binaries: the compiler of the reporter, and
+/// `/usr/bin/env` and `/bin/pwd` in the witness below. Its environment is cleared, `PATH` is the
+/// system's, `HOME` and `TMPDIR` are in `directory`, and so is its working directory. Nothing of
+/// the environment this test was started with reaches it, a key there included.
+fn tool(program: &str, directory: &Path) -> Command {
+    let home = directory.join("home");
+    let tmp = directory.join("tmp");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&tmp).unwrap();
+    let mut command = Command::new(program);
+    command
+        .current_dir(directory)
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin")
+        .env("HOME", &home)
+        .env("TMPDIR", &tmp)
+        .stdin(Stdio::null());
+    command
+}
+
+const PARENT_SECRET: &str = "Z976CompilerParentSecretX42";
+const PARENT_HOME: &str = "/nonexistent/parent-home-976";
+const PARENT_TMPDIR: &str = "/nonexistent/parent-tmpdir-976";
+const PARENT_PATH: &str = "/usr/bin:/bin:/nonexistent/parent-path-976";
+const TOOL_DIRECTORY: &str = "CA976_TOOL_DIRECTORY";
+
+/// Runs only as a child of the test below, whose environment holds a key, a HOME, a TMPDIR and a
+/// PATH of its own: writes down what a tool started as [`tool`] starts it has of them.
+#[test]
+fn a_tool_has_nothing_of_the_tests_environment_child() {
+    let Some(directory) = std::env::var_os(TOOL_DIRECTORY) else {
+        return;
+    };
+    let directory = Path::new(&directory);
+    assert_eq!(
+        std::env::var("OPENAI_API_KEY").as_deref(),
+        Ok(PARENT_SECRET),
+        "the witness: this process has the key"
+    );
+    for (program, written) in [("/usr/bin/env", "env.txt"), ("/bin/pwd", "pwd.txt")] {
+        let output = tool(program, directory).output().unwrap();
+        assert!(output.status.success(), "{program}");
+        std::fs::write(directory.join(written), &output.stdout).unwrap();
+    }
+}
+
+/// S2 (#976 3b-fix-6): a tool this test starts, its compiler among them, has nothing of the
+/// environment the test was started with. A key, a HOME, a TMPDIR and a PATH given to the test
+/// are none of what the tool has, which is exactly the three of [`tool`], and it works in its own
+/// directory.
+#[test]
+fn a_tool_has_nothing_of_the_tests_environment() {
+    let directory = tempfile::tempdir().unwrap();
+    let output = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "a_tool_has_nothing_of_the_tests_environment_child",
+            "--nocapture",
+        ])
+        .env_clear()
+        .env("OPENAI_API_KEY", PARENT_SECRET)
+        .env("HOME", PARENT_HOME)
+        .env("TMPDIR", PARENT_TMPDIR)
+        .env("PATH", PARENT_PATH)
+        .env(TOOL_DIRECTORY, directory.path())
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success() && stdout.contains("1 passed"),
+        "{stdout}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let env = std::fs::read_to_string(directory.path().join("env.txt")).unwrap();
+    let pwd = std::fs::read_to_string(directory.path().join("pwd.txt")).unwrap();
+    let mut wrong = Vec::new();
+    for parents in [
+        "OPENAI_API_KEY",
+        PARENT_SECRET,
+        PARENT_HOME,
+        PARENT_TMPDIR,
+        "parent-path-976",
+        TOOL_DIRECTORY,
+    ] {
+        if env.contains(parents) {
+            wrong.push(format!("the tool has the test's {parents}"));
+        }
+    }
+    let mut lines = env.lines().map(str::to_string).collect::<Vec<_>>();
+    lines.sort();
+    let expected = vec![
+        format!("HOME={}", directory.path().join("home").display()),
+        "PATH=/usr/bin:/bin".to_string(),
+        format!("TMPDIR={}", directory.path().join("tmp").display()),
+    ];
+    if lines != expected {
+        wrong.push(format!(
+            "the tool's environment is {lines:?}, not {expected:?}"
+        ));
+    }
+    let own = directory.path().canonicalize().unwrap();
+    if Path::new(pwd.trim_end()) != own {
+        wrong.push(format!("the tool works in {pwd:?}, not {own:?}"));
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// A fake provider. It records what each request's first lines say, tells the test about the
+/// first request, and answers every request with an error. Nothing it hears is printed.
+struct FakeProvider {
+    url: String,
+    first_request: mpsc::Receiver<String>,
+    release: mpsc::Sender<()>,
+}
+
+impl FakeProvider {
+    fn start() -> Self {
+        Self::listening(false)
+    }
+
+    /// One that keeps its first request unanswered until [`Self::release`], or until it is
+    /// dropped, so the process that asked is there for as long as the test looks at it.
+    fn holding() -> Self {
+        Self::listening(true)
+    }
+
+    fn listening(holds: bool) -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let (sender, first_request) = mpsc::channel();
+        let (release, released) = mpsc::channel();
+        std::thread::spawn(move || {
+            let mut holds = holds;
+            for stream in listener.incoming().flatten() {
+                let mut stream = stream;
+                let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+                let mut heard = [0u8; 8192];
+                let read = stream.read(&mut heard).unwrap_or(0);
+                let _ = sender.send(String::from_utf8_lossy(&heard[..read]).into_owned());
+                if std::mem::take(&mut holds) {
+                    let _ = released.recv();
+                }
+                let _ = stream.write_all(
+                    b"HTTP/1.1 500 Internal Server Error\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+                );
+            }
+        });
+        Self {
+            url,
+            first_request,
+            release,
+        }
+    }
+
+    /// The test has finished looking: the first request gets its answer.
+    fn release(&self) {
+        self.release.send(()).expect("the fake is still listening");
+    }
+
+    /// The first request, which is also the proof that the start finished, or a failure.
+    fn wait_for_request(&self) -> String {
+        self.first_request
+            .recv_timeout(Duration::from_secs(60))
+            .expect("the provider heard nothing")
+    }
+
+    /// Every request that arrives within a moment.
+    fn drain(&self) -> Vec<String> {
+        let mut heard = Vec::new();
+        while let Ok(request) = self.first_request.recv_timeout(Duration::from_millis(200)) {
+            heard.push(request);
+        }
+        heard
+    }
+}
+
+fn stop(mut child: Child) {
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+fn lm_studio_arguments(url: &str) -> Vec<String> {
+    [
+        "--provider",
+        "lm-studio",
+        "--lm-studio-host",
+        url,
+        "--model",
+        "m",
+        "--chat-retries",
+        "0",
+        "--prompt",
+        "h\u{e9}llo",
+    ]
+    .map(str::to_string)
+    .to_vec()
+}
+
+#[cfg(target_os = "macos")]
+mod procargs {
+    /// One process's exec-time area, by its own structure. A pid that is gone, a refusal, or a
+    /// shape that does not parse is a failure, and never "the dummy is absent".
+    pub(super) struct Procargs {
+        pub(super) raw: Vec<u8>,
+        pub(super) argv: Vec<Vec<u8>>,
+        pub(super) env: Vec<Vec<u8>>,
+    }
+
+    fn take_text<'a>(rest: &mut &'a [u8]) -> &'a [u8] {
+        let end = rest
+            .iter()
+            .position(|byte| *byte == 0)
+            .expect("a NUL ends each string");
+        let (text, tail) = rest.split_at(end);
+        *rest = &tail[1..];
+        text
+    }
+
+    pub(super) fn read(pid: u32) -> Procargs {
+        let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid as i32];
+        let mut limit = 0i32;
+        let mut limit_size = size_of::<i32>();
+        let mut limit_mib = [libc::CTL_KERN, libc::KERN_ARGMAX];
+        // SAFETY: `limit_mib` names two levels, and `limit` is writable for its own size.
+        let limit_answer = unsafe {
+            libc::sysctl(
+                limit_mib.as_mut_ptr(),
+                2,
+                (&raw mut limit).cast(),
+                &raw mut limit_size,
+                std::ptr::null_mut(),
+                0,
+            )
+        };
+        assert_eq!(limit_answer, 0, "the area's limit was not read");
+        let mut raw = vec![0u8; usize::try_from(limit).unwrap()];
+        let mut size = raw.len();
+        // SAFETY: `mib` names three levels, and `raw` is writable for `size` bytes.
+        let answer = unsafe {
+            libc::sysctl(
+                mib.as_mut_ptr(),
+                3,
+                raw.as_mut_ptr().cast(),
+                &raw mut size,
+                std::ptr::null_mut(),
+                0,
+            )
+        };
+        assert_eq!(
+            answer,
+            0,
+            "the exec-time area of {pid} was not read: {}",
+            std::io::Error::last_os_error()
+        );
+        raw.truncate(size);
+        let (count, mut rest) = raw.split_at(4);
+        let argc = i32::from_ne_bytes(count.try_into().unwrap());
+        assert!(argc > 0, "argc is {argc}");
+        let _executable = take_text(&mut rest);
+        let padding = rest.iter().position(|byte| *byte != 0).unwrap();
+        rest = &rest[padding..];
+        let argv = (0..argc)
+            .map(|_| take_text(&mut rest).to_vec())
+            .collect::<Vec<_>>();
+        let mut env = Vec::new();
+        while !rest.is_empty() && rest[0] != 0 {
+            env.push(take_text(&mut rest).to_vec());
+        }
+        Procargs {
+            argv,
+            env,
+            raw: raw.clone(),
+        }
+    }
+
+    pub(super) fn holds(bytes: &[u8], needle: &str) -> bool {
+        bytes
+            .windows(needle.len())
+            .any(|window| window == needle.as_bytes())
+    }
+}
+
+/// Stage 1 is done when the provider hears from this same pid: the area is then what stays.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_credential_is_not_in_the_exec_time_area_after_the_start() {
+    let workspace = tempfile::tempdir().unwrap();
+    let provider = FakeProvider::holding();
+    let arguments = lm_studio_arguments(&provider.url);
+    let child = command(workspace.path())
+        .args(&arguments)
+        .env("OPENAI_API_KEY", DUMMY)
+        .env("KEPT_VARIABLE", "kept-value")
+        .spawn()
+        .unwrap();
+    let pid = child.id();
+    provider.wait_for_request();
+    let area = procargs::read(pid);
+    stop(child);
+    assert!(!procargs::holds(&area.raw, DUMMY));
+    assert!(!procargs::holds(&area.raw, "OPENAI_API_KEY"));
+    assert_eq!(area.argv.len(), arguments.len() + 1);
+    assert_eq!(
+        area.argv[1..],
+        arguments
+            .iter()
+            .map(|argument| argument.as_bytes().to_vec())
+            .collect::<Vec<_>>()
+    );
+    assert!(area.env.contains(&b"KEPT_VARIABLE=kept-value".to_vec()));
+    assert!(
+        area.env
+            .iter()
+            .any(|row| row.starts_with(b"COMMANDAGENT_BOOT_FD="))
+    );
+}
+
+/// Stays until stdin closes. This binary is not a platform binary, so it is what the area of an
+/// ordinary program looks like with the dummy in its exec-time environment.
+#[test]
+fn stays_until_stdin_closes() {
+    if std::env::var_os("G3_STAY_UNTIL_STDIN_CLOSES").is_some() {
+        println!("ready");
+        std::io::stdout().flush().unwrap();
+        let _ = std::io::stdin().read(&mut [0u8; 1]);
+    }
+}
+
+/// The witness for the test above: the same read, on a program that has the dummy, sees it.
+#[cfg(target_os = "macos")]
+#[test]
+fn the_same_read_sees_the_dummy_in_an_ordinary_programs_area() {
+    let mut child = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "stays_until_stdin_closes", "--nocapture"])
+        .env_clear()
+        .env("G3_STAY_UNTIL_STDIN_CLOSES", "1")
+        .env("OPENAI_API_KEY", DUMMY)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut stdout = child.stdout.take().unwrap();
+    let mut heard = Vec::new();
+    let mut byte = [0u8; 1];
+    while !procargs::holds(&heard, "ready") {
+        assert_eq!(stdout.read(&mut byte).unwrap(), 1, "the helper ended");
+        heard.push(byte[0]);
+    }
+    let area = procargs::read(child.id());
+    drop(child.stdin.take());
+    stop(child);
+    assert!(procargs::holds(&area.raw, DUMMY));
+    assert!(
+        area.env
+            .iter()
+            .any(|row| row.starts_with(b"OPENAI_API_KEY="))
+    );
+}
+
+fn authorization_of(heard: &[String]) -> Vec<String> {
+    heard
+        .iter()
+        .flat_map(|request| request.lines())
+        .filter_map(|line| line.split_once(':'))
+        .filter(|(name, _)| name.eq_ignore_ascii_case("authorization"))
+        .map(|(_, value)| value.trim().to_string())
+        .collect()
+}
+
+/// Run to its end, and what a holding fake heard. The run is alive for the read because the fake
+/// answers only after it, and only that answer lets the run end.
+fn heard_by_a_run(
+    workspace: &Path,
+    provider: &FakeProvider,
+    build: impl Fn(&mut Command),
+) -> Vec<String> {
+    let mut command = command(workspace);
+    build(&mut command);
+    let child = command.spawn().unwrap();
+    let pid = child.id();
+    let first = provider.wait_for_request();
+    #[cfg(target_os = "macos")]
+    {
+        let area = procargs::read(pid);
+        assert!(!procargs::holds(&area.raw, DUMMY), "in the exec-time area");
+    }
+    let _ = pid;
+    provider.release();
+    let output = child.wait_with_output().unwrap();
+    let shown = [output.stdout, output.stderr].concat();
+    assert!(
+        !String::from_utf8_lossy(&shown).contains(DUMMY),
+        "the output shows the dummy"
+    );
+    let mut heard = vec![first];
+    heard.extend(provider.drain());
+    heard
+}
+
+/// A received credential authenticates: the exact value reaches the fake endpoint.
+#[test]
+fn the_lm_studio_token_reaches_the_endpoint() {
+    let workspace = tempfile::tempdir().unwrap();
+    let provider = FakeProvider::holding();
+    let heard = heard_by_a_run(workspace.path(), &provider, |command| {
+        command
+            .args(lm_studio_arguments(&provider.url))
+            .env("LM_STUDIO_API_TOKEN", DUMMY);
+    });
+    let expected = format!("Bearer {DUMMY}");
+    assert!(authorization_of(&heard).contains(&expected));
+}
+
+fn compatible_arguments(url: &str) -> Vec<String> {
+    [
+        "--provider",
+        "openai-compatible",
+        "--base-url",
+        url,
+        "--model",
+        "m",
+        "--chat-retries",
+        "0",
+        "--prompt",
+        "hello",
+    ]
+    .map(str::to_string)
+    .to_vec()
+}
+
+/// Any name the command line chooses, including one the credential predicate does not match.
+#[test]
+fn a_key_name_from_the_command_line_reaches_the_endpoint() {
+    let workspace = tempfile::tempdir().unwrap();
+    let provider = FakeProvider::holding();
+    let heard = heard_by_a_run(workspace.path(), &provider, |command| {
+        command
+            .args(compatible_arguments(&provider.url))
+            .args(["--api-key-env", "AUTH"])
+            .env("AUTH", DUMMY);
+    });
+    let expected = format!("Bearer {DUMMY}");
+    assert!(authorization_of(&heard).contains(&expected));
+}
+
+/// Any name the selected preset chooses, with a reference to a received value in the same
+/// preset, and an unselected preset whose reference to an unset variable stops nothing.
+#[test]
+fn a_key_name_from_the_selected_preset_reaches_the_endpoint() {
+    let workspace = tempfile::tempdir().unwrap();
+    let provider = FakeProvider::holding();
+    let config = workspace.path().join(".commandagent");
+    std::fs::create_dir_all(&config).unwrap();
+    std::fs::write(
+        config.join("config.toml"),
+        format!(
+            "[preset.selected]\nprovider = \"openai-compatible\"\nbase_url = \"{}\"\napi_key_env = \"AUTH\"\nmodel = \"m\"\n\n[preset.other]\nmodel = \"${{NOT_SET_ANYWHERE}}\"\n",
+            provider.url
+        ),
+    )
+    .unwrap();
+    let heard = heard_by_a_run(workspace.path(), &provider, |command| {
+        command
+            .args([
+                "--preset",
+                "selected",
+                "--chat-retries",
+                "0",
+                "--prompt",
+                "hello",
+            ])
+            .env("AUTH", DUMMY)
+            .env("OPENAI_API_KEY", format!("{DUMMY}-second"));
+    });
+    let expected = format!("Bearer {DUMMY}");
+    assert!(authorization_of(&heard).contains(&expected));
+}
+
+fn run_to_end(workspace: &Path, build: impl Fn(&mut Command)) -> Output {
+    let mut command = command(workspace);
+    build(&mut command);
+    command.output().unwrap()
+}
+
+/// PM condition 1. With and without a credential, what a caller can see is byte for byte the
+/// same: stdout, stderr, and the exit, on each path that ends without a provider.
+#[test]
+fn a_run_shows_the_same_bytes_with_and_without_a_credential_in_the_environment() {
+    use std::os::unix::ffi::OsStrExt as _;
+    let workspace = tempfile::tempdir().unwrap();
+    let not_text = std::ffi::OsStr::from_bytes(b"not-\xff-text");
+    let cases: Vec<(&str, Vec<&std::ffi::OsStr>)> = vec![
+        ("version", vec!["--version".as_ref()]),
+        ("help", vec!["--help".as_ref()]),
+        ("an unknown flag", vec!["--no-such-flag".as_ref()]),
+        ("no terminal", Vec::new()),
+        ("not text", vec!["--cwd".as_ref(), not_text]),
+        (
+            "a completion",
+            vec!["--".as_ref(), "commandagent".as_ref(), "--ver".as_ref()],
+        ),
+    ];
+    for (label, arguments) in cases {
+        let plain = |command: &mut Command| {
+            command.args(&arguments).env("KEPT_VARIABLE", "kept-value");
+            if label == "a completion" {
+                command.env("COMPLETE", "bash");
+            }
+        };
+        let without = run_to_end(workspace.path(), plain);
+        let with = run_to_end(workspace.path(), |command| {
+            plain(command);
+            command.env("OPENAI_API_KEY", DUMMY);
+        });
+        assert_eq!(with.status.code(), without.status.code(), "{label}");
+        assert_eq!(with.stdout, without.stdout, "{label}");
+        assert_eq!(with.stderr, without.stderr, "{label}");
+    }
+}
+
+/// With no credential there is no second exec at all: the area is exactly what was given.
+#[cfg(target_os = "macos")]
+#[test]
+fn with_no_credential_the_start_does_not_exec_again() {
+    let workspace = tempfile::tempdir().unwrap();
+    let provider = FakeProvider::holding();
+    let child = command(workspace.path())
+        .args(lm_studio_arguments(&provider.url))
+        .env("KEPT_VARIABLE", "kept-value")
+        .spawn()
+        .unwrap();
+    let pid = child.id();
+    provider.wait_for_request();
+    let area = procargs::read(pid);
+    stop(child);
+    assert!(
+        !area
+            .env
+            .iter()
+            .any(|row| row.starts_with(b"COMMANDAGENT_BOOT_FD"))
+    );
+    assert!(area.env.contains(&b"KEPT_VARIABLE=kept-value".to_vec()));
+}
+
+/// Elsewhere the start does nothing: the variable stays and the marker means nothing.
+#[cfg(target_os = "linux")]
+#[test]
+fn off_macos_the_start_changes_nothing() {
+    let workspace = tempfile::tempdir().unwrap();
+    let provider = FakeProvider::start();
+    let child = command(workspace.path())
+        .args(lm_studio_arguments(&provider.url))
+        .env("OPENAI_API_KEY", DUMMY)
+        .env("COMMANDAGENT_BOOT_FD", "not-a-number")
+        .spawn()
+        .unwrap();
+    let environ = format!("/proc/{}/environ", child.id());
+    provider.wait_for_request();
+    let area = std::fs::read(environ).unwrap();
+    stop(child);
+    assert!(
+        area.windows(DUMMY.len())
+            .any(|window| window == DUMMY.as_bytes())
+    );
+}
+
+#[cfg(target_os = "macos")]
+mod refused_starts {
+    use std::collections::BTreeMap;
+    use std::os::fd::AsRawFd as _;
+    use std::os::unix::process::CommandExt as _;
+    use std::time::Instant;
+
+    use super::*;
+
+    const MARKER: &str = "COMMANDAGENT_BOOT_FD";
+    /// A number the handoff reaches the child at, free in the child.
+    const AT: i32 = 40;
+    /// The most a handoff may hold.
+    const BOUND: usize = 16 * 1024;
+    const NOT_A_PIPE: &str = "the handoff descriptor is not a pipe";
+    const THE_WRITER_STAYED: &str = "the handoff did not end";
+
+    fn frame(rows: &[(&str, &str)]) -> Vec<u8> {
+        let mut bytes = b"CACRED1\n".to_vec();
+        bytes.extend_from_slice(&(rows.len() as u32).to_be_bytes());
+        for (name, value) in rows {
+            for part in [name, value] {
+                bytes.extend_from_slice(&(part.len() as u32).to_be_bytes());
+                bytes.extend_from_slice(part.as_bytes());
+            }
+        }
+        bytes
+    }
+
+    /// What the handoff's writer is, once the child has written to it.
+    #[derive(Clone, Copy, PartialEq)]
+    enum Writer {
+        /// Everything was written and it is closed.
+        Closed,
+        /// Everything was written, and the child keeps it across the exec.
+        LeftOpen,
+        /// It took more than the bound, as much as the pipe would, and it is closed.
+        Filled,
+    }
+
+    /// A new pipe at [`AT`] holding these bytes. All of it is made in the child, after the fork:
+    /// the child has one thread and forks nothing before its exec, so no other process can ever
+    /// hold the writer, whatever this test binary's other threads are starting. A pipe made in
+    /// this process can reach a sibling that forks while it is open, close-on-exec or not.
+    fn hand_pipe_at(command: &mut Command, bytes: Vec<u8>, kept: Writer) {
+        let at_least = if kept == Writer::Filled {
+            BOUND + 1
+        } else {
+            bytes.len()
+        };
+        // SAFETY: only `pipe`, `fcntl`, `write`, `close` and `dup2` run in the child, which are
+        // async-signal-safe, and the bytes were made before the fork. Nothing here allocates.
+        unsafe {
+            command.pre_exec(move || {
+                let mut ends = [-1i32; 2];
+                if libc::pipe(ends.as_mut_ptr()) != 0
+                    || libc::fcntl(ends[1], libc::F_SETFL, libc::O_NONBLOCK) != 0
+                {
+                    return Err(std::io::Error::last_os_error());
+                }
+                let [reader, writer] = ends;
+                let mut written = 0;
+                while written < bytes.len() {
+                    let pending = &bytes[written..];
+                    let answer = libc::write(writer, pending.as_ptr().cast(), pending.len());
+                    match usize::try_from(answer) {
+                        Ok(count) if count > 0 => written += count,
+                        _ => break,
+                    }
+                }
+                if written < at_least {
+                    return Err(std::io::Error::from_raw_os_error(libc::EMSGSIZE));
+                }
+                if kept != Writer::LeftOpen {
+                    libc::close(writer);
+                } else if writer == AT && libc::fcntl(writer, libc::F_DUPFD, AT + 1) < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                if reader != AT {
+                    if libc::dup2(reader, AT) < 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    libc::close(reader);
+                }
+                inherit_at()
+            });
+        }
+    }
+
+    /// `dup2` onto the same number changes nothing, so the flag is cleared here on every path.
+    ///
+    /// # Safety
+    /// For the new child: `fcntl` is async-signal-safe.
+    unsafe fn inherit_at() -> std::io::Result<()> {
+        // SAFETY: this sets one flag, and takes no pointer.
+        if unsafe { libc::fcntl(AT, libc::F_SETFD, 0) } != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(())
+    }
+
+    /// This process's own descriptor, at [`AT`] in the child alone.
+    fn hand_at(command: &mut Command, source: &std::fs::File) {
+        hand_number_at(command, source.as_raw_fd());
+    }
+
+    /// A file from `reopen` is close-on-exec from its open, so no sibling keeps it past its exec,
+    /// and nothing waits for this one to close.
+    fn hand_number_at(command: &mut Command, source: i32) {
+        // SAFETY: `dup2` and `fcntl` are async-signal-safe, and [`AT`] is replaced in the child.
+        unsafe {
+            command.pre_exec(move || {
+                if libc::dup2(source, AT) < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                inherit_at()
+            });
+        }
+    }
+
+    /// A refusal for this reason: not zero, soon, in a fixed sentence with no secret, and no
+    /// provider call. The reason matters: a handoff that never reached the child is refused too.
+    fn assert_refused(label: &str, reason: &str, build: impl Fn(&mut Command)) {
+        let workspace = tempfile::tempdir().unwrap();
+        let provider = FakeProvider::start();
+        let mut command = super::command(workspace.path());
+        command.args(lm_studio_arguments(&provider.url));
+        build(&mut command);
+        let mut child = command.spawn().unwrap();
+        let started = Instant::now();
+        let status = loop {
+            if let Some(status) = child.try_wait().unwrap() {
+                break status;
+            }
+            assert!(
+                started.elapsed() < Duration::from_secs(20),
+                "{label}: it did not end"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        let output = child.wait_with_output().unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(!status.success(), "{label}: {stderr}");
+        assert_eq!(
+            stderr,
+            format!("error: the startup credential handoff failed: {reason}\n"),
+            "{label}"
+        );
+        assert!(!stderr.contains(DUMMY), "{label}: {stderr}");
+        assert!(output.stdout.is_empty(), "{label}");
+        assert!(
+            provider.drain().is_empty(),
+            "{label}: a provider was called"
+        );
+    }
+
+    #[test]
+    fn a_marker_that_names_no_usable_pipe_stops_the_start() {
+        for marker in ["", "x", "-1", "03", "0", "1", "2", "99999999999"] {
+            assert_refused(marker, "the handoff descriptor is not valid", |command| {
+                command.env(MARKER, marker);
+            });
+        }
+        assert_refused("77", "the handoff descriptor is not open", |command| {
+            command.env(MARKER, "77");
+        });
+    }
+
+    #[test]
+    fn a_descriptor_that_is_not_a_pipe_stops_the_start() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let file = file.reopen().unwrap();
+        assert_refused("a file", NOT_A_PIPE, |command| {
+            hand_at(command, &file);
+            command.env(MARKER, AT.to_string());
+        });
+    }
+
+    /// The right bytes on the wrong kind of descriptor: only the kind can refuse this one.
+    #[test]
+    fn a_file_holding_a_good_handoff_stops_the_start() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), frame(&[("OPENAI_API_KEY", DUMMY)])).unwrap();
+        let file = file.reopen().unwrap();
+        assert_refused("a file holding a good handoff", NOT_A_PIPE, |command| {
+            hand_at(command, &file);
+            command.env(MARKER, AT.to_string());
+        });
+    }
+
+    #[test]
+    fn a_handoff_that_is_not_well_formed_stops_the_start() {
+        let good = frame(&[("OPENAI_API_KEY", DUMMY)]);
+        let mut trailing = good.clone();
+        trailing.push(0);
+        for (label, bytes) in [
+            ("empty", Vec::new()),
+            ("words", b"not a frame".to_vec()),
+            ("cut", good[..good.len() - 1].to_vec()),
+            ("trailing", trailing),
+        ] {
+            assert_refused(label, "the handoff is not well formed", |command| {
+                hand_pipe_at(command, bytes.clone(), Writer::Closed);
+                command.env(MARKER, AT.to_string());
+            });
+        }
+    }
+
+    /// More than the bound, however much the pipe took: what it took already exceeds it.
+    #[test]
+    fn a_handoff_over_the_bound_stops_the_start() {
+        assert_refused(
+            "over the bound",
+            "the handoff exceeds the bound",
+            |command| {
+                hand_pipe_at(command, vec![b'x'; 64 * 1024], Writer::Filled);
+                command.env(MARKER, AT.to_string());
+            },
+        );
+    }
+
+    /// A writer that never closes: the start ends on it instead of waiting for it. The child
+    /// itself holds it, so it stays open for exactly as long as the start could wait.
+    #[test]
+    fn a_handoff_whose_writer_stays_open_stops_the_start_without_waiting() {
+        for bytes in [Vec::new(), frame(&[("OPENAI_API_KEY", DUMMY)])] {
+            assert_refused("an open writer", THE_WRITER_STAYED, |command| {
+                hand_pipe_at(command, bytes.clone(), Writer::LeftOpen);
+                command.env(MARKER, AT.to_string());
+            });
+        }
+    }
+
+    /// The marker is not proof of a clean environment.
+    #[test]
+    fn a_marker_beside_a_credential_in_the_environment_stops_the_start() {
+        for bytes in [
+            frame(&[]),
+            frame(&[("OPENAI_API_KEY", "another-dummy-value")]),
+        ] {
+            assert_refused(
+                "a credential beside the marker",
+                "a credential is still in the environment",
+                |command| {
+                    hand_pipe_at(command, bytes.clone(), Writer::Closed);
+                    command
+                        .env(MARKER, AT.to_string())
+                        .env("OPENAI_API_KEY", DUMMY);
+                },
+            );
+        }
+    }
+
+    #[test]
+    fn a_handoff_holding_a_name_this_run_does_not_use_stops_the_start() {
+        assert_refused(
+            "another name",
+            "the handoff holds a name that is not a credential of this run",
+            |command| {
+                hand_pipe_at(command, frame(&[("PATH", DUMMY)]), Writer::Closed);
+                command.env(MARKER, AT.to_string());
+            },
+        );
+    }
+
+    /// Too much for the handoff is a refusal, and the credential did not stay in the environment
+    /// because the process ended with it there and started nothing.
+    #[test]
+    fn a_credential_over_the_bound_stops_the_start() {
+        assert_refused(
+            "a large value",
+            "the credentials exceed the bound",
+            |command| {
+                command.env("OPENAI_API_KEY", format!("{DUMMY}{}", "x".repeat(20_000)));
+            },
+        );
+    }
+
+    /// The witness for all of these: a good handoff, by hand, starts and reaches the provider.
+    #[test]
+    fn a_good_handoff_by_hand_starts() {
+        let workspace = tempfile::tempdir().unwrap();
+        let provider = FakeProvider::start();
+        let mut command = super::command(workspace.path());
+        command
+            .args(lm_studio_arguments(&provider.url))
+            .env(MARKER, AT.to_string());
+        hand_pipe_at(
+            &mut command,
+            frame(&[("LM_STUDIO_API_TOKEN", DUMMY)]),
+            Writer::Closed,
+        );
+        let child = command.spawn().unwrap();
+        let first = provider.wait_for_request();
+        stop(child);
+        let expected = format!("Bearer {DUMMY}");
+        assert!(authorization_of(&[first]).contains(&expected));
+    }
+
+    /// The marker of a control taken out says one word of the source. Any other value beside a
+    /// handoff, forged, cut, or of another case, stops the start: it is never read as a word, and
+    /// never as a name. The witness: the exact word, by hand, is kept, and the run is refused for
+    /// the control it says was taken, with no provider called.
+    #[test]
+    fn a_marker_of_a_control_other_than_the_starts_word_stops_the_start() {
+        const TAKEN_OUT: &str = "COMMANDAGENT_BOOT_TAKEN_OUT";
+        const WORD: &str = "a-control-of-the-run-budget";
+        for forged in [
+            "",
+            "a-control-of-the-run-budgetX",
+            "a-control-of-the-run-budge",
+            "A-CONTROL-OF-THE-RUN-BUDGET",
+            " a-control-of-the-run-budget",
+            "COMMANDAGENT_RUN_BUDGET",
+            "yes",
+        ] {
+            assert_refused(
+                forged,
+                "the handoff's marker is not the start's word",
+                |command| {
+                    hand_pipe_at(
+                        command,
+                        frame(&[("LM_STUDIO_API_TOKEN", DUMMY)]),
+                        Writer::Closed,
+                    );
+                    command.env(MARKER, AT.to_string()).env(TAKEN_OUT, forged);
+                },
+            );
+        }
+
+        let workspace = tempfile::tempdir().unwrap();
+        let provider = FakeProvider::start();
+        let mut command = super::command(workspace.path());
+        command
+            .args(lm_studio_arguments(&provider.url))
+            .env(MARKER, AT.to_string())
+            .env(TAKEN_OUT, WORD);
+        hand_pipe_at(
+            &mut command,
+            frame(&[("LM_STUDIO_API_TOKEN", DUMMY)]),
+            Writer::Closed,
+        );
+        let output = command.output().unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(2), "{stderr}");
+        assert!(
+            stderr.contains("the run budget refused the entry: KeyIsControl"),
+            "{stderr}"
+        );
+        assert!(!stderr.contains(DUMMY), "{stderr}");
+        assert!(provider.drain().is_empty(), "a provider was called");
+    }
+
+    /// The numbers below [`AT`] and just above it, filled or freed in the child so that its next
+    /// `pipe()` lands where a test wants it. The filling closes at the exec.
+    fn free_only(command: &mut Command, free: [i32; 2]) {
+        // SAFETY: `close`, `dup2` and `fcntl` are async-signal-safe, and this is the new child.
+        unsafe {
+            command.pre_exec(move || {
+                for number in 3..=free[1] {
+                    if free.contains(&number) {
+                        libc::close(number);
+                    } else if libc::dup2(0, number) < 0
+                        || libc::fcntl(number, libc::F_SETFD, libc::FD_CLOEXEC) != 0
+                    {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                }
+                Ok(())
+            });
+        }
+    }
+
+    /// The first request of a start handed its pipe by `build`, or a failure.
+    fn assert_starts(build: impl Fn(&mut Command)) {
+        let workspace = tempfile::tempdir().unwrap();
+        let provider = FakeProvider::start();
+        let mut command = super::command(workspace.path());
+        command
+            .args(lm_studio_arguments(&provider.url))
+            .env(MARKER, AT.to_string());
+        build(&mut command);
+        let child = command.spawn().unwrap();
+        let first = provider.wait_for_request();
+        stop(child);
+        let expected = format!("Bearer {DUMMY}");
+        assert!(authorization_of(&[first]).contains(&expected));
+    }
+
+    /// `pipe()` may give either end the number the handoff goes to.
+    #[test]
+    fn a_pipe_end_already_at_the_number_still_hands_off() {
+        let good = || frame(&[("LM_STUDIO_API_TOKEN", DUMMY)]);
+        assert_starts(|command| {
+            free_only(command, [AT, AT + 1]);
+            hand_pipe_at(command, good(), Writer::Closed);
+        });
+        assert_starts(|command| {
+            free_only(command, [AT - 1, AT]);
+            hand_pipe_at(command, good(), Writer::Closed);
+        });
+        assert_refused("a writer at the number", THE_WRITER_STAYED, |command| {
+            free_only(command, [AT - 1, AT]);
+            hand_pipe_at(command, good(), Writer::LeftOpen);
+            command.env(MARKER, AT.to_string());
+        });
+    }
+
+    /// A file that already has the number is still there after the exec, and is refused for what
+    /// it is. Refused as not open, it would say nothing about its kind.
+    #[test]
+    fn a_source_already_at_the_number_reaches_the_child() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let file = file.reopen().unwrap();
+        let source = file.as_raw_fd();
+        assert_refused("already at the number", NOT_A_PIPE, |command| {
+            // SAFETY: `dup2` and `fcntl` are async-signal-safe, and this is the new child.
+            unsafe {
+                command.pre_exec(move || {
+                    if libc::dup2(source, AT) < 0
+                        || libc::fcntl(AT, libc::F_SETFD, libc::FD_CLOEXEC) != 0
+                    {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    Ok(())
+                });
+            }
+            hand_number_at(command, AT);
+            command.env(MARKER, AT.to_string());
+        });
+    }
+
+    /// Each numbered descriptor of `lsof -Fft`'s answer and its type, or why the answer says
+    /// nothing. Named ones such as `cwd` have the same shape and are not numbers.
+    fn read_listing(
+        pid: u32,
+        succeeded: bool,
+        listing: &str,
+    ) -> Result<BTreeMap<i32, String>, String> {
+        if !succeeded {
+            return Err("the listing failed".to_string());
+        }
+        let mut lines = listing.lines();
+        if lines.next() != Some(format!("p{pid}").as_str()) {
+            return Err("the listing is not of this process".to_string());
+        }
+        let mut types = BTreeMap::new();
+        while let Some(line) = lines.next() {
+            let name = line
+                .strip_prefix('f')
+                .ok_or_else(|| format!("not a descriptor: {line}"))?;
+            let kind = lines
+                .next()
+                .and_then(|line| line.strip_prefix('t'))
+                .ok_or_else(|| format!("no type for {name}"))?;
+            if let Ok(number) = name.parse::<i32>()
+                && types.insert(number, kind.to_string()).is_some()
+            {
+                return Err(format!("{number} is listed twice"));
+            }
+        }
+        if types.is_empty() {
+            return Err("no descriptor is listed".to_string());
+        }
+        Ok(types)
+    }
+
+    /// One look at every descriptor of a live process. Not being able to look is a failure, and
+    /// never "that number is not open".
+    fn descriptors_of(pid: u32) -> BTreeMap<i32, String> {
+        let listing = Command::new("/usr/sbin/lsof")
+            .args(["-nP", "-a", "-p", &pid.to_string(), "-Fft"])
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin:/usr/sbin")
+            .output()
+            .unwrap();
+        read_listing(
+            pid,
+            listing.status.success(),
+            &String::from_utf8_lossy(&listing.stdout),
+        )
+        .unwrap_or_else(|reason| panic!("the descriptors of {pid} were not read: {reason}"))
+    }
+
+    /// Whether the handoff's reader is still at its number. A reader left open keeps the number,
+    /// so a later open can only have it once the reader is gone: another kind there means gone.
+    /// A later pipe there reads as the reader, which fails the test and hides nothing.
+    fn holds_the_handoff(descriptors: &BTreeMap<i32, String>) -> bool {
+        descriptors.get(&AT).is_some_and(|kind| kind == "PIPE")
+    }
+
+    #[test]
+    fn a_listing_is_read_only_when_it_says_what_it_should() {
+        let at = format!("f{AT}");
+        let read = |lines: &[&str]| read_listing(7, true, &lines.join("\n"));
+        for bad in [
+            &[][..],
+            &["p8", "f1", "tPIPE"],
+            &["p7"],
+            &["p7", "f1"],
+            &["p7", "tPIPE"],
+            &["p7", "f1", "nsomething"],
+            &["p7", "f1", "tPIPE", "f1", "tPIPE"],
+        ] {
+            assert!(read(bad).is_err(), "{bad:?}");
+        }
+        assert!(read_listing(7, false, "p7\nf1\ntPIPE").is_err());
+
+        let closed = read(&["p7", "fcwd", "tDIR", "f1", "tPIPE"]).unwrap();
+        assert_eq!(closed[&1], "PIPE");
+        assert!(!holds_the_handoff(&closed));
+        let reused = read(&["p7", &at, "tREG"]).unwrap();
+        assert!(!holds_the_handoff(&reused));
+        let open = read(&["p7", &at, "tPIPE"]).unwrap();
+        assert!(holds_the_handoff(&open));
+    }
+
+    /// Once the start is done, the handoff's reader is gone from this real process. Stdout is a
+    /// pipe here too, and it is in the same listing: this look can see a pipe.
+    #[test]
+    fn the_handoff_descriptor_is_closed_after_the_start() {
+        let workspace = tempfile::tempdir().unwrap();
+        let provider = FakeProvider::holding();
+        let mut command = super::command(workspace.path());
+        command
+            .args(lm_studio_arguments(&provider.url))
+            .env(MARKER, AT.to_string());
+        hand_pipe_at(
+            &mut command,
+            frame(&[("LM_STUDIO_API_TOKEN", DUMMY)]),
+            Writer::Closed,
+        );
+        let child = command.spawn().unwrap();
+        let pid = child.id();
+        provider.wait_for_request();
+        let descriptors = descriptors_of(pid);
+        stop(child);
+        assert_eq!(descriptors[&1], "PIPE");
+        assert!(!holds_the_handoff(&descriptors));
+    }
+
+    /// A caller that closed stdin gave the pipe a low number. The start moves it up.
+    #[test]
+    fn a_closed_standard_stream_does_not_stop_the_start() {
+        let workspace = tempfile::tempdir().unwrap();
+        let provider = FakeProvider::start();
+        let mut command = super::command(workspace.path());
+        command
+            .args(lm_studio_arguments(&provider.url))
+            .env("OPENAI_API_KEY", DUMMY);
+        // SAFETY: `close` is async-signal-safe, and this runs in the new child.
+        unsafe {
+            command.pre_exec(|| {
+                libc::close(0);
+                Ok(())
+            });
+        }
+        let child = command.spawn().unwrap();
+        provider.wait_for_request();
+        stop(child);
+    }
+
+    /// A credential large enough to need several writes still fits under the bound.
+    #[test]
+    fn a_large_credential_within_the_bound_starts() {
+        let workspace = tempfile::tempdir().unwrap();
+        let provider = FakeProvider::start();
+        let value = format!("{DUMMY}{}", "x".repeat(8 * 1024));
+        let child = super::command(workspace.path())
+            .args(lm_studio_arguments(&provider.url))
+            .env("LM_STUDIO_API_TOKEN", &value)
+            .spawn()
+            .unwrap();
+        provider.wait_for_request();
+        stop(child);
+    }
+}
+
+/// The real server delegating to the real CLI, with a dummy key and a fake on 127.0.0.1.
+#[cfg(feature = "gui")]
+mod gui_delegation {
+    use std::io::BufRead as _;
+    use std::net::TcpStream;
+    use std::time::Instant;
+
+    use super::*;
+
+    const ACCESS: &str = "startup-credential-gui-test-token-0000001";
+
+    /// A provider that answers a model list, and holds the first request that carries a key
+    /// without answering it, so the process that sent it stays as it is while it is read.
+    struct HoldingProvider {
+        url: String,
+        carrying_a_key: mpsc::Receiver<(u16, String, TcpStream)>,
+    }
+
+    impl HoldingProvider {
+        fn start() -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let url = format!("http://{}", listener.local_addr().unwrap());
+            let (sender, carrying_a_key) = mpsc::channel();
+            std::thread::spawn(move || {
+                for mut stream in listener.incoming().flatten() {
+                    let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+                    let mut heard = [0u8; 8192];
+                    let read = stream.read(&mut heard).unwrap_or(0);
+                    let request = String::from_utf8_lossy(&heard[..read]).into_owned();
+                    let peer = stream.peer_addr().map_or(0, |address| address.port());
+                    if !authorization_of(std::slice::from_ref(&request)).is_empty() {
+                        let _ = sender.send((peer, request, stream));
+                        continue;
+                    }
+                    let body = r#"{"data":[{"id":"m"}]}"#;
+                    let _ = write!(
+                        stream,
+                        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                }
+            });
+            Self {
+                url,
+                carrying_a_key,
+            }
+        }
+    }
+
+    /// The direct children of a process, for the end of a test.
+    fn children_of(parent: u32) -> Vec<u32> {
+        let Ok(listing) = Command::new("ps")
+            .args(["-A", "-o", "pid=,ppid="])
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin")
+            .output()
+        else {
+            return Vec::new();
+        };
+        String::from_utf8_lossy(&listing.stdout)
+            .lines()
+            .filter_map(|line| {
+                let mut columns = line.split_whitespace();
+                let pid = columns.next()?.parse().ok()?;
+                let ppid: u32 = columns.next()?.parse().ok()?;
+                (ppid == parent).then_some(pid)
+            })
+            .collect()
+    }
+
+    /// The server, stopped with its delegated children however the test ends.
+    struct Gui {
+        _directory: tempfile::TempDir,
+        server: Child,
+        port: u16,
+        /// The created session's stop request, for the server to stop what it started.
+        stop: std::cell::RefCell<Option<(String, serde_json::Value)>>,
+    }
+
+    impl Drop for Gui {
+        fn drop(&mut self) {
+            if let Some((path, body)) = self.stop.take() {
+                let _ = self.send(&path, &body);
+                let deadline = Instant::now() + Duration::from_secs(20);
+                while !children_of(self.server.id()).is_empty() && Instant::now() < deadline {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+            }
+            let _ = self.server.kill();
+            let _ = self.server.wait();
+        }
+    }
+
+    impl Gui {
+        fn start(provider_url: &str) -> Self {
+            let directory = tempfile::tempdir().unwrap();
+            let root = directory.path().canonicalize().unwrap();
+            let (workspace, statics) = (root.join("workspace"), root.join("out"));
+            for path in [&workspace, &statics] {
+                std::fs::create_dir_all(path).unwrap();
+            }
+            std::fs::write(statics.join("index.html"), "<html></html>").unwrap();
+            std::fs::write(
+                statics.join("commandagent-gui-contract.json"),
+                include_str!("../gui/public/commandagent-gui-contract.json"),
+            )
+            .unwrap();
+            let mut server = Command::new(env!("CARGO_BIN_EXE_gui_server"))
+                .args([
+                    "--port",
+                    "0",
+                    "--base-path",
+                    "/",
+                    "--trial-token-auth",
+                    "on",
+                ])
+                .arg("--repository-root")
+                .arg(env!("CARGO_MANIFEST_DIR"))
+                .arg("--static-dir")
+                .arg(&statics)
+                .arg("--execution-root")
+                .arg(&workspace)
+                .arg("--commandagent-bin")
+                .arg(env!("CARGO_BIN_EXE_commandagent"))
+                .args(["--ollama-host", provider_url])
+                .args(["--lm-studio-host", provider_url])
+                .env_clear()
+                .env("HOME", &root)
+                .env("PATH", "/usr/bin:/bin")
+                .env("GUI_TRIAL_TOKEN", ACCESS)
+                .env("LM_STUDIO_API_TOKEN", DUMMY)
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap();
+            let mut stdout = std::io::BufReader::new(server.stdout.take().unwrap());
+            let mut line = String::new();
+            let port = loop {
+                line.clear();
+                let read = stdout.read_line(&mut line).unwrap();
+                assert_ne!(read, 0, "the server ended before it listened");
+                if let Some(port) = line
+                    .split("127.0.0.1:")
+                    .nth(1)
+                    .and_then(|tail| tail.split('/').next())
+                    .and_then(|port| port.trim().parse().ok())
+                {
+                    break port;
+                }
+            };
+            std::thread::spawn(move || {
+                let mut sink = String::new();
+                while matches!(stdout.read_line(&mut sink), Ok(read) if read > 0) {
+                    sink.clear();
+                }
+            });
+            Self {
+                _directory: directory,
+                server,
+                port,
+                stop: std::cell::RefCell::new(None),
+            }
+        }
+
+        fn post(&self, path: &str, body: &serde_json::Value) -> serde_json::Value {
+            let response = self.send(path, body).unwrap();
+            let (head, payload) = response.split_once("\r\n\r\n").unwrap();
+            assert!(head.starts_with("HTTP/1.1 2"), "{head}\n{payload}");
+            serde_json::from_str(payload).unwrap()
+        }
+
+        fn send(&self, path: &str, body: &serde_json::Value) -> std::io::Result<String> {
+            let mut stream = TcpStream::connect(("127.0.0.1", self.port))?;
+            let body = body.to_string();
+            write!(
+                stream,
+                "POST {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nOrigin: http://127.0.0.1:{port}\r\nAuthorization: Bearer {ACCESS}\r\nContent-Type: application/json\r\nContent-Length: {length}\r\nConnection: close\r\n\r\n{body}",
+                port = self.port,
+                length = body.len(),
+            )?;
+            let mut response = String::new();
+            stream.read_to_string(&mut response)?;
+            Ok(response)
+        }
+
+        /// Create one session, which starts the delegated CLI.
+        fn delegate(&self) {
+            let mut spec = serde_json::json!({
+                "goal": "Create a CLI --pattern filter command",
+                "profile": "python-cli",
+                "provider": "lm-studio",
+                "model": "m",
+                "planner_provider": "lm-studio",
+                "planner_model": "m",
+            });
+            let proposal = self.post("/api/session-proposals", &spec);
+            spec["confirmation_hash"] = proposal["card_hash"].clone();
+            let created = self.post("/api/sessions", &spec);
+            let id = created["id"].as_str().unwrap();
+            *self.stop.borrow_mut() = Some((
+                format!("/api/sessions/{id}/stop"),
+                serde_json::json!({ "generation": created["process_generation"] }),
+            ));
+        }
+    }
+
+    /// The key the server received reaches the provider from the CLI it delegated to.
+    #[test]
+    fn a_delegated_cli_authenticates_with_the_key_the_server_received() {
+        let provider = HoldingProvider::start();
+        let gui = Gui::start(&provider.url);
+        gui.delegate();
+        let (_, request, _held) = provider
+            .carrying_a_key
+            .recv_timeout(Duration::from_secs(60))
+            .expect("no request carried a key");
+        let expected = format!("Bearer {DUMMY}");
+        assert!(authorization_of(&[request]).contains(&expected));
+    }
+
+    /// The server's own request for the model list carries the key it received, for this one
+    /// header. It comes from the server itself: nothing was delegated here.
+    #[test]
+    fn the_model_list_request_carries_the_token_the_server_received() {
+        let provider = HoldingProvider::start();
+        let gui = Gui::start(&provider.url);
+        let port = gui.port;
+        std::thread::spawn(move || {
+            let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
+            let _ = write!(
+                stream,
+                "GET /api/provider-models?provider=lm-studio HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
+            );
+            let _ = stream.read_to_end(&mut Vec::new());
+        });
+        let (peer, request, _held) = provider
+            .carrying_a_key
+            .recv_timeout(Duration::from_secs(60))
+            .expect("the model list request carried no key");
+        assert!(request.starts_with("GET /v1/models "), "the path");
+        let expected = format!("Bearer {DUMMY}");
+        assert!(authorization_of(&[request]).contains(&expected));
+        #[cfg(target_os = "macos")]
+        assert_eq!(owner_of_connection(peer), gui.server.id());
+        let _ = peer;
+        assert!(children_of(gui.server.id()).is_empty());
+    }
+
+    /// The process that holds this connection, other than this test.
+    #[cfg(target_os = "macos")]
+    fn owner_of_connection(peer: u16) -> u32 {
+        let listing = Command::new("/usr/sbin/lsof")
+            .args(["-nP", &format!("-iTCP:{peer}"), "-sTCP:ESTABLISHED", "-Fp"])
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin:/usr/sbin")
+            .output()
+            .unwrap();
+        let owners = String::from_utf8_lossy(&listing.stdout)
+            .lines()
+            .filter_map(|line| line.strip_prefix('p')?.parse::<u32>().ok())
+            .filter(|pid| *pid != std::process::id())
+            .collect::<Vec<_>>();
+        assert_eq!(owners.len(), 1, "{owners:?}");
+        owners[0]
+    }
+
+    /// Once the delegated CLI has reached the provider, the key is not in its exec-time area,
+    /// and it was never left in the server's. It is the process that sent the request, a child
+    /// of this server, running what the server delegates.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn neither_the_delegated_cli_nor_the_server_keeps_the_key_in_its_exec_time_area() {
+        let provider = HoldingProvider::start();
+        let gui = Gui::start(&provider.url);
+        gui.delegate();
+        let (peer, _, _held) = provider
+            .carrying_a_key
+            .recv_timeout(Duration::from_secs(60))
+            .expect("no request carried a key");
+        let child = owner_of_connection(peer);
+        assert!(children_of(gui.server.id()).contains(&child));
+        let child_area = procargs::read(child);
+        let server_area = procargs::read(gui.server.id());
+        assert!(!procargs::holds(&child_area.raw, DUMMY), "the child's area");
+        assert!(
+            !procargs::holds(&server_area.raw, DUMMY),
+            "the server's area"
+        );
+        assert!(
+            child_area
+                .argv
+                .iter()
+                .any(|argument| argument == b"--ultra-plan-run"),
+            "it is not the delegated CLI"
+        );
+        assert!(
+            server_area
+                .env
+                .iter()
+                .any(|row| row.starts_with(b"COMMANDAGENT_BOOT_FD=")),
+            "the server did not go through its start"
+        );
+    }
+
+    /// The version check runs a program that records the environment it got. It got the
+    /// ordinary names and no credential.
+    #[test]
+    fn a_version_check_gets_no_credential() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().canonicalize().unwrap();
+        let recorded = root.join("recorded-env");
+        let program = root.join("recording-commandagent");
+        std::fs::write(
+            &program,
+            format!(
+                "#!/bin/sh\nenv > '{}'\nprintf 'commandagent 0.1.0 test\\n'\n",
+                recorded.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let statics = root.join("out");
+        std::fs::create_dir_all(&statics).unwrap();
+        let _output = Command::new(env!("CARGO_BIN_EXE_gui_server"))
+            .args(["--check", "--json"])
+            .arg("--repository-root")
+            .arg(&root)
+            .arg("--static-dir")
+            .arg(&statics)
+            .arg("--commandagent-bin")
+            .arg(&program)
+            .env_clear()
+            .env("HOME", &root)
+            .env("PATH", "/usr/bin:/bin")
+            .env("OPENAI_API_KEY", DUMMY)
+            .env("GEMINI_API_KEY", DUMMY)
+            .env("LM_STUDIO_API_TOKEN", DUMMY)
+            .output()
+            .unwrap();
+        let environment = std::fs::read_to_string(&recorded).expect("the check ran the program");
+        assert!(environment.contains("PATH="));
+        assert!(!environment.contains(DUMMY));
+        assert!(!environment.contains("_API_KEY"));
+        assert!(!environment.contains("LM_STUDIO_API_TOKEN"));
+    }
+}
+
+#[test]
+fn a_command_line_that_does_not_parse_still_says_only_what_it_said() {
+    let workspace = tempfile::tempdir().unwrap();
+    let output = run_to_end(workspace.path(), |command| {
+        command
+            .args(["--api-key-env", "AUTH", "--no-such-flag"])
+            .env("AUTH", DUMMY);
+    });
+    assert!(!output.status.success());
+    assert!(!String::from_utf8_lossy(&output.stderr).contains(DUMMY));
+}
+
+// ---- a key name a preset expands from a credential, and the marker of the run budget (S1) ----
+
+/// A dummy credential whose value has the shape of a variable's name, so that a preset's
+/// `api_key_env = "${LM_STUDIO_API_TOKEN}"` takes it as the key's name.
+#[cfg(target_os = "macos")]
+const NAME_SHAPED: &str = "Z976AlphaCredentialValueX42";
+
+/// A workspace whose selected preset `ref976` names its key by `api_key_env`.
+#[cfg(target_os = "macos")]
+fn preset_workspace(api_key_env: &str) -> tempfile::TempDir {
+    let workspace = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(workspace.path().join(".commandagent")).unwrap();
+    std::fs::write(
+        workspace.path().join(".commandagent/config.toml"),
+        format!("[preset.ref976]\napi_key_env = \"{api_key_env}\"\n"),
+    )
+    .unwrap();
+    workspace
+}
+
+/// #974 after #976: a preset's key name expanded from a credential is that credential's value,
+/// and nothing the start writes for its exec holds it. Read as in the test of the exec-time area
+/// above: argv, every variable, and the raw area hold no part of it, and the only marker of the
+/// start there is the descriptor's number. The witness of the read is that test's own witness.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_key_name_expanded_from_a_credential_is_not_in_the_exec_time_area() {
+    for api_key_env in ["${LM_STUDIO_API_TOKEN}", "GATEWAY_KEY_976"] {
+        let workspace = preset_workspace(api_key_env);
+        let provider = FakeProvider::holding();
+        let child = command(workspace.path())
+            .args(["--preset", "ref976"])
+            .args(lm_studio_arguments(&provider.url))
+            .env("LM_STUDIO_API_TOKEN", NAME_SHAPED)
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        provider.wait_for_request();
+        let area = procargs::read(pid);
+        stop(child);
+        assert!(!procargs::holds(&area.raw, NAME_SHAPED), "{api_key_env}");
+        assert!(
+            area.argv
+                .iter()
+                .all(|argument| !procargs::holds(argument, NAME_SHAPED)),
+            "{api_key_env}"
+        );
+        let boot = area
+            .env
+            .iter()
+            .filter(|row| row.starts_with(b"COMMANDAGENT_BOOT"))
+            .map(|row| String::from_utf8_lossy(row).into_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(boot.len(), 1, "{api_key_env}: {boot:?}");
+        assert!(boot[0].starts_with("COMMANDAGENT_BOOT_FD="), "{boot:?}");
+    }
+}
+
+/// A library put in the binary by `DYLD_INSERT_LIBRARIES`, which this test builds, reports the
+/// names of the environment when each image of the process starts (before `main`: step 0's, then
+/// step 1's after the exec) and when the process ends. Of values it writes only the marker's,
+/// which is never a credential. Nothing in the binary is added for it.
+#[cfg(target_os = "macos")]
+const REPORTER: &str = r#"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+extern char **environ;
+static void report(const char *when) {
+    const char *path = getenv("CA976_ENV_REPORT");
+    if (!path) return;
+    FILE *file = fopen(path, "a");
+    if (!file) return;
+    fprintf(file, "--%s--\n", when);
+    for (char **entry = environ; *entry; ++entry) {
+        const char *equals = strchr(*entry, '=');
+        size_t length = equals ? (size_t)(equals - *entry) : strlen(*entry);
+        fwrite(*entry, 1, length, file);
+        if (equals && strncmp(*entry, "COMMANDAGENT_BOOT_TAKEN_OUT=", length + 1) == 0) {
+            fputs(equals, file);
+        }
+        fputc('\n', file);
+    }
+    fclose(file);
+}
+__attribute__((constructor)) static void at_start(void) { report("start"); }
+__attribute__((destructor)) static void at_end(void) { report("end"); }
+"#;
+
+/// The compiler of the reporter: the one place it is named in code.
+#[cfg(target_os = "macos")]
+const COMPILER: &str = "/usr/bin/cc";
+
+/// The reporter, built once for this test by [`COMPILER`]. Only the compiler is chosen here; all
+/// of the build is [`reporter_built_by`], which the witness below runs with an observer in its
+/// place, so what the compiler is given is what that witness sees.
+#[cfg(target_os = "macos")]
+fn reporter(directory: &Path) -> std::path::PathBuf {
+    reporter_built_by(COMPILER, directory)
+}
+
+/// The build of the reporter by `compiler`, started as [`tool`] starts any program: from a cleared
+/// environment, with nothing added for the SDK (`xcrun` finds it from the system's own setting).
+/// A machine without a working `/usr/bin/cc` (the command line tools) fails here, saying so, and
+/// is never taken for a pass.
+#[cfg(target_os = "macos")]
+fn reporter_built_by(compiler: &str, directory: &Path) -> std::path::PathBuf {
+    let source = directory.join("reporter.c");
+    let library = directory.join("reporter.dylib");
+    std::fs::write(&source, REPORTER).unwrap();
+    let built = tool(compiler, directory)
+        .args(["-dynamiclib", "-o"])
+        .arg(&library)
+        .arg(&source)
+        .output()
+        .unwrap_or_else(|error| {
+            panic!(
+                "this test needs {compiler} to build its reporter, and it did not start: {error}"
+            )
+        });
+    assert!(
+        built.status.success(),
+        "this test needs {compiler} to build its reporter, and it failed: {}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+    library
+}
+
+/// The observer put in the compiler's place: it writes down its environment, its working
+/// directory and its arguments, beside itself, and makes the library it was asked for. Perl adds
+/// nothing to the environment it is given, as a shell would (`PWD`, `SHLVL`, `_`).
+#[cfg(target_os = "macos")]
+const OBSERVER: &str = r#"#!/usr/bin/perl
+use strict;
+use Cwd ();
+my $seen = '<SEEN>';
+open(my $env, '>', "$seen/env.txt") or die "env.txt: $!";
+print $env map { "$_=$ENV{$_}\n" } sort keys %ENV;
+close($env) or die;
+open(my $cwd, '>', "$seen/cwd.txt") or die "cwd.txt: $!";
+print $cwd Cwd::getcwd(), "\n";
+close($cwd) or die;
+open(my $args, '>', "$seen/args.txt") or die "args.txt: $!";
+print $args map { "$_\n" } @ARGV;
+close($args) or die;
+open(my $library, '>', $ARGV[2]) or die "library: $!";
+close($library) or die;
+"#;
+
+#[cfg(target_os = "macos")]
+const COMPILER_DIRECTORY: &str = "CA976_COMPILER_DIRECTORY";
+
+/// Runs only as a child of the test below, whose environment holds a key, a HOME, a TMPDIR and a
+/// PATH of its own: builds the reporter as [`reporter`] does, with the observer as its compiler.
+#[cfg(target_os = "macos")]
+#[test]
+fn the_reporters_compiler_has_nothing_of_the_tests_environment_child() {
+    let Some(directory) = std::env::var_os(COMPILER_DIRECTORY) else {
+        return;
+    };
+    let directory = Path::new(&directory);
+    assert_eq!(
+        std::env::var("OPENAI_API_KEY").as_deref(),
+        Ok(PARENT_SECRET),
+        "the witness: this process has the key"
+    );
+    assert!(
+        Path::new("/usr/bin/perl").is_file(),
+        "this witness needs /usr/bin/perl to run its observer"
+    );
+    let seen = directory.join("seen");
+    std::fs::create_dir(&seen).unwrap();
+    let observer = seen.join("observer.pl");
+    std::fs::write(
+        &observer,
+        OBSERVER.replace("<SEEN>", seen.to_str().unwrap()),
+    )
+    .unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&observer, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let library = reporter_built_by(observer.to_str().unwrap(), directory);
+    assert!(library.is_file(), "the observer made no library");
+}
+
+/// S2 (#976 3b-fix-7): the reporter's own build hands its compiler nothing of the environment the
+/// test was started with. The build [`reporter`] runs is run with an observer in the compiler's
+/// place, from a test given a key, a HOME, a TMPDIR and a PATH: the observer has exactly the three
+/// of [`tool`], none of the test's, works in the build's own directory, and is given the
+/// reporter's arguments. Each of its records has to be there, in a directory new for this test.
+#[cfg(target_os = "macos")]
+#[test]
+fn the_reporters_compiler_has_nothing_of_the_tests_environment() {
+    let directory = tempfile::tempdir().unwrap();
+    let output = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "the_reporters_compiler_has_nothing_of_the_tests_environment_child",
+            "--nocapture",
+        ])
+        .env_clear()
+        .env("OPENAI_API_KEY", PARENT_SECRET)
+        .env("HOME", PARENT_HOME)
+        .env("TMPDIR", PARENT_TMPDIR)
+        .env("PATH", PARENT_PATH)
+        .env(COMPILER_DIRECTORY, directory.path())
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success() && stdout.contains("1 passed"),
+        "{stdout}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let seen = directory.path().join("seen");
+    let read = |name: &str| {
+        std::fs::read_to_string(seen.join(name))
+            .unwrap_or_else(|error| panic!("the observer wrote no {name}: {error}"))
+    };
+    let env = read("env.txt");
+    let cwd = read("cwd.txt");
+    let args = read("args.txt");
+    let mut wrong = Vec::new();
+    for parents in [
+        "OPENAI_API_KEY",
+        PARENT_SECRET,
+        PARENT_HOME,
+        PARENT_TMPDIR,
+        "parent-path-976",
+        COMPILER_DIRECTORY,
+    ] {
+        if env.contains(parents) {
+            wrong.push(format!("the compiler has the test's {parents}"));
+        }
+    }
+    let mut lines = env.lines().map(str::to_string).collect::<Vec<_>>();
+    lines.sort();
+    let expected = vec![
+        format!("HOME={}", directory.path().join("home").display()),
+        "PATH=/usr/bin:/bin".to_string(),
+        format!("TMPDIR={}", directory.path().join("tmp").display()),
+    ];
+    if lines != expected {
+        wrong.push(format!(
+            "the compiler's environment is {lines:?}, not {expected:?}"
+        ));
+    }
+    let own = directory.path().canonicalize().unwrap();
+    if Path::new(cwd.trim_end()) != own {
+        wrong.push(format!("the compiler works in {cwd:?}, not {own:?}"));
+    }
+    let given = args.lines().collect::<Vec<_>>();
+    let library = directory.path().join("reporter.dylib");
+    let source = directory.path().join("reporter.c");
+    let reporters = [
+        "-dynamiclib",
+        "-o",
+        library.to_str().unwrap(),
+        source.to_str().unwrap(),
+    ];
+    if given != reporters {
+        wrong.push(format!(
+            "the compiler is given {given:?}, not {reporters:?}"
+        ));
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// What the witness above sees is what the reporter's build is: [`reporter`] only names the
+/// compiler for [`reporter_built_by`], and no other line of this file names it, so no build of the
+/// reporter goes around the one the witness runs.
+#[cfg(target_os = "macos")]
+#[test]
+fn the_reporter_is_built_only_as_the_witness_builds_it() {
+    const SOURCE: &str = include_str!("startup_credentials.rs");
+    let found = reporter_build_findings(SOURCE);
+    assert!(found.is_empty(), "{found:?}");
+    assert_eq!(COMPILER, ["/usr/bin/", "cc"].concat());
+}
+
+/// The head of [`reporter`], put together so that this line is not one.
+#[cfg(target_os = "macos")]
+fn reporter_head() -> String {
+    [
+        "fn reporter",
+        "(directory: &Path) -> std::path::PathBuf {\n",
+    ]
+    .concat()
+}
+
+/// What is wrong with how `source` builds the reporter. Its head and body are read from the code
+/// alone (see [`code_only`]), and the head is in the whole text once, so a body kept in a comment
+/// or a string is not taken for it.
+#[cfg(target_os = "macos")]
+fn reporter_build_findings(source: &str) -> Vec<String> {
+    let code = code_only(source);
+    let (head, named) = (reporter_head(), format!("{:?}", COMPILER));
+    let mut found = Vec::new();
+    for (what, text, once) in [
+        ("the file", source, &head),
+        ("its code", &code, &head),
+        ("the file", source, &named),
+    ] {
+        let count = text.matches(once.as_str()).count();
+        if count != 1 {
+            found.push(format!("{what} has {once:?} {count} times"));
+        }
+    }
+    if let Some(start) = code.find(&head).map(|at| at + head.len()) {
+        let body = &code[start..start + code[start..].find("\n}\n").unwrap_or(0)];
+        if body.trim() != "reporter_built_by(COMPILER, directory)" {
+            found.push(format!("reporter() is {body:?}"));
+        }
+    }
+    found
+}
+
+/// `source` as code alone: comments (line and block, nested) gone, and each string, byte string,
+/// raw string and character literal left empty, as `""` or `'_'`, so nothing written in one reads
+/// as code.
+#[cfg(target_os = "macos")]
+fn code_only(source: &str) -> String {
+    let mut code = String::with_capacity(source.len());
+    let mut rest = source;
+    while let Some(first) = rest.chars().next() {
+        let after_ident = code.ends_with(|c: char| c.is_alphanumeric() || c == '_');
+        let raw = ["br", "cr", "r"]
+            .iter()
+            .find_map(|prefix| rest.strip_prefix(prefix))
+            .map(|after| (after, after.len() - after.trim_start_matches('#').len()))
+            .filter(|(after, hashes)| !after_ident && after[*hashes..].starts_with('"'));
+        let (length, kept) = if rest.starts_with("//") {
+            (rest.find('\n').unwrap_or(rest.len()), "")
+        } else if rest.starts_with("/*") {
+            let (mut depth, mut at) = (0usize, 0);
+            while at < rest.len() {
+                let opens = rest[at..].starts_with("/*");
+                if opens || rest[at..].starts_with("*/") {
+                    depth = if opens { depth + 1 } else { depth - 1 };
+                    at += 2;
+                    if depth == 0 {
+                        break;
+                    }
+                } else {
+                    at += rest[at..].chars().next().unwrap().len_utf8();
+                }
+            }
+            (at, " ")
+        } else if let Some((after, hashes)) = raw {
+            let open = rest.len() - after.len() + hashes + 1;
+            let close = ["\"", &"#".repeat(hashes)].concat();
+            let end = rest[open..].find(&close).map(|at| open + at + close.len());
+            (end.unwrap_or(rest.len()), "\"\"")
+        } else if first == '"' {
+            let mut escaped = false;
+            let end = rest[1..].find(|c| {
+                let ends = c == '"' && !escaped;
+                escaped = c == '\\' && !escaped;
+                ends
+            });
+            (end.map_or(rest.len(), |at| at + 2), "\"\"")
+        } else if first == '\'' && rest[1..].starts_with('\\') {
+            (rest[3..].find('\'').map_or(rest.len(), |at| at + 4), "'_'")
+        } else if first == '\'' && rest[1..].chars().nth(1) == Some('\'') {
+            (2 + rest[1..].chars().next().unwrap().len_utf8(), "'_'")
+        } else {
+            (first.len_utf8(), &rest[..first.len_utf8()])
+        };
+        code.push_str(kept);
+        rest = &rest[length..];
+    }
+    code
+}
+
+/// The witness's control: a body of [`reporter`] kept in a comment or a string, beside a reporter
+/// that is built another way, is found. A check that reads the first head it finds in the text
+/// would take the kept body for the reporter's and pass each of these.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_reporter_body_in_a_comment_or_a_string_is_not_the_reporters() {
+    const SOURCE: &str = include_str!("startup_credentials.rs");
+    let head = reporter_head();
+    let real = [
+        head.as_str(),
+        "    reporter_built_by(COMPILER, directory)\n}\n",
+    ]
+    .concat();
+    assert_eq!(SOURCE.matches(&real).count(), 1);
+    let other = real.replace("COMPILER", "\"/tmp/cc\"");
+    let renamed = other.replace("std::path::PathBuf", "PathBuf");
+    let rows = [
+        ("a block comment", format!("/*\n{real}*/\n"), &other),
+        (
+            "a nested block comment",
+            format!("/* /* */\n{real}*/\n"),
+            &other,
+        ),
+        (
+            "a string",
+            format!("const KEPT: &str = \"{real}\";\n"),
+            &other,
+        ),
+        (
+            "a block comment, a new head",
+            format!("/*\n{real}*/\n"),
+            &renamed,
+        ),
+        // The real head spelled anew for the same type, and the old one kept in a raw string.
+        (
+            "a raw string, a new head",
+            format!("const KEPT: &str = r#\"{real}\"#;\n"),
+            &other.replace("-> std::path::PathBuf", "-> ::std::path::PathBuf"),
+        ),
+        // The same, kept in a raw C string whose own quotes would close a plain one.
+        (
+            "a raw C string, a new head",
+            format!("const KEPT: &CStr = cr#\"\"\n{real}\"\"#;\n"),
+            &other.replace("-> std::path::PathBuf", "-> ::std::path::PathBuf"),
+        ),
+    ];
+    for (row, kept, built) in rows {
+        let changed = [kept.as_str(), &SOURCE.replacen(&real, built, 1)].concat();
+        // The first head in the text, read as the reporter: what the kept body makes it say.
+        let start = changed.find(&head).unwrap() + head.len();
+        let first = &changed[start..start + changed[start..].find("\n}\n").unwrap()];
+        assert_eq!(
+            first.trim(),
+            "reporter_built_by(COMPILER, directory)",
+            "{row}"
+        );
+        assert!(
+            !reporter_build_findings(&changed).is_empty(),
+            "{row} passed"
+        );
+    }
+}
+
+/// What each report said of the marker: `None` where it was absent, its value where present.
+#[cfg(target_os = "macos")]
+fn markers_reported(report: &str) -> Vec<(String, Option<String>)> {
+    let mut seen = Vec::new();
+    for line in report.lines() {
+        if let Some(when) = line
+            .strip_prefix("--")
+            .and_then(|line| line.strip_suffix("--"))
+        {
+            seen.push((when.to_string(), None));
+        } else if let Some(value) = line.strip_prefix("COMMANDAGENT_BOOT_TAKEN_OUT") {
+            let last = seen.last_mut().expect("a report starts with its moment");
+            last.1 = Some(value.strip_prefix('=').unwrap_or(value).to_string());
+        }
+    }
+    seen
+}
+
+/// macOS, the real binary through `main`: the marker of a control taken out is the start's own.
+/// - Given a forged marker and a handoff, step 0 takes it out before its exec: step 1's image
+///   starts with none, and the run goes on to the provider.
+/// - Given a forged marker and nothing to hand over, step 0 takes it out all the same: the
+///   process ends with none.
+/// - Taking the selection out as a key, step 0 writes the one word and nothing else, and step 1
+///   takes it out again: the process ends with none. The run is refused for the control.
+/// - A preset key name expanded from a credential is written nowhere: no marker at all.
+///
+/// No report names any credential's value, and the end of every process has no marker.
+///
+/// What it needs of the machine, macOS only (elsewhere it is not built): `/usr/bin/cc`, to build
+/// the reporter (see [`reporter`]), and a binary that takes `DYLD_INSERT_LIBRARIES`, as cargo's
+/// unsigned, not hardened test build does. Where the library is not put in, no report is written,
+/// and the row fails, saying that, never passing for an empty report.
+#[cfg(target_os = "macos")]
+#[test]
+fn the_marker_is_the_starts_own_word_and_leaves_the_environment() {
+    let tools = tempfile::tempdir().unwrap();
+    let library = reporter(tools.path());
+    let word = || Some("a-control-of-the-run-budget".to_string());
+    let forged = || Some("forged".to_string());
+    // (row, the environment beside the reporter, the arguments, the preset, the reports' markers)
+    type Row = (
+        &'static str,
+        Vec<(&'static str, &'static str)>,
+        Vec<&'static str>,
+        Option<&'static str>,
+        Vec<(&'static str, Option<String>)>,
+    );
+    // An empty list of arguments is a run on the fake LM Studio; any other is put before a model
+    // and a prompt, with `<URL>` the fake's address.
+    let rows: Vec<Row> = vec![
+        (
+            "a forged marker and a handoff",
+            vec![
+                ("OPENAI_API_KEY", DUMMY),
+                ("COMMANDAGENT_BOOT_TAKEN_OUT", "forged"),
+            ],
+            vec![],
+            None,
+            vec![("start", forged()), ("start", None), ("end", None)],
+        ),
+        (
+            "a forged marker and nothing to hand over",
+            vec![("COMMANDAGENT_BOOT_TAKEN_OUT", "forged")],
+            vec![],
+            None,
+            vec![("start", forged()), ("end", None)],
+        ),
+        (
+            "the selection taken out as a key, beside a forged marker",
+            vec![
+                ("COMMANDAGENT_RUN_BUDGET", "wallet976"),
+                ("COMMANDAGENT_BOOT_TAKEN_OUT", "forged"),
+            ],
+            vec![
+                "--provider",
+                "openai-compatible",
+                "--base-url",
+                "<URL>/v1",
+                "--api-key-env",
+                "COMMANDAGENT_RUN_BUDGET",
+            ],
+            None,
+            vec![("start", forged()), ("start", word()), ("end", None)],
+        ),
+        (
+            "a key name expanded from a credential",
+            vec![("LM_STUDIO_API_TOKEN", NAME_SHAPED)],
+            vec![],
+            Some("${LM_STUDIO_API_TOKEN}"),
+            vec![("start", None), ("start", None), ("end", None)],
+        ),
+    ];
+    let mut wrong = Vec::new();
+    for (row, env, extra, preset, expected) in rows {
+        let workspace = match preset {
+            Some(api_key_env) => preset_workspace(api_key_env),
+            None => tempfile::tempdir().unwrap(),
+        };
+        let report = workspace.path().join("report.txt");
+        let provider = FakeProvider::start();
+        let mut command = command(workspace.path());
+        if preset.is_some() {
+            command.args(["--preset", "ref976"]);
+        }
+        if extra.is_empty() {
+            command.args(lm_studio_arguments(&provider.url));
+        } else {
+            command
+                .args(
+                    extra
+                        .iter()
+                        .map(|argument| argument.replace("<URL>", &provider.url)),
+                )
+                .args(["--model", "m", "--chat-retries", "0", "--prompt", "hello"]);
+        }
+        command
+            .env("DYLD_INSERT_LIBRARIES", &library)
+            .env("CA976_ENV_REPORT", &report);
+        for (name, value) in env {
+            command.env(name, value);
+        }
+        let output = command.output().unwrap();
+        let said = std::fs::read_to_string(&report).unwrap_or_default();
+        let seen = markers_reported(&said);
+        let expected = expected
+            .into_iter()
+            .map(|(when, marker)| (when.to_string(), marker))
+            .collect::<Vec<_>>();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let reached = !provider.drain().is_empty();
+        let ended_as_it_should = match row {
+            "the selection taken out as a key, beside a forged marker" => {
+                output.status.code() == Some(2)
+                    && stderr.contains("the run budget refused the entry: KeyIsControl")
+                    && !reached
+            }
+            _ => reached,
+        };
+        if seen != expected
+            || !ended_as_it_should
+            || said.contains(DUMMY)
+            || said.contains(NAME_SHAPED)
+        {
+            let unreported = if said.is_empty() {
+                " (no report at all: DYLD_INSERT_LIBRARIES was not taken, which this test needs)"
+            } else {
+                ""
+            };
+            wrong.push(format!(
+                "{row}: reports {seen:?}{unreported}, reached {reached}, exit {:?}: {stderr}",
+                output.status.code()
+            ));
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}

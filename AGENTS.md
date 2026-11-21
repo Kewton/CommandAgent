@@ -56,8 +56,9 @@ remain available when the user invokes them by name.
 - **Helpers**: they keep the leader and workers moving and do not take their
   work over. Codex_Sub (`codex-3`) investigates what blocks them: unclear
   requirements, root causes, unexpected behavior, and plan review, returning
-  findings with `file:line` evidence. Antigravity (`antigravity`) takes clear,
-  mechanical tasks. Helpers follow the brief they receive and do not implement
+  findings with `file:line` evidence. Claude 4 (`claude-4`) takes clear,
+  mechanical tasks (Antigravity is not part of the team; see the harness
+  document, section 1). Helpers follow the brief they receive and do not implement
   Issue code.
 - **Workers**: Command Code sessions in each Issue worktree. A worker
   implements exactly one Issue, follows the dispatch contract and
@@ -144,6 +145,18 @@ Authority in this chain:
   practical. Keep it in a resumable execution session and poll that session;
   do not launch repeated wait commands that can briefly disagree during agent
   startup or completion transitions.
+
+## Memory and handoff
+
+- CommandMate `mem` is on for `develop`. Work state, the next step, questions
+  for the user, the user's decisions (their destination is the Issue), and
+  pitfalls go to `mem` through the `cmate-handoff` skill. Do not copy what the
+  next session can re-read from files, git, Issues, PRs or CI.
+- When `cmate-delegate` waits for a reply, send with
+  `--reply-to self --note "<what you wait for>"`; that note alone owns the
+  waiting item.
+- An agent never approves or promotes a decision; the user does that on the
+  CommandMate screen (Repositories → mem).
 
 ## Verification
 

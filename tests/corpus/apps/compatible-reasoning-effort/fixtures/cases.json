@@ -1,0 +1,206 @@
+{
+  "issue": "#931",
+  "variable": "COMMANDAGENT_COMPATIBLE_REASONING_EFFORT",
+  "cases": [
+    {
+      "id": "recorded-chat-effort-omitted",
+      "kind": "recorded",
+      "source_file": "01-chat-tools-default.request.json",
+      "api": "chat_completions",
+      "model": "glm-5.3-flash:cloud",
+      "layout": "generic-executor",
+      "env": null,
+      "server": "ok",
+      "expect": "absent"
+    },
+    {
+      "id": "recorded-chat-effort-low",
+      "kind": "recorded",
+      "source_file": "04-chat-tools-low.request.json",
+      "api": "chat_completions",
+      "model": "glm-5.3-flash:cloud",
+      "layout": "generic-executor",
+      "env": "low",
+      "server": "ok",
+      "expect": "declared",
+      "wire": {
+        "reasoning_effort": "low"
+      }
+    },
+    {
+      "id": "recorded-responses-effort-low",
+      "kind": "recorded",
+      "source_file": "05-responses-schema-low.request.json",
+      "api": "responses",
+      "model": "glm-5.3-flash:cloud",
+      "layout": "generic-executor",
+      "env": "low",
+      "server": "ok",
+      "expect": "declared",
+      "wire": {
+        "reasoning": {
+          "effort": "low"
+        }
+      }
+    },
+    {
+      "id": "recorded-responses-effort-high",
+      "kind": "recorded",
+      "source_file": "12-responses-schema-high.request.json",
+      "api": "responses",
+      "model": "glm-5.3-flash:cloud",
+      "layout": "generic-executor",
+      "env": "high",
+      "server": "ok",
+      "expect": "declared",
+      "wire": {
+        "reasoning": {
+          "effort": "high"
+        }
+      }
+    },
+    {
+      "id": "synthetic-unset-responses",
+      "kind": "synthetic",
+      "api": "responses",
+      "layout": "generic-both",
+      "env": null,
+      "server": "ok",
+      "expect": "absent"
+    },
+    {
+      "id": "synthetic-empty-chat",
+      "kind": "synthetic",
+      "api": "chat_completions",
+      "layout": "lm-studio-both",
+      "env": "",
+      "server": "ok",
+      "expect": "absent"
+    },
+    {
+      "id": "synthetic-whitespace-responses",
+      "kind": "synthetic",
+      "api": "responses",
+      "layout": "lm-studio-both",
+      "env": " \t ",
+      "server": "ok",
+      "expect": "absent"
+    },
+    {
+      "id": "synthetic-trimmed-low-chat",
+      "kind": "synthetic",
+      "api": "chat_completions",
+      "layout": "generic-both",
+      "env": " low ",
+      "server": "ok",
+      "expect": "declared",
+      "wire": {
+        "reasoning_effort": "low"
+      }
+    },
+    {
+      "id": "synthetic-invalid-unknown",
+      "kind": "synthetic",
+      "api": "chat_completions",
+      "layout": "generic-both",
+      "env": "turbo",
+      "server": "ok",
+      "expect": "config-error"
+    },
+    {
+      "id": "synthetic-invalid-true",
+      "kind": "synthetic",
+      "api": "responses",
+      "layout": "generic-both",
+      "env": "true",
+      "server": "ok",
+      "expect": "config-error"
+    },
+    {
+      "id": "synthetic-invalid-uppercase",
+      "kind": "synthetic",
+      "api": "chat_completions",
+      "layout": "lm-studio-both",
+      "env": "LOW",
+      "server": "ok",
+      "expect": "config-error"
+    },
+    {
+      "id": "synthetic-role-executor-only",
+      "kind": "synthetic",
+      "api": "chat_completions",
+      "layout": "generic-executor",
+      "env": "low",
+      "server": "ok",
+      "expect": "declared",
+      "wire": {
+        "reasoning_effort": "low"
+      }
+    },
+    {
+      "id": "synthetic-role-planner-only",
+      "kind": "synthetic",
+      "api": "responses",
+      "layout": "lm-studio-planner",
+      "env": "low",
+      "server": "ok",
+      "expect": "declared",
+      "wire": {
+        "reasoning": {
+          "effort": "low"
+        }
+      }
+    },
+    {
+      "id": "synthetic-role-native-only-invalid",
+      "kind": "synthetic",
+      "api": "chat_completions",
+      "layout": "native-only",
+      "env": "turbo",
+      "server": "ok",
+      "expect": "absent"
+    },
+    {
+      "id": "synthetic-openai-mixed-role",
+      "kind": "synthetic",
+      "api": "responses",
+      "layout": "openai-executor-generic-planner",
+      "env": "low",
+      "server": "ok",
+      "expect": "declared",
+      "wire": {
+        "reasoning": {
+          "effort": "low"
+        }
+      },
+      "openai_env": "high"
+    },
+    {
+      "id": "synthetic-medium-rejected-400",
+      "kind": "synthetic",
+      "api": "chat_completions",
+      "layout": "generic-executor",
+      "env": "medium",
+      "server": "reject-400",
+      "expect": "declared",
+      "wire": {
+        "reasoning_effort": "medium"
+      },
+      "model": "glm-5.3-flash:cloud"
+    },
+    {
+      "id": "synthetic-retry-503-same-effort",
+      "kind": "synthetic",
+      "api": "responses",
+      "layout": "generic-executor",
+      "env": "max",
+      "server": "retry-503",
+      "expect": "declared",
+      "wire": {
+        "reasoning": {
+          "effort": "max"
+        }
+      }
+    }
+  ]
+}

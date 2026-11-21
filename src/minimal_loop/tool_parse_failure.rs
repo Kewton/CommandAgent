@@ -581,14 +581,17 @@ mod tests {
     fn production_loop_self_reports_an_applied_text_repair() {
         let root = tempfile::tempdir().unwrap();
         let events = root.path().join("events.jsonl");
-        let mut client = ScriptedClient::new(vec![AssistantReply::text(concat!(
-            r#"<anvil_tool_call name="Write">{"path":"data/sample.csv","content":"id,name,amount\n1,Alice,120.50\n2,Bob,75.25\n3,Charlie,204.00\n"}"#,
-            "}",
-            "</anvil_tool_call>"
-        ))]);
+        let mut client = ScriptedClient::new(vec![
+            AssistantReply::text(concat!(
+                r#"<anvil_tool_call name="Write">{"path":"data/sample.csv","content":"id,name,amount\n1,Alice,120.50\n2,Bob,75.25\n3,Charlie,204.00\n"}"#,
+                "}",
+                "</anvil_tool_call>"
+            )),
+            AssistantReply::text("done"),
+        ]);
         let mut session = SessionSnapshot::new();
 
-        super::super::loop_run::run_session_with_required_paths(
+        let result = super::super::loop_run::run_session_with_required_paths(
             &mut client,
             &mut session,
             "create data/sample.csv",
@@ -597,6 +600,7 @@ mod tests {
         )
         .unwrap();
 
+        assert_eq!(result, "done");
         assert!(root.path().join("data/sample.csv").is_file());
         let values = event_values(&events);
         assert!(values.iter().any(|event| {

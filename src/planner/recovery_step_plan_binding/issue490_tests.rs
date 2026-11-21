@@ -12,11 +12,23 @@ fn fixture(name: &str) -> serde_json::Value {
     )
     .unwrap()
 }
+fn with_reference(mut plan: StepPlan) -> StepPlan {
+    const MARKER: &str = "\n\nProfile contract:\n";
+    for step in &mut plan.steps {
+        if let Some(at) = step.instruction.find(MARKER) {
+            step.instruction.truncate(at + MARKER.len());
+            step.instruction
+                .push_str(profile_contract_reference::PROFILE_CONTRACT_REFERENCE);
+        }
+    }
+    plan
+}
 fn acquired() -> (StepPlan, StepPlan) {
     let p = fixture("acquired-before-after.json");
     (
         serde_json::from_value(p["original"].clone()).unwrap(),
-        serde_json::from_value(p["proposed"].clone()).unwrap(),
+        // #810: the recorded proposal's full profile contract is the reference now.
+        with_reference(serde_json::from_value(p["proposed"].clone()).unwrap()),
     )
 }
 fn check(after: StepPlan, refusal: bool) {

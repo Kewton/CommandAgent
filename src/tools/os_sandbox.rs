@@ -206,7 +206,7 @@ impl SandboxStatus {
         note: Option<String>,
         read_isolation_effective: bool,
     ) -> Self {
-        let applied = mode.uses_backend() && matches!(availability, SandboxAvailability::Available);
+        let applied = backend_applied(mode, availability);
         let reason = if mode.uses_backend() {
             match availability {
                 SandboxAvailability::Unavailable(reason) => Some(reason.clone()),
@@ -225,6 +225,12 @@ impl SandboxStatus {
             reason,
         }
     }
+}
+
+/// Whether a mode and an availability hold commands in the backend. The one rule both
+/// [`SandboxStatus::applied`] and [`applied_policy`] read.
+fn backend_applied(mode: SandboxMode, availability: &SandboxAvailability) -> bool {
+    mode.uses_backend() && matches!(availability, SandboxAvailability::Available)
 }
 
 /// A refusal returned when `required` cannot apply the OS sandbox.
@@ -521,15 +527,87 @@ fn install_impl(
             SandboxAvailability::Unavailable(format!("run temp directory is unavailable: {err}"));
         return store(mode, None, availability, None);
     }
-    let policy = SandboxPolicy::new(workspace_root, &run_tmp_dir)
+    let policy = run_policy(workspace_root, &run_tmp_dir, offline, dev_server_ports);
+    store(
+        mode,
+        Some(policy),
+        availability_of(mode),
+        Some(run_tmp_root),
+    )
+}
+
+/// The policy a run's install builds over its temporary directory.
+fn run_policy(
+    workspace_root: &Path,
+    run_tmp_dir: &Path,
+    offline: bool,
+    dev_server_ports: Vec<u16>,
+) -> SandboxPolicy {
+    SandboxPolicy::new(workspace_root, run_tmp_dir)
         .with_offline(offline)
-        .with_dev_server_ports(dev_server_ports);
-    let availability = if mode.uses_backend() {
+        .with_dev_server_ports(dev_server_ports)
+}
+
+/// What an install of `mode` stores as the backend's availability: the probe, or off.
+fn availability_of(mode: SandboxMode) -> SandboxAvailability {
+    if mode.uses_backend() {
         probe()
     } else {
         SandboxAvailability::Unavailable(DISABLED_REASON.to_string())
-    };
-    store(mode, Some(policy), availability, Some(run_tmp_root))
+    }
+}
+
+/// What an install would hold, judged by the same policy, probe, and rule, with nothing made
+/// and nothing stored: no `<state_dir>/sandbox/run-*` directory exists for it, and the
+/// process-wide state is not read or changed (Issue #1013).
+#[derive(Debug, Clone)]
+pub(crate) struct SandboxDiagnosis {
+    pub(crate) status: SandboxStatus,
+    /// The policy commands would be held to, only when the backend would apply it, as
+    /// [`applied_policy`] answers for an installed one.
+    applied: Option<SandboxPolicy>,
+}
+
+impl SandboxDiagnosis {
+    pub(crate) fn applied_policy(&self) -> Option<&SandboxPolicy> {
+        self.applied.as_ref()
+    }
+}
+
+/// [`install_with`] without its effects: the run temporary it names is not created, so an
+/// install that would fail to create it is not seen here.
+pub(crate) fn diagnose(
+    mode: SandboxMode,
+    workspace_root: &Path,
+    state_dir: &Path,
+    offline: bool,
+    dev_server_ports: Vec<u16>,
+) -> SandboxDiagnosis {
+    let run_tmp_dir = state_dir
+        .join("sandbox")
+        .join(format!("run-{}", uuid::Uuid::now_v7()));
+    let policy = run_policy(workspace_root, &run_tmp_dir, offline, dev_server_ports);
+    diagnosis_of(mode, policy, availability_of(mode))
+}
+
+fn diagnosis_of(
+    mode: SandboxMode,
+    policy: SandboxPolicy,
+    availability: SandboxAvailability,
+) -> SandboxDiagnosis {
+    let status = status_of(mode, Some(&policy), &availability);
+    let applied = backend_applied(mode, &availability).then_some(policy);
+    SandboxDiagnosis { status, applied }
+}
+
+/// A diagnosis over an explicit availability, for a test that cannot rely on the host's backend.
+#[cfg(test)]
+pub(crate) fn diagnosis_for_test(
+    mode: SandboxMode,
+    policy: SandboxPolicy,
+    availability: SandboxAvailability,
+) -> SandboxDiagnosis {
+    diagnosis_of(mode, policy, availability)
 }
 
 /// Install an explicit policy and availability. Used by tests to simulate an
@@ -629,14 +707,7 @@ fn store(
     availability: SandboxAvailability,
     run_tmp_root: Option<PathBuf>,
 ) -> SandboxStatus {
-    let read = read_isolation(policy.as_ref());
-    let offline = policy.as_ref().is_some_and(|policy| policy.offline);
-    let status = SandboxStatus::from_parts(
-        mode,
-        &availability,
-        backend_note(&read, offline, policy.as_ref()),
-        read.effective,
-    );
+    let status = status_of(mode, policy.as_ref(), &availability);
     let mut installed = INSTALLED.lock().expect("sandbox state");
     *installed = Some(Installed {
         policy,
@@ -647,9 +718,25 @@ fn store(
     status
 }
 
+/// The status an install records for a mode, a policy, and an availability.
+fn status_of(
+    mode: SandboxMode,
+    policy: Option<&SandboxPolicy>,
+    availability: &SandboxAvailability,
+) -> SandboxStatus {
+    let read = read_isolation(policy);
+    let offline = policy.is_some_and(|policy| policy.offline);
+    SandboxStatus::from_parts(
+        mode,
+        availability,
+        backend_note(&read, offline, policy),
+        read.effective,
+    )
+}
+
 /// The events file a downgrade is reported to. The run's path is chosen by the
 /// binary at run start, so it hands it over with [`events_scope::EventsScope`];
-/// without it a downgrade is recorded in the status only and is not shown in the TUI.
+/// without it a downgrade is not written to a file; it is still shown as one TUI line.
 static EVENTS_PATH: Mutex<Option<PathBuf>> = Mutex::new(None);
 
 /// Tell the sandbox where the run's events file is, so a later downgrade can
@@ -690,8 +777,8 @@ fn mark_backend_unavailable(reason: String) {
     state.availability = SandboxAvailability::Unavailable(reason);
     drop(installed);
     if let Some(status) = status() {
-        // Without a path the event goes through `emit` but is not recorded on disk
-        // and, having no TUI branch yet, is not shown there either.
+        // Without a path the event goes through `emit` and is shown as one TUI line
+        // (Issue #803) but is not recorded on disk.
         let path = events_scope::current_path();
         events_scope::announce(path.as_deref(), status_event(&status));
     }
@@ -816,6 +903,27 @@ pub fn status() -> Option<SandboxStatus> {
 /// Whether the backend is currently applied for this run.
 pub fn is_applied() -> bool {
     status().is_some_and(|status| status.applied)
+}
+
+/// The workspace the installed policy holds commands in, if one is installed.
+pub(crate) fn installed_workspace_root() -> Option<PathBuf> {
+    let installed = INSTALLED.lock().expect("sandbox state");
+    installed
+        .as_ref()?
+        .policy
+        .as_ref()
+        .map(|policy| policy.workspace_root.clone())
+}
+
+/// A copy of the policy commands of this run are held to, while the backend applies it. Read only:
+/// the installed state is not changed.
+pub(crate) fn applied_policy() -> Option<SandboxPolicy> {
+    let installed = INSTALLED.lock().expect("sandbox state");
+    let state = installed.as_ref()?;
+    if !backend_applied(state.mode, &state.availability) {
+        return None;
+    }
+    state.policy.clone()
 }
 
 /// The one-time startup warning for `auto` when the backend is unavailable.
@@ -990,6 +1098,7 @@ fn resolve_cache_paths(home: &Path) -> CachePaths {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     /// Issue #658: the `--offline` dev-server allow list is the port the run
     /// will use — the goal's port, else the profile default — so a sandboxed
@@ -1316,6 +1425,175 @@ mod tests {
         assert!(over.clause.contains("not effective"), "{}", over.clause);
         assert!(!over.clause.contains(READ_ISOLATION_APPLIED));
         assert_ne!(within.clause, over.clause);
+    }
+
+    /// Issue #992: the upper bound of every wait in the writer/reader controls.
+    /// Reaching it fails the test instead of hanging it; it is never a sleep.
+    const ISSUE992_BOUND: std::time::Duration = std::time::Duration::from_secs(60);
+    const ISSUE992_WRITER_REASON: &str = "issue992 writer holds a foreign policy";
+
+    /// What the reader reported first while the writer still held the guard.
+    enum ReaderStep {
+        /// The shared lock was taken, so `SandboxTestState::acquire` blocks.
+        WaitingForGuard,
+        /// The lock was free while the writer held its guard (a broken lock).
+        GuardFree,
+        Observed(ReaderObservation),
+    }
+
+    /// What a reader running a real Bash command in its own workspace saw.
+    struct ReaderObservation {
+        installed_root: Option<PathBuf>,
+        outcome: crate::tools::bash::BashOutcome,
+        output: Option<String>,
+        writer_released: bool,
+    }
+
+    /// Issue #992: the test thread is a writer that holds the shared guard with
+    /// a `required` + unavailable policy for its own workspace, and a reader
+    /// thread runs `printf ok > output.txt` through the real Bash path in
+    /// another workspace. The order is fixed by channels, not by timing. With
+    /// `reader_takes_guard`, the reader takes `SandboxTestState::acquire()` as
+    /// the fixed lib tests do; without it, it is a reader as before Issue #992.
+    /// Returns the reader's first step (sent while the writer held the guard)
+    /// and its observation.
+    fn writer_holds_guard_while_reader_runs(
+        reader_takes_guard: bool,
+    ) -> (&'static str, ReaderObservation) {
+        let writer_ws = tempfile::tempdir().unwrap();
+        let reader_ws = tempfile::tempdir().unwrap();
+        let writer_root = writer_ws.path().to_path_buf();
+        let reader_root = reader_ws.path().to_path_buf();
+        let released = std::sync::Arc::new(AtomicBool::new(false));
+
+        let writer = SandboxTestState::acquire();
+        install_for_test(
+            SandboxMode::Required,
+            SandboxPolicy::new(&writer_root, &writer_root.join("tmp")),
+            SandboxAvailability::Unavailable(ISSUE992_WRITER_REASON.to_string()),
+        );
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let reader_released = std::sync::Arc::clone(&released);
+        let reader = std::thread::spawn(move || {
+            let _state = reader_takes_guard.then(|| {
+                let step = match SANDBOX_STATE_TEST_LOCK.try_lock() {
+                    Err(std::sync::TryLockError::WouldBlock) => ReaderStep::WaitingForGuard,
+                    _ => ReaderStep::GuardFree,
+                };
+                tx.send(step).unwrap();
+                SandboxTestState::acquire()
+            });
+            let installed_root = installed_workspace_root();
+            let outcome = crate::tools::bash::run_structured(
+                "printf ok > output.txt",
+                &reader_root,
+                false,
+                ISSUE992_BOUND,
+                || false,
+            )
+            .unwrap();
+            let output = std::fs::read_to_string(reader_root.join("output.txt")).ok();
+            let writer_released = reader_released.load(Ordering::SeqCst);
+            tx.send(ReaderStep::Observed(ReaderObservation {
+                installed_root,
+                outcome,
+                output,
+                writer_released,
+            }))
+            .unwrap();
+        });
+
+        let first = rx
+            .recv_timeout(ISSUE992_BOUND)
+            .expect("the reader neither waited for the guard nor ran");
+        // A reader's acquire must not reset the policy the writer still uses.
+        assert_eq!(installed_workspace_root(), Some(writer_root.clone()));
+        released.store(true, Ordering::SeqCst);
+        drop(writer);
+
+        let (first, observation) = match first {
+            ReaderStep::WaitingForGuard => match rx.recv_timeout(ISSUE992_BOUND) {
+                Ok(ReaderStep::Observed(observation)) => ("waiting_for_guard", observation),
+                _ => panic!("the reader did not run after the writer released the guard"),
+            },
+            ReaderStep::GuardFree => panic!("the shared lock was free while the writer held it"),
+            ReaderStep::Observed(observation) => ("observed", observation),
+        };
+        reader.join().expect("the reader thread");
+        drop((writer_ws, reader_ws));
+        (first, observation)
+    }
+
+    /// Issue #992: a reader that takes the shared guard does not reach wrap or
+    /// spawn while a writer holds a foreign policy, then runs unconfined by it.
+    #[test]
+    fn a_guarded_reader_waits_for_the_writer_and_never_takes_its_policy() {
+        let (first, observation) = writer_holds_guard_while_reader_runs(true);
+
+        assert_eq!(first, "waiting_for_guard");
+        assert!(observation.writer_released, "the reader ran before release");
+        assert_eq!(observation.installed_root, None);
+        assert_eq!(
+            observation.outcome.kind,
+            crate::tools::bash::BashOutcomeKind::Success,
+            "{}",
+            observation.outcome.summary
+        );
+        assert_eq!(observation.output.as_deref(), Some("ok"));
+    }
+
+    /// Issue #992 negative control: the same reader without the guard runs
+    /// while the writer holds it and takes the writer's policy, so the
+    /// isolation assertions of the guarded control above would fail.
+    #[test]
+    fn an_unguarded_reader_takes_the_writer_policy() {
+        let (first, observation) = writer_holds_guard_while_reader_runs(false);
+
+        assert_eq!(first, "observed");
+        assert!(!observation.writer_released);
+        assert!(observation.installed_root.is_some());
+        assert_eq!(
+            observation.outcome.kind,
+            crate::tools::bash::BashOutcomeKind::Blocked
+        );
+        assert_eq!(
+            observation.outcome.summary,
+            format!("{UNAVAILABLE_KIND}: {ISSUE992_WRITER_REASON}")
+        );
+        assert_eq!(observation.output, None, "the shell must not have run");
+    }
+
+    /// Issue #992: a test that unwinds while holding the guard leaves no policy,
+    /// events path or read-allow override for the next holder; the reset runs
+    /// in `Drop` under the shared lock. The state is read under that same lock
+    /// without the start reset of `acquire`, so only the `Drop` reset can clear it.
+    #[test]
+    fn unwinding_with_the_guard_leaves_no_state_for_the_next_test() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        let unwound = std::thread::spawn(move || {
+            let _state = SandboxTestState::acquire();
+            install_for_test(
+                SandboxMode::Required,
+                SandboxPolicy::new(&root, &root.join("tmp")),
+                SandboxAvailability::Available,
+            );
+            set_events_path(Some(root.join("events.jsonl")));
+            #[cfg(target_os = "linux")]
+            set_read_allow_limit_for_test(Some(1));
+            panic!("issue992 test unwound while holding the guard");
+        })
+        .join();
+        assert!(unwound.is_err());
+
+        let _lock = SANDBOX_STATE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        assert!(INSTALLED.lock().expect("sandbox state").is_none());
+        assert_eq!(*EVENTS_PATH.lock().expect("sandbox events path"), None);
+        #[cfg(target_os = "linux")]
+        assert_eq!(read_allow_limit(), landlock::MAX_READ_ALLOW_RULES);
     }
 
     /// Resets the Landlock wrap-failure hook on drop.

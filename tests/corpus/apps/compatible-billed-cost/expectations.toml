@@ -1,0 +1,72 @@
+case_id = "compatible-billed-cost"
+source = "Issue #947: the shared OpenAI-compatible Chat Completions parser reads the raw usage.cost number token before any f64 conversion and keeps an unsigned token no larger than 2^53-1 (compared in decimal) as the optional ProviderResponseMetadata.billed_cost_usd, a provider-reported USD amount never computed from token counts or a price table; the provider_response and provider_turn_duration events of the same turn both carry it as provider_billed_cost_usd, a JSON string of the exact decimal text sent (\"0.012345\", \"1e-400\", \"1.00000000000000001\"), only when it is reported, so an aggregator reads it as a decimal and counts it once per turn, never adding the two events; an explicit zero is the string \"0\", a missing, null, string, negative (including -0), or out-of-range amount leaves the field absent and every other byte of both events as at the base commit, an amount whose text equals or contains a value registered in the events path's redaction scope is left out of both events as unreported (never a marker, never restored past the scrub, never zero), a number beyond f64 such as 1e400 still fails the whole response parse as at the base commit, and no turn carries a previous turn's amount, on the planner and the executor paths"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[json_fields]
+fixtures/events.json:kind = "synthetic"
+fixtures/events.json:event_field = "provider_billed_cost_usd"
+fixtures/events.json:event_type = "string"
+fixtures/events.json:response_field = "usage.cost"
+fixtures/events.json:base_events.captured_at = "4edfc5a726feb5fa468b4a24bc9de29f41c6b1bc"
+source-manifest.json:base_sha = "4edfc5a726feb5fa468b4a24bc9de29f41c6b1bc"
+source-manifest.json:aggregation = "read provider_billed_cost_usd as a decimal string and count it once per turn; provider_response and provider_turn_duration of one turn carry the same amount and are never added together; an amount that overlaps a registered secret is left out as unreported"
+
+[fixture_contains]
+fixtures/events.json = [
+  "\"id\": \"synthetic-cost-positive\"",
+  "\"id\": \"synthetic-cost-explicit-zero\"",
+  "\"id\": \"synthetic-cost-absent\"",
+  "\"id\": \"synthetic-cost-null\"",
+  "\"id\": \"synthetic-cost-negative\"",
+  "\"id\": \"synthetic-cost-string\"",
+  "\"id\": \"synthetic-cost-too-large\"",
+  "\"id\": \"synthetic-cost-with-cached-tokens\"",
+  "\"id\": \"synthetic-no-usage\"",
+  "\"id\": \"synthetic-cost-tiny-positive\"",
+  "\"id\": \"synthetic-cost-long-decimal\"",
+  "\"id\": \"synthetic-cost-negative-zero\"",
+  "\"cost_token\": \"0.012345\", \"expected_provider_billed_cost_usd\": \"0.012345\"}",
+  "\"cost_token\": \"0\", \"expected_provider_billed_cost_usd\": \"0\"}",
+  "\"cost_token\": \"null\", \"expected_provider_billed_cost_usd\": null}",
+  "\"cost_token\": \"1e-400\", \"expected_provider_billed_cost_usd\": \"1e-400\"}",
+  "\"cost_token\": \"1.00000000000000001\", \"expected_provider_billed_cost_usd\": \"1.00000000000000001\"}",
+  "\"cost_token\": \"-0\", \"expected_provider_billed_cost_usd\": null}",
+  "\"id\": \"synthetic-cost-equals-credential\"",
+  "\"id\": \"synthetic-cost-contains-credential\"",
+  "\"cost_token\": \"0.012345\", \"fake_credential\": \"0.012345\", \"expected_provider_billed_cost_usd\": null}",
+  "\"cost_token\": \"0.12345678\", \"fake_credential\": \"12345678\", \"expected_provider_billed_cost_usd\": null}",
+  "\"executor\": {",
+  "\"planner\": {"
+]
+
+[fixture_ordered]
+fixtures/events.json = [
+  "\"cases\"",
+  "\"synthetic-cost-positive\"",
+  "\"synthetic-cost-explicit-zero\"",
+  "\"synthetic-cost-absent\"",
+  "\"base_events\"",
+  "\"executor\"",
+  "\\\"caller_scope\\\":\\\"executor\\\"",
+  "\"planner\"",
+  "\\\"caller_scope\\\":\\\"planner_step\\\""
+]

@@ -1,0 +1,44 @@
+case_id = "read-symlink-root"
+source = "Issue #966: synthetic Read headings for one workspace reached through its canonical root, a symlinked parent, and a symlink to the workspace itself; tests/read_symlink_root.rs drives every row through the public Read tool and requires the same heading and body from all three roots"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/read-headings.jsonl = [
+  "\"kind\":\"synthetic\"",
+  "\"route\":\"file\"",
+  "\"route\":\"range\"",
+  "\"route\":\"summary\"",
+  "\"route\":\"directory\"",
+  "\"route\":\"root_directory\"",
+  "\"route\":\"inner_symlink\"",
+  "\"heading\":\"dir 空白 データ/ノート.txt\""
+]
+
+[fixture_ordered]
+fixtures/read-headings.jsonl = [
+  "\"route\":\"file\"",
+  "\"route\":\"range\"",
+  "\"route\":\"summary\"",
+  "\"route\":\"directory\"",
+  "\"route\":\"root_directory\"",
+  "\"route\":\"inner_symlink\""
+]

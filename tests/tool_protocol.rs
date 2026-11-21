@@ -33,7 +33,8 @@ impl ChatClient for TextProtocolFake {
         tools: &[ToolSpec],
         native_tools_enabled: bool,
     ) -> anyhow::Result<AssistantReply> {
-        self.request_shapes.lock().unwrap().push((
+        let mut request_shapes = self.request_shapes.lock().unwrap();
+        request_shapes.push((
             native_tools_enabled,
             tools.len(),
             messages.iter().any(|message| {
@@ -42,6 +43,10 @@ impl ChatClient for TextProtocolFake {
                     .contains("Native tool calls are unavailable")
             }),
         ));
+        // The first request writes a.txt; the follow-up request gets the final.
+        if request_shapes.len() > 1 {
+            return Ok(AssistantReply::text("done"));
+        }
         Ok(AssistantReply::text(
             r#"<anvil_tool_call name="Write">{"path":"a.txt","content":"ok"}</anvil_tool_call>"#,
         ))
@@ -77,8 +82,11 @@ fn declared_text_protocol_runs_existing_xml_tools_on_production_path() {
     )
     .unwrap();
 
-    assert_eq!(result, "required artifacts satisfied: a.txt");
-    assert_eq!(*request_shapes.lock().unwrap(), vec![(false, 0, true)]);
+    assert_eq!(result, "done");
+    assert_eq!(
+        *request_shapes.lock().unwrap(),
+        vec![(false, 0, true), (false, 0, true)]
+    );
     assert_eq!(
         std::fs::read_to_string(dir.path().join("a.txt")).unwrap(),
         "ok"

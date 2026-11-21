@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -12,7 +12,7 @@ use crate::mode::ExecutionMode;
 use super::args_recovery::recover_tool_arguments;
 use super::path_guard::{
     WorkspacePathNormalizationKind, normalize_absolute_workspace_glob, normalize_workspace_path,
-    resolve_existing, resolve_for_create,
+    resolve_existing_checked, resolve_for_create,
 };
 use super::repeated_read::{COMPACT_HEAD_LINES, ReadDecision, RepeatedReadCache};
 use super::workspace_policy::{WorkspacePolicy, ensure_tool_path_allowed};
@@ -49,6 +49,41 @@ pub struct ToolRegistry {
     specs: Vec<ToolSpec>,
     extensions: BTreeMap<String, super::extension::ExtensionTool>,
     repeated_reads: Arc<Mutex<RepeatedReadCache>>,
+    /// Issue #972: when set, the only names published and executed.
+    allowlist: Option<Arc<BTreeSet<String>>>,
+    /// Issue #974: tools with the `propose-artifacts` effect. Empty unless admitted.
+    proposals: BTreeMap<String, Arc<super::profile_tools::effects::ProposalTool>>,
+}
+
+/// Issue #976: a registry for one tool call of one reply. A profile tool's call is a submission
+/// of the run's wallet; every other tool runs as it does through [`ToolRegistry`].
+pub(crate) struct CallRegistry<'a> {
+    registry: &'a ToolRegistry,
+    budget: Option<crate::structured_budget::submission::CallBudget>,
+}
+
+impl CallRegistry<'_> {
+    pub(crate) fn execute_with_cancel<F, G>(
+        &self,
+        name: &str,
+        arguments: &Value,
+        context: &ToolContext,
+        is_cancelled: F,
+        is_force_cancelled: G,
+    ) -> anyhow::Result<String>
+    where
+        F: Fn() -> bool,
+        G: Fn() -> bool,
+    {
+        self.registry.execute_counted(
+            name,
+            arguments,
+            context,
+            self.budget.as_ref(),
+            is_cancelled,
+            is_force_cancelled,
+        )
+    }
 }
 
 impl Default for ToolRegistry {
@@ -57,6 +92,8 @@ impl Default for ToolRegistry {
             specs: default_tool_specs(),
             extensions: BTreeMap::new(),
             repeated_reads: Arc::new(Mutex::new(RepeatedReadCache::default())),
+            allowlist: None,
+            proposals: BTreeMap::new(),
         }
     }
 }
@@ -70,6 +107,54 @@ impl ToolRegistry {
             registry.register_extension(extension)?;
         }
         Ok(registry)
+    }
+
+    /// Issue #972: a registry limited to the given builtins and tools. Names are
+    /// checked for collisions against every builtin before any is removed.
+    #[cfg(test)]
+    pub(crate) fn with_profile_tools(
+        tools: impl IntoIterator<Item = super::extension::ExtensionTool>,
+        builtin_tools: &[String],
+    ) -> anyhow::Result<Self> {
+        Self::with_profile_tools_and_proposals(tools, [], builtin_tools)
+    }
+
+    /// Issue #974: the same, with proposal tools. Their names meet the same check, against
+    /// every builtin before any is removed.
+    pub(crate) fn with_profile_tools_and_proposals(
+        tools: impl IntoIterator<Item = super::extension::ExtensionTool>,
+        proposals: impl IntoIterator<Item = Arc<super::profile_tools::effects::ProposalTool>>,
+        builtin_tools: &[String],
+    ) -> anyhow::Result<Self> {
+        let mut registry = Self::with_extensions(tools)?;
+        for proposal in proposals {
+            let name = proposal.name().to_string();
+            if registry.specs.iter().any(|spec| spec.function.name == name) {
+                bail!("duplicate tool name: {name}");
+            }
+            registry.specs.push(proposal.spec().clone());
+            registry.proposals.insert(name, proposal);
+        }
+        let allowed = registry
+            .extensions
+            .keys()
+            .chain(registry.proposals.keys())
+            .chain(builtin_tools)
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        registry
+            .specs
+            .retain(|spec| allowed.contains(&spec.function.name));
+        registry.allowlist = Some(Arc::new(allowed));
+        Ok(registry)
+    }
+
+    /// Whether this name may run. Every execution path checks it, because a
+    /// model can return a name that was never published.
+    pub(crate) fn allows(&self, name: &str) -> bool {
+        self.allowlist
+            .as_ref()
+            .is_none_or(|allowed| allowed.contains(name))
     }
 
     pub fn register_extension(
@@ -87,6 +172,31 @@ impl ToolRegistry {
 
     pub fn specs(&self) -> &[ToolSpec] {
         &self.specs
+    }
+
+    /// Issue #974: what a proposal tool committed since the last call, from its receipts.
+    /// A session records these instead of guessing from a tool name or its arguments.
+    pub(crate) fn take_committed_paths(&self) -> Vec<String> {
+        self.proposals
+            .values()
+            .flat_map(|proposal| proposal.take_committed_paths())
+            .collect()
+    }
+
+    /// Issue #975: whether a declared stage names this tool.
+    pub(crate) fn is_stage_tool(&self, name: &str) -> bool {
+        self.proposals
+            .get(name)
+            .is_some_and(|proposal| proposal.has_stage())
+    }
+
+    /// Issue #975: what stage calls did since the last call. The loop's only view of them: it
+    /// never reads an answer's text.
+    pub(crate) fn take_stage_notes(&self) -> Vec<crate::planner::structured_stages::StageNote> {
+        self.proposals
+            .values()
+            .flat_map(|proposal| proposal.take_stage_notes())
+            .collect()
     }
 
     pub fn execute(
@@ -110,6 +220,51 @@ impl ToolRegistry {
         F: Fn() -> bool,
         G: Fn() -> bool,
     {
+        self.execute_counted(
+            name,
+            arguments,
+            context,
+            None,
+            is_cancelled,
+            is_force_cancelled,
+        )
+    }
+
+    /// Issue #976: this registry for the call at `call_index` of the reply `response` names, under
+    /// the run's wallet when there is one. With none it is this registry as it is.
+    pub(crate) fn for_call(
+        &self,
+        config: &crate::config::Config,
+        response: Option<crate::structured_budget::identity::ResponseIdentity>,
+        call_index: usize,
+    ) -> CallRegistry<'_> {
+        CallRegistry {
+            registry: self,
+            budget: crate::structured_budget::submission::for_call(config, response, call_index),
+        }
+    }
+
+    fn execute_counted<F, G>(
+        &self,
+        name: &str,
+        arguments: &Value,
+        context: &ToolContext,
+        budget: Option<&crate::structured_budget::submission::CallBudget>,
+        is_cancelled: F,
+        is_force_cancelled: G,
+    ) -> anyhow::Result<String>
+    where
+        F: Fn() -> bool,
+        G: Fn() -> bool,
+    {
+        if !self.allows(name) {
+            bail!("unknown tool: {name} is not in the selected profile's tool allowlist");
+        }
+        if let Some(proposal) = self.proposals.get(name) {
+            return proposal.execute_under(budget, arguments, context, &|| {
+                is_cancelled() || is_force_cancelled()
+            });
+        }
         if let Some(extension) = self.extensions.get(name) {
             return extension.execute(arguments, context);
         }
@@ -188,7 +343,7 @@ impl ToolRegistry {
             "Read" => {
                 let raw = required_string(arguments, "path")?;
                 let failure = super::read_missing::ReadFailureContext::capture(context, raw);
-                let path = resolve_policy_checked_path(
+                let PolicyCheckedPath { path, checked_root } = resolve_policy_checked_path(
                     context,
                     "Read",
                     raw,
@@ -196,9 +351,11 @@ impl ToolRegistry {
                 )?;
                 let start_line = optional_usize(arguments, "start_line");
                 let end_line = optional_usize(arguments, "end_line");
+                let heading =
+                    crate::tools::read::heading(&context.root, checked_root.as_deref(), &path);
                 let decision = self
                     .repeated_reads()
-                    .begin_read(&path, start_line, end_line);
+                    .begin_read(&path, start_line, end_line, &heading);
                 match decision {
                     ReadDecision::Unchanged(unchanged) => {
                         eval_events::emit(
@@ -216,23 +373,26 @@ impl ToolRegistry {
                         Ok(unchanged.response)
                     }
                     ReadDecision::Full(pending) => {
-                        let output = crate::tools::read::run(
+                        let output = crate::tools::read::run_checked_parts(
                             &context.root,
+                            checked_root.as_deref(),
                             &path,
                             start_line,
                             end_line,
                             context.workspace_policy,
                         )
                         .map_err(|error| failure.classify(error, Some(&path)))?;
-                        self.repeated_reads().record_full_read(pending, &output);
-                        Ok(output)
+                        self.repeated_reads()
+                            .record_full_read(pending, &output.body);
+                        Ok(output.text())
                     }
                 }
             }
             "Write" => {
                 let raw = required_string(arguments, "path")?;
                 let path =
-                    resolve_policy_checked_path(context, "Write", raw, PathResolution::Create)?;
+                    resolve_policy_checked_path(context, "Write", raw, PathResolution::Create)?
+                        .path;
                 let content = required_string(arguments, "content")?;
                 let output = crate::tools::write::run(&context.root, &path, content)?;
                 self.repeated_reads().note_successful_write(&path);
@@ -251,7 +411,8 @@ impl ToolRegistry {
                     "Edit",
                     &normalized,
                     PathResolution::Create,
-                )?;
+                )?
+                .path;
                 let old = required_string(arguments, "old_string")?;
                 let new = required_string(arguments, "new_string")?;
                 let replace_all = arguments
@@ -306,12 +467,19 @@ enum PathResolution<'a> {
     Create,
 }
 
+/// A policy-checked path, and for a Read the canonical root its containment
+/// check used (Issue #966), so the heading is made from the same pair.
+struct PolicyCheckedPath {
+    path: PathBuf,
+    checked_root: Option<PathBuf>,
+}
+
 fn resolve_policy_checked_path(
     context: &ToolContext,
     tool: &str,
     raw: &str,
     resolution: PathResolution<'_>,
-) -> anyhow::Result<PathBuf> {
+) -> anyhow::Result<PolicyCheckedPath> {
     let mut normalized = normalize_path_arg(context, tool, raw)?;
     if matches!(resolution, PathResolution::Read(_))
         && !context.root.join(&normalized).exists()
@@ -334,17 +502,18 @@ fn resolve_policy_checked_path(
         &normalized,
         context.workspace_policy,
     )?;
-    let path = match resolution {
+    let (path, checked_root) = match resolution {
         PathResolution::Read(failure) => {
             #[cfg(test)]
             super::read_missing::test_hook::after_path_selection(context, &normalized);
-            resolve_existing(&context.root, &normalized)
-                .map_err(|error| failure.classify_lookup(error, &normalized))?
+            let checked = resolve_existing_checked(&context.root, &normalized)
+                .map_err(|error| failure.classify_lookup(error, &normalized))?;
+            (checked.path, Some(checked.root))
         }
-        PathResolution::Create => resolve_for_create(&context.root, &normalized)?,
+        PathResolution::Create => (resolve_for_create(&context.root, &normalized)?, None),
     };
     ensure_tool_path_allowed(&context.root, &path, context.workspace_policy)?;
-    Ok(path)
+    Ok(PolicyCheckedPath { path, checked_root })
 }
 
 fn normalize_path_arg(context: &ToolContext, tool: &str, raw: &str) -> anyhow::Result<String> {
@@ -824,6 +993,75 @@ mod tests {
                 .execute("Write", &json!({"path":"a","content":"b"}), &context)
                 .is_err()
         );
+    }
+
+    /// Issue #972: a declaration keeping Write does not reach past the mode or
+    /// the allow policy, and a removed name is refused at execution.
+    #[test]
+    fn profile_allowlist_intersects_mode_and_allow_policy() {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = ToolRegistry::with_profile_tools(
+            Vec::new(),
+            &["Read".to_string(), "Write".to_string()],
+        )
+        .unwrap();
+        let names = registry
+            .specs()
+            .iter()
+            .map(|spec| spec.function.name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(names, ["Read", "Write"]);
+        let context = |mode| ToolContext {
+            root: dir.path().to_path_buf(),
+            mode,
+            auto_approve: true,
+            interactive_approval: false,
+            offline: false,
+            workspace_policy: WorkspacePolicy::NormalTask,
+            eval_events_path: None,
+            expected_paths: Vec::new(),
+            protected_paths: Vec::new(),
+        };
+        let write = json!({"path":"a.txt","content":"no"});
+
+        let error = registry
+            .execute("Write", &write, &context(ExecutionMode::Plan))
+            .unwrap_err();
+        assert!(error.to_string().contains("Plan mode"), "{error}");
+        assert!(!dir.path().join("a.txt").exists());
+
+        {
+            let _policy = crate::tools::allow_policy::install(
+                false,
+                &[crate::tools::allow_policy::AllowTarget::Read],
+            );
+            let error = registry
+                .execute("Write", &write, &context(ExecutionMode::Act))
+                .unwrap_err();
+            assert_eq!(tool_error_kind(&error), "allow_policy_rejected");
+            assert!(!dir.path().join("a.txt").exists());
+        }
+
+        let mut protected = context(ExecutionMode::Act);
+        protected.protected_paths = vec!["a.txt".to_string()];
+        let error = registry.execute("Write", &write, &protected).unwrap_err();
+        assert_eq!(tool_error_kind(&error), "protected_path_mutation_rejected");
+        assert!(!dir.path().join("a.txt").exists());
+
+        let error = registry
+            .execute(
+                "Bash",
+                &json!({"command":"true"}),
+                &context(ExecutionMode::Act),
+            )
+            .unwrap_err();
+        assert_eq!(tool_error_kind(&error), "unknown_tool");
+        assert!(recoverable_tool_error(&error));
+
+        registry
+            .execute("Write", &write, &context(ExecutionMode::Act))
+            .unwrap();
+        assert!(dir.path().join("a.txt").exists());
     }
 
     #[test]
@@ -1716,6 +1954,7 @@ mod tests {
 
     #[test]
     fn bash_strips_workspace_root_cd_prefix_and_records_event() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let registry = ToolRegistry::default();
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("workspace");
@@ -1807,6 +2046,7 @@ mod tests {
 
     #[test]
     fn bash_normalized_inspection_command_emits_eval_event() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let registry = ToolRegistry::default();
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("src/app")).unwrap();
@@ -1840,6 +2080,7 @@ mod tests {
 
     #[test]
     fn bash_allows_system_prefixes_and_workspace_absolute_paths() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let registry = ToolRegistry::default();
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("package.json"), "{}").unwrap();

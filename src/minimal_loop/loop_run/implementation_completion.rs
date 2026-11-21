@@ -3,64 +3,156 @@ use std::collections::BTreeMap;
 use sha2::{Digest, Sha256};
 
 use super::*;
+use crate::planner::structured_stages::StageNote;
+
+mod repair_artifact_completion;
+pub(super) mod structured_stage_completion;
+use repair_artifact_completion::{LegacyRead, RepairArtifactCompletion};
+use structured_stage_completion::{STAGE_HOLD_PREFIX, StageHold};
 
 impl RunSessionOptions {
+    /// One final-repair session, with a marker of its own: its sends are one final repair under a
+    /// wallet (Issue #976), and each call of this is another.
     pub(crate) fn final_acceptance_repair() -> Self {
         let mut options = Self::plan_step(RunSessionStepKind::Implement);
         options.require_mutation_before_contract_short_circuit = true;
+        options.final_repair =
+            Some(crate::structured_budget::session::FinalRepairMarker::default());
         options
     }
 }
 
 /// Step-local source identity, deliberately captured before run-contract paths
 /// are merged. A backend artifact cannot discharge a UI step's placeholder.
+/// The targets a host bound to a final repair (Issue #956) are read only
+/// through the bounded reader of `repair_artifact_completion`, here too.
 #[derive(Default)]
 pub(super) struct ImplementationCompletion {
     initial_hashes: BTreeMap<String, Option<String>>,
+    repair: RepairArtifactCompletion,
+    stage_hold: StageHold,
 }
 
 impl ImplementationCompletion {
     pub(super) fn blocking_reason(feedback: &str) -> &'static str {
-        if feedback.starts_with("Recovery repair remains unresolved:") {
+        if feedback.starts_with(STAGE_HOLD_PREFIX) {
+            "structured_stage_unmet"
+        } else if feedback.starts_with("Recovery repair remains unresolved:") {
             "recovery_repair_unresolved"
+        } else if feedback.starts_with("Final repair is incomplete:") {
+            "final_repair_artifact_unchanged"
         } else {
             "implementation_scaffold_placeholder"
         }
     }
 
     pub(super) fn capture(config: &Config, options: &RunSessionOptions, paths: &[String]) -> Self {
+        let root = &config.workspace_root;
+        // Taken first, so a session of another kind leaves no binding behind;
+        // it reads nothing unless the session is eligible.
+        let repair = RepairArtifactCompletion::capture(root, options);
+        let stage_hold = StageHold::capture(options);
         if options.step_kind != Some(RunSessionStepKind::Implement) {
-            return Self::default();
+            return Self {
+                stage_hold,
+                ..Self::default()
+            };
         }
+        let initial_hashes = paths
+            .iter()
+            .map(|path| {
+                let hash = match repair.initial(path) {
+                    Some(fingerprint) => fingerprint.hash_hex(),
+                    None => legacy_hash(&repair, root, path),
+                };
+                (path.clone(), hash)
+            })
+            .collect();
         Self {
-            initial_hashes: paths
-                .iter()
-                .map(|path| (path.clone(), source_hash(&config.workspace_root, path)))
-                .collect(),
+            initial_hashes,
+            repair,
+            stage_hold,
         }
     }
 
-    fn placeholder_paths(&self, root: &Path) -> Vec<String> {
-        self.initial_hashes
+    /// F5 of Issue #975: a step that could end at a tool result goes back to its model while a
+    /// stage it called is unmet or an answer has not been read.
+    pub(super) fn stage_holds_tool_only_completion(&self) -> bool {
+        self.stage_hold.holds_tool_only_completion()
+    }
+
+    pub(super) fn stage_has_unmet_obligation(&self) -> bool {
+        self.stage_hold.has_unmet_obligation()
+    }
+
+    /// Takes in what stage calls did. True when one moved a stage.
+    pub(super) fn absorb_stage_notes(&self, notes: Vec<StageNote>) -> bool {
+        self.stage_hold.absorb_notes(notes)
+    }
+
+    /// The step paths with their current reading: bound targets through the
+    /// bounded reader (bytes kept when `keep`), every other path as before.
+    fn current(&self, root: &Path, keep: bool) -> Vec<(String, Reading)> {
+        let (bound, other): (Vec<String>, Vec<String>) = self
+            .initial_hashes
             .keys()
-            .filter(|path| {
-                resolve_existing(root, path)
-                    .ok()
-                    .and_then(|full| std::fs::read_to_string(full).ok())
-                    .is_some_and(|content| {
-                        crate::planner::profiles::nextjs::is_engine_owned_scaffold_page(
-                            path, &content,
-                        )
-                    })
-            })
             .cloned()
+            .partition(|path| self.repair.initial(path).is_some());
+        let read = self.repair.read(root, &bound, keep);
+        let mut out = bound
+            .into_iter()
+            .zip(read.items)
+            .map(|(path, item)| {
+                let reading = Reading::Bound(item.fingerprint.hash_hex(), item.bytes);
+                (path, reading)
+            })
+            .collect::<Vec<_>>();
+        out.extend(other.into_iter().map(|path| (path, Reading::Legacy)));
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        out
+    }
+
+    fn current_hashes(&self, root: &Path) -> Vec<(String, Option<String>)> {
+        self.current(root, false)
+            .into_iter()
+            .map(|(path, reading)| {
+                let hash = match reading {
+                    Reading::Bound(hash, _) => hash,
+                    Reading::Legacy => legacy_hash(&self.repair, root, &path),
+                };
+                (path, hash)
+            })
+            .collect()
+    }
+
+    fn placeholder_paths(&self, root: &Path) -> Vec<String> {
+        self.current(root, true)
+            .into_iter()
+            .filter(|(path, reading)| {
+                let content = match reading {
+                    Reading::Bound(_, bytes) => bytes
+                        .as_ref()
+                        .and_then(|bytes| String::from_utf8(bytes.clone()).ok()),
+                    Reading::Legacy => match self.repair.legacy_read(root, path) {
+                        None => resolve_existing(root, path)
+                            .ok()
+                            .and_then(|full| std::fs::read_to_string(full).ok()),
+                        Some(LegacyRead::Bytes(bytes)) => String::from_utf8(bytes).ok(),
+                        Some(_) => None,
+                    },
+                };
+                content.is_some_and(|content| {
+                    crate::planner::profiles::nextjs::is_engine_owned_scaffold_page(path, &content)
+                })
+            })
+            .map(|(path, _)| path)
             .collect()
     }
 
     pub(super) fn merge_changes(&self, root: &Path, paths: &mut Vec<String>) {
-        for (path, before) in &self.initial_hashes {
-            if source_hash(root, path) != *before && !paths.contains(path) {
-                paths.push(path.clone());
+        for (path, after) in self.current_hashes(root) {
+            if after != self.initial_hashes[&path] && !paths.contains(&path) {
+                paths.push(path);
             }
         }
     }
@@ -81,13 +173,13 @@ impl ImplementationCompletion {
         let changed = self.changes(root, &[]);
         let placeholders = self.placeholder_paths(root);
         let hashes = self
-            .initial_hashes
-            .iter()
-            .map(|(path, before)| {
+            .current_hashes(root)
+            .into_iter()
+            .map(|(path, after)| {
                 json!({
                     "path": path,
-                    "before_sha256": before,
-                    "after_sha256": source_hash(root, path),
+                    "before_sha256": self.initial_hashes[&path],
+                    "after_sha256": after,
                 })
             })
             .collect::<Vec<_>>();
@@ -115,6 +207,9 @@ impl ImplementationCompletion {
         options: &RunSessionOptions,
         write_seen: bool,
     ) -> Option<String> {
+        if let Some(feedback) = self.stage_hold.feedback() {
+            return Some(feedback);
+        }
         if let Some(obligation) = &options.recovery_obligation
             && let Some(feedback) = obligation.feedback(config, options)
         {
@@ -122,7 +217,7 @@ impl ImplementationCompletion {
         }
         let paths = self.placeholder_paths(&config.workspace_root);
         if paths.is_empty() {
-            return None;
+            return self.repair_feedback(config, options, write_seen);
         }
         let mut event = self.event(config, options, write_seen);
         event["event"] = json!("step_completion_blocked");
@@ -134,6 +229,50 @@ impl ImplementationCompletion {
             "Implementation is incomplete: {} still contains the engine-owned scaffold page. Implement the requested UI in these expected paths. Reading it or writing an unrelated file does not satisfy this step.",
             paths.join(", ")
         ))
+    }
+
+    /// The raw-byte obligation of a host-bound final repair (Issue #956).
+    fn repair_feedback(
+        &self,
+        config: &Config,
+        options: &RunSessionOptions,
+        write_seen: bool,
+    ) -> Option<String> {
+        let held = self.repair.held(&config.workspace_root, write_seen)?;
+        let mut event = self.event(config, options, write_seen);
+        event["event"] = json!("step_completion_blocked");
+        event["reason"] = json!("final_repair_artifact_unchanged");
+        event["step_kind"] = json!("implement");
+        event["phase_scope"] = json!(options.phase_scope.as_deref().unwrap_or(""));
+        event["repair_binding"] = json!({
+            "targets": held.targets,
+            "unchanged": held.unchanged,
+            "absent": held.absent,
+            "unknown": held.unknown,
+        });
+        eval_events::emit(config.eval_events_path.as_deref(), event);
+        Some(held.feedback)
+    }
+}
+
+/// One step path's current reading.
+enum Reading {
+    /// A bound target, read by the bounded reader: its hash and, when asked
+    /// for, its bytes.
+    Bound(Option<String>, Option<Vec<u8>>),
+    /// Any other step path, read as before.
+    Legacy,
+}
+
+/// A step path's hash outside the bound names: as before without a binding;
+/// in a bound session through `legacy_read`, which never reads a bound target
+/// under another spelling or blocks on a special file.
+fn legacy_hash(repair: &RepairArtifactCompletion, root: &Path, path: &str) -> Option<String> {
+    match repair.legacy_read(root, path) {
+        None => source_hash(root, path),
+        Some(LegacyRead::Absent) => None,
+        Some(LegacyRead::Unknown(reason)) => Some(format!("unknown:{reason}")),
+        Some(LegacyRead::Bytes(bytes)) => Some(format!("{:x}", Sha256::digest(bytes))),
     }
 }
 

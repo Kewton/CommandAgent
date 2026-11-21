@@ -1,0 +1,8 @@
+{"case":"issue-857-after","event":"step_verify_failure","step_kind":"verify","command_failures":1,"primary_reason":"command failed: npx tsc --noEmit (TS2305 x4, TS2345 x1)"}
+{"case":"issue-857-after","event":"escalation_carryover","session_scope":"plan-run-step","step_kind":"verify","pre_advanced":true,"initial_read_only_streak":6,"repair_turn_budget":6}
+{"case":"issue-857-after","event":"tool_execute","name":"Read","path":"src/lib/gameLogic.ts","status":"ok"}
+{"case":"issue-857-after","event":"tool_execute","name":"Read","path":"src/hooks/useGameLoop.ts","status":"ok"}
+{"case":"issue-857-after","event":"tool_execute","name":"Read","path":"src/lib/types.ts","status":"ok"}
+{"case":"issue-857-after","event":"tool_execute","name":"Write","path":"src/lib/gameLogic.ts","status":"ok"}
+{"case":"issue-857-after","event":"loop_stop","reason":"step_tool_observation_completed","tool_calls":4}
+{"case":"issue-857-after","event":"step_verify_repair","attempt":1,"changed_paths":["src/lib/gameLogic.ts"],"ok":true}

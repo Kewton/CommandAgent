@@ -339,6 +339,10 @@ fn release_workflow_preserves_the_distribution_contract() {
         "actions/download-artifact@v8",
         "softprops/action-gh-release@v3",
         "cargo test --locked",
+        // The Linux strict isolation tests (#982) need user namespaces and fail when this is
+        // unset, so the release test job prepares the runner and says what it must answer.
+        "sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0",
+        "COMMANDAGENT_TEST_LINUX_STRICT: available",
         "aarch64-apple-darwin",
         "x86_64-apple-darwin",
         "runner: macos-15-intel",

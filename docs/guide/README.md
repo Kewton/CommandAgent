@@ -25,7 +25,7 @@ Recommended route / 推奨順路:
   Trial, Gate 1, and separate status, history, and result pages
 - [Extensions](en/extensions.md) — four layers, boundaries, registration, and
   the supply lifecycle
-- [CLI reference](en/cli-reference.md) — all 67 public flags, defaults, and
+- [CLI reference](en/cli-reference.md) — all 69 public flags, defaults, and
   conflicts
 - [Plan YAML editing](en/plan-yaml.md) — commented templates, offline
   validation, next commands, and recovery diffs
@@ -35,6 +35,12 @@ Recommended route / 推奨順路:
 - [Configuration](en/configuration.md) — precedence, presets, paths, legacy
   files, and environment variables
 - [Providers](en/providers.md) — Ollama, LM Studio, OpenAI, and Gemini setup
+- [Operator root, profile tools, and run budget](en/profile-tools.md) — the
+  operator-owned files outside the workspace, tool descriptors, and run budget
+  declarations (v1 and v2), plus the billed-cost fields of the summary
+- [Build a two-stage extension](en/operator-root-tutorial.md) — a walkthrough
+  over the operator-root sample: two structured stages, pinned processes, a run
+  budget, `--operator-check`, and a rehearsal against a fake model
 - [Troubleshooting](en/troubleshooting.md) — common startup, provider, and TUI
   problems
 - [Model behavior probe](en/model-probe.md) — the bounded role-specific
@@ -53,7 +59,7 @@ walkthrough. Read the [security model](../../SECURITY.md) before enabling
 - [GUI 入門](../user/getting-started-gui.md) — 前提確認、サンプル Trial、Gate 1、
   分離された実行状況・履歴・結果ページ
 - [拡張](ja/extensions.md) — 4 レイヤー、境界、登録導線、供給ライフサイクル
-- [CLI リファレンス](ja/cli-reference.md) — 公開されている全 67 フラグ、既定値、排他関係
+- [CLI リファレンス](ja/cli-reference.md) — 公開されている全 69 フラグ、既定値、排他関係
 - [Plan YAML の編集](ja/plan-yaml.md) — コメント付き template、offline 検証、次コマンド、
   recovery 差分
 - [スラッシュコマンド](ja/slash-commands.md) — 一般レジストリで受け付ける全 24 コマンド名と
@@ -61,6 +67,10 @@ walkthrough. Read the [security model](../../SECURITY.md) before enabling
   プロファイル推論
 - [設定](ja/configuration.md) — 優先順位、preset、探索パス、旧形式ファイル、環境変数
 - [プロバイダ](ja/providers.md) — Ollama、LM Studio、OpenAI、Gemini のセットアップ
+- [operator root・profile tools・run budget](ja/profile-tools.md) — ワークスペースの外に置く
+  operator のファイル、tool の descriptor、run budget の宣言（v1 と v2）、summary の請求額の欄
+- [2 段の拡張を作る](ja/operator-root-tutorial.md) — operator root の見本を順にたどる:
+  2 つの structured stage、pin した process、run budget、`--operator-check`、偽のモデルでの予行演習
 - [トラブルシューティング](ja/troubleshooting.md) — 起動時、プロバイダ、TUI の一般的な問題
 - [モデル動作プローブ](ja/model-probe.md) — 役割別のプロバイダ／モデルを限定的に測定する手順
 

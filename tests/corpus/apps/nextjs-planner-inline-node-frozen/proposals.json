@@ -1,0 +1,34 @@
+{
+  "synthetic": "synthetic verify command lists of the three planner proposals, derived from the shape of campaign-G1-3a10 content-q (events 49-58) and campaign-G1-3a8 game-g step planning; no recorded text, secret or absolute path",
+  "content_q": {
+    "first": [
+      "node -e \"try { const s = require('./src/lib/storage'); s.save('k', 1); console.log(s.load('k')); } catch (e) { console.error(e); process.exit(1); }\""
+    ],
+    "second": ["node smoke-check.js"],
+    "third": ["node smoke-check.js"],
+    "expected_status": "stopped",
+    "planner_calls": 1,
+    "today_without_the_proof": "retry, retry, exhausted: the second and third proposals lose the frozen original check"
+  },
+  "game_g": {
+    "first": [
+      "node -e \"const engine = require('./src/lib/engine'); if (!engine.update) throw new Error('missing update'); console.log('ok')\""
+    ],
+    "second": ["node smoke-check.js"],
+    "third": ["node smoke-check.js"],
+    "expected_status": "stopped",
+    "planner_calls": 1,
+    "today_without_the_proof": "retry, retry, exhausted: the second and third proposals lose the frozen original check"
+  },
+  "formable": {
+    "require_only": ["node -p \"require('./src/lib/types.ts')\""],
+    "dynamic_import_only": ["node -e \"import('./src/lib/types.ts')\""],
+    "smoke_file": ["node smoke-check.js"],
+    "expected_status": "retry"
+  },
+  "accepted": {
+    "smoke_file": ["node smoke-check.js"],
+    "build": ["npm run build"],
+    "expected_status": "ready"
+  }
+}

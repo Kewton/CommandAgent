@@ -65,7 +65,7 @@ copying forward existing state.
 
 ## Presets
 
-Select a preset with `--preset <name>`. A preset section accepts all 21 current
+Select a preset with `--preset <name>`. A preset section accepts all 22 current
 keys below. String/enumeration values must be double-quoted; numeric values are
 unquoted integers.
 
@@ -92,6 +92,7 @@ unquoted integers.
 | `stream` | `"on"` or `"off"` | on for REPL, off otherwise |
 | `prompt_layout` | `"stable"` or `"legacy"` | top-level value, then `"legacy"` |
 | `plan_preset` | `"none"` or `"profile"` | top-level/computed planner value |
+| `openrouter_provider` | one-line inline table with only `only`, `order` (provider slug arrays), and `allow_fallbacks` (boolean), sent as the `provider` object by `openai-compatible` roles; for example with `api = "chat_completions"`, `{ only = ["open-inference/fp4"], allow_fallbacks = false }`; `{}` clears an inherited table (see [Providers](providers.md)) | no routing |
 
 `extends` performs single inheritance. The child wins for every field it
 defines, while missing fields come from the parent. Parents may themselves
@@ -168,12 +169,12 @@ higher-priority preset already has the 11 completeness fields but omits
 `prompt_layout`, CommandAgent stops searching and does not inherit that preset's
 `prompt_layout` from a lower-priority file. Put `prompt_layout` in the same
 higher-priority preset, or omit enough completeness fields for the intended
-lower layer to be visited. Do not assume the 21 accepted keys are the same as
+lower layer to be visited. Do not assume the 22 accepted keys are the same as
 the 11-key early-stop condition.
 
 ## Top-level keys
 
-Only six keys are valid at the top level of a `config.toml` file:
+Only eight keys are valid at the top level of a `config.toml` file:
 
 | Key | Accepted value | Matching CLI override |
 | --- | --- | --- |
@@ -183,6 +184,8 @@ Only six keys are valid at the top level of a `config.toml` file:
 | `stream` | `"on"` or `"off"` | `--stream` |
 | `prompt_layout` | `"stable"` or `"legacy"` | `--prompt-layout` |
 | `plan_preset` | `"none"` or `"profile"` | `--plan-preset` |
+| `request_pattern` | `"off"` or `"jev"`; jev classifies a direct `--prompt` request to add request guidance | `--request-pattern` |
+| `request_pattern_threshold` | number from `0` to `1` (default `0.8`); a lower jev confidence adds no guidance | none |
 
 ```toml
 extension_root = "extensions"
@@ -277,6 +280,13 @@ variables also affect normal user-visible behavior:
 | `COMMANDAGENT_PACK_VERSION` | Internal handoff for the selected pack version. Configure it with `--pack` or a preset instead of setting it by hand. |
 | `COMMANDAGENT_PACK_HASH` | Internal handoff for the selected pack exact-byte hash. Configure it with `--pack` or a preset instead of setting it by hand. |
 | `COMMANDAGENT_UX_DEMO_FAST` / `ANVIL_UX_DEMO_FAST` | Speeds up the `--ux-demo` presentation waits for development and demos. The variable's presence, not its value, is tested. |
+| `COMMANDAGENT_SYSTEM_GUIDANCE` | Adds one common guidance text to the system prompt of every provider request of a direct `--prompt` run. Unset or empty changes nothing. See below. |
+| `COMMANDAGENT_COMPATIBLE_REASONING_EFFORT` | Declares a reasoning effort for the roles that use the OpenAI-compatible transport (`openai-compatible` and `lm-studio`). Unset or empty sends nothing. See below. |
+| `COMMANDAGENT_COMPLETION_OBLIGATION_REVIEW` | Experimental. `once` asks a generic edit run to review the request's obligations once before its first normal final answer. Unset, empty, or `off` (the default) changes nothing. See below. |
+| `COMMANDAGENT_ADAPTER_CONFIG_ROOT` | The operator root: an absolute directory outside the workspace that holds `profile-tools/<id>.json` and `run-budgets/<id>.json`. See [Operator Root, Profile Tools, and Run Budget](profile-tools.md). |
+| `COMMANDAGENT_RUN_BUDGET` | Selects a run budget by ID, read from `<operator root>/run-budgets/<id>.json`. Unset means off. See [Run Budget](profile-tools.md#run-budget). |
+| `COMMANDAGENT_REQUIREMENT_PLAN` | Experimental. `once` asks a new generic run to write a short requirement plan note before its first implementation step. Unset, empty, or `off` (the default) changes nothing. See below. |
+| `COMMANDAGENT_BUDGET_CLOSING` | Experimental. `once` tells a generic direct run once, three calls before its iteration limit, to close out, and keeps a final with an unresolved failed check or write from ending the run as a normal final. Unset, empty, or `off` (the default) changes nothing. See below. |
 
 For `COMMANDAGENT_*` entries, the current name wins. The matching `ANVIL_*`
 name is used only when the current name is absent, and emits a one-time
@@ -286,6 +296,293 @@ currently supported spellings.
 The four `COMMANDAGENT_PACK_*` names are the exception: they are read directly
 and have no `ANVIL_*` legacy name. They are an internal handoff for the selected
 pack, not a user-configured setting; use `--pack` or a preset to select a pack.
+
+`COMMANDAGENT_SYSTEM_GUIDANCE` is an opt-in for comparing a common instruction
+text. It is read once, from the process environment only, when a direct
+`--prompt` run starts; it has no `ANVIL_*` legacy name, and no config file or
+`.env` is read for it. The plan entries, the TUI, and `--model-probe` ignore it.
+When it is set, every provider request of the run (each turn, the turns after
+tool calls, the empty-response fresh retry, native and XML tool protocols)
+carries the text once in its "Request guidance" block; when
+`--request-pattern jev` adopts a pattern, the text follows that pattern's
+guidance under a "Common guidance:" line. The original request, the profile
+guidance, the session history, the `request_pattern_resolved` event, and when
+jev is called do not change. The value must be UTF-8, at most 8 KiB (8192
+bytes), and not only whitespace; otherwise the run fails with an error that
+names the variable and the reason but not the value. The text is ordinary
+guidance: it grants or removes no tool permission and changes no verification,
+completion, acceptance, or budget rule. The run's secret scrub applies to it,
+but do not put secrets in it.
+
+`COMMANDAGENT_COMPLETION_OBLIGATION_REVIEW` is an experimental opt-in for
+measuring one completion review; it is off by default and is not a coverage or
+verification gate. It is read once, from the process environment only, when a
+minimal-loop run starts (no `ANVIL_*` legacy name, no config file, no `.env`,
+no CLI flag), and a change during the run has no effect.
+
+- Values: unset, empty, whitespace-only, or `off` disables it, and the run is
+  exactly the run without the variable: the same provider requests in the same
+  order, the same events, stop reason, and assurance, and no new event. `once`
+  (surrounding whitespace trimmed, lowercase) enables it. Any other value,
+  including `ONCE` or non-UTF-8 bytes, fails the run before the first request
+  with a fixed error that names the variable but not the value.
+- Scope: a minimal-loop run (not a plan step) whose effective profile is `generic`, that
+  has no completion contract, and in which a Write or Edit succeeded. Only the
+  first normal assistant final is considered, after it passed every existing
+  check (required paths, the action-prompt check, relative imports), and only
+  when at least three loop iterations remain. Plan steps (`PlanRunStep`),
+  runs with a completion contract, read-only runs, the automatic post-write
+  read completion, the automatic required-artifact completion, and budget
+  exhaustion are never deferred; the wall-clock cap, cancellation, and every
+  existing failure keep priority.
+- Behavior: that final is deferred once and the model receives one fixed
+  request: list up to five obligations the original request states, map what
+  was already confirmed, choose one or two important unconfirmed boundary,
+  error, or output-format inputs, derive the expected result from the request
+  rather than the implementation, run them with the already allowed tools, and
+  fix only an observed contradiction. The next normal final passes the
+  existing checks again and ends the run with that new answer; the deferred
+  answer is never returned. What the model says about the review (for example
+  that it covered everything) neither releases nor blocks it. There is no
+  second request, no extra iteration, and no reset of an existing counter.
+- Host observation: after the request the host counts successful Write/Edit
+  calls and non-substituted Bash results, using the existing execution-progress
+  classification, not the tool status, and drops successful Bash observations
+  older than the latest successful edit. A non-zero exit, a tool error, or a
+  policy rejection is not counted as successful, and none of them becomes a new
+  blocker. A successful command proves only that it ran: it may be an `echo`,
+  unrelated, or a wrong self-written check, and a negative test may correctly
+  exit non-zero. The model's self-report is not evidence either.
+- Events: the run records `completion_obligation_review` with `phase`
+  `triggered`, `closed` (`reason` `next_final`, or
+  `scope_exit_before_next_final` when the run ended another way), or `skipped`
+  (a fixed reason), plus numbers such as `iteration`, `remaining_iterations`,
+  `prompt_version`, and `successful_bash_since_latest_edit`. It never copies
+  the prompt, a command, model text, tool output, or a secret, and has no
+  coverage or verification-passed field. Existing events, stop reasons, the
+  summary's `assurance_level=reduced`, and acceptance and release gates do not
+  change.
+- Cost: the review normally adds one to three provider calls, but this is not
+  guaranteed; the model may use more of the remaining iterations, up to the
+  existing limit. Whether the review improves correctness is unmeasured.
+
+`COMMANDAGENT_REQUIREMENT_PLAN` is an experimental opt-in that asks the model
+to state the request's obligations and the expected results of a few small
+checks before it implements anything. It is off by default. The note is the
+model's own unverified memo: the host checks only its shape and size, never
+whether it is correct or complete, and it is not a coverage, verification, or
+acceptance gate. It is read once, from the process environment only, when a
+minimal-loop run starts (no `ANVIL_*` legacy name, no config file, no `.env`,
+no CLI flag), and a change during the run has no effect.
+
+- Values: unset, empty, whitespace-only, or `off` disables it, and the run is
+  exactly the run without the variable: the same provider requests in the same
+  order, the same events, stop reason, and assurance, and no new event. `once`
+  (surrounding whitespace trimmed, lowercase) enables it. Any other value,
+  including `ONCE` or non-UTF-8 bytes, fails the run before the first request
+  with a fixed error that names the variable but not the value.
+- Not combinable: `once` together with
+  `COMMANDAGENT_COMPLETION_OBLIGATION_REVIEW=once` fails the run before the
+  first request with an error that names only the two variables. With this
+  variable off, the completion obligation review works exactly as before.
+- Scope: a new minimal-loop run (not a plan step) whose effective profile is
+  `generic`, that has no completion contract, that does not continue an earlier
+  conversation, and in which at least four loop iterations remain after the
+  first request. Plan steps (`PlanRunStep`), other profiles, runs with a
+  completion contract, resumed or follow-up turns, runs on a provider client
+  that parses XML tool calls before the host (Ollama), and runs with less budget are
+  skipped. It is never enabled in the middle of a run.
+- Request: the first request alone carries one fixed guidance message. It asks
+  for a `<requirement_plan>` JSON block at the start of the first reply with up
+  to five obligations the request states (`id`, `stated_requirement`,
+  `expected_behavior`, `assumption`) and up to two check examples
+  (`obligation_id`, `input_outline`, `expected_outcome`,
+  `reason_from_request`), with the expected results decided from the request
+  before any implementation and ambiguities written as assumptions. The reply
+  may continue with normal work and tool calls.
+- Limits: the block may hold at most 8 KiB (UTF-8) and the normalized note at
+  most 2048 characters, with one to five obligations and zero to two examples.
+  Only those fields are accepted, ids must be unique, and every example must
+  name an existing obligation. A missing block, a block that does not open the
+  reply, malformed or truncated JSON, an unknown field, a duplicate id, a
+  dangling reference, or an oversize block discards the whole note (it is never
+  cut down to fit); the run continues without a note and the note is never
+  asked for again.
+- Handling: the host takes the block out of the first reply before any XML tool
+  call is extracted or any tool runs. Nothing inside the block, and nothing
+  after an unclosed block, is read as a tool call; a second, nested, or
+  unclosed block in the first reply also makes the note invalid. A provider
+  client that parses XML tool calls out of the reply itself before the host
+  sees it (today only the Ollama client) never starts the plan: the run is
+  skipped with `reason` `provider_unsupported`, no guidance is sent, and the
+  run is exactly the run with the variable off. This is a limitation: every
+  Ollama run is excluded, including runs that use native tool calls. LM Studio,
+  OpenAI-compatible endpoints such as OpenRouter, OpenAI, and Gemini are not
+  excluded. The kept note passes the
+  run's secret scrub, lives only in memory for that run, and is never written to
+  the session, a file, or the runtime namespace; a resumed or follow-up turn does
+  not get it back. Each later request of the run carries it exactly once, right
+  after the original request, as assistant-side context with a fixed header
+  saying it is the model's own unverified memo and that the original request and
+  later user corrections take precedence. It is never joined to the system
+  prompt and never replaces the request, a tool result, or pending feedback;
+  history compaction and the empty-response fresh retry keep it, and it adds no
+  retry. A later user message makes the note stale and it is no longer sent; the
+  run does not plan again.
+- Planning turn: when the first reply is only a valid block (no tool call and no
+  other text), that reply counts as one existing iteration and provider call and
+  the run moves on. No iteration is added or returned, and no existing counter
+  is reset. Failures, timeouts, cancellation, and budget exhaustion stay what
+  they are.
+- Events: the run records `requirement_plan` with `phase` `requested`,
+  `captured`, `skipped`, or `released`, a fixed `reason`, `prompt_version`,
+  `iteration`, `remaining_iterations`, `obligation_count`, `example_count`,
+  `note_chars`, and `plan_only_turn`. `captured` means the shape was valid, not
+  that the note is right. The event never copies the note, the request, example
+  values, tool output, a secret, an unknown key name, or a parser message.
+  Existing events, stop reasons, assurance, and acceptance and release gates do
+  not change; a successful self-written example or the model saying everything
+  was checked raises nothing. Whether the note improves correctness is
+  unmeasured.
+
+`COMMANDAGENT_BUDGET_CLOSING` is an experimental opt-in for the end of a
+generic direct run's iteration budget. It is off by default and is not a
+verification, acceptance, or success gate. It is read once, from the process
+environment only, when a minimal-loop run starts (no `ANVIL_*` legacy name, no
+config file, no `.env`, no CLI flag), and a change during the run has no
+effect.
+
+- Values: unset, empty, whitespace-only, or `off` disables it, and the run is
+  exactly the run without the variable: the same provider requests in the same
+  order, the same events, and the same stop reason, with no new state or
+  event. `once` (surrounding whitespace trimmed, lowercase) enables it. Any
+  other value, including `ONCE` or non-UTF-8 bytes, fails the run before the
+  first request with a fixed error that names the variable but not the value.
+- Scope: a minimal-loop run with no step kind, no phase scope, and no recovery
+  obligation, whose effective profile is `generic` and that has no completion
+  contract. Plan steps (`PlanRunStep`), recovery runs, the final acceptance
+  repair, other profiles, and runs with a completion contract keep no state
+  and emit nothing. No effort, model, provider, or task wording changes it.
+- Notice: when the calls left, counting the current one, reach three, the
+  request that is actually sent carries one fixed notice (prompt version 1):
+  three calls remain; start no new improvement or rewrite; make any remaining
+  change minimal and run one check; if the check succeeds, report the changed
+  files, the check, and its result without calling a tool; if it failed or
+  could not run, do not claim success and report what remains. Existing
+  feedback for that request stays and the notice follows it. On an
+  empty-response fresh-session retry the notice is the only feedback and the
+  retry still sends no earlier history. The notice is recorded only when a
+  sent request carries it and that request was handed to the client (also
+  when the call is interrupted afterwards; a cancel before the client is
+  called records nothing), at most once per run, and never when the
+  iteration limit is three or less. Tools and permissions do not change.
+  One cancel behavior changes, for that request only: when the provider call
+  has already returned interrupted before its worker reached the client,
+  the worker no longer sends the request late.
+- Ledger: from the start of the run the host keeps unresolved failures in
+  memory. A Bash call that ran (not refused or replaced by policy) and that
+  the existing execution-progress classification counts as not successful is
+  resolved only by a later success of the same command. A Write or Edit that
+  ended in a recoverable error or rejection is resolved only by a later
+  success that matches it: the same Edit (path, `old_string`, `new_string`,
+  `replace_all`), the same Write (path and content), or a Write to the same
+  path whose content contains the failed Edit's `new_string` and no longer
+  contains its `old_string` (never when `new_string` contains `old_string`).
+  Paths are compared after the tools' normalization and rebuilt from their
+  components, so `a//b`, `a/./b`, and `a/b` are one target; `..` is not
+  resolved. A Bash call the tool layer refuses before running it (an
+  engine-private or sensitive path, a missing argument, a path confinement
+  refusal, or a protected path, recognized by the error's type or by the
+  host's own words at the start of the message) is counted as refused, not
+  as a failure; a timeout or any other error of a command that may have run
+  stays a failure, whatever its command or output says. An unrelated command, a
+  write to another path, another edit of the same file, a read, a later write
+  alone, or anything the model says (including "fixed" or "not finished")
+  resolves nothing. A failure that cannot be identified stays unresolved.
+  Bash refused by policy is neither a failure nor a success; only its count
+  is kept.
+- Guard: after the notice, a normal final that passed every existing check
+  (required paths, the action-prompt check, relative imports, the completion
+  obligation review) is not returned while one failure remains, however many
+  finals came before. The answer is removed, one fixed feedback asks to fix
+  the failure and pass the same check or report the work as unfinished, and
+  the loop continues inside the existing budget. No call, iteration, time, or
+  retry is added; when the budget runs out the run fails through the existing
+  budget exit, whose reason is chosen by the existing order. The automatic
+  post-write read completion follows the same rule after the notice: while a
+  failure remains it does not end the run; the tool results stay, the same
+  feedback goes into the next request, and the loop continues inside the
+  existing budget. Finals before the notice, that completion before the
+  notice or without a remaining failure, and other existing stops are judged
+  as before.
+- Events: the run records `budget_closing` with `phase` `notice`,
+  `final_deferred`, `final_accepted`, or `exhausted_after_notice`, a fixed
+  `guard_reason`, `prompt_version`, `iteration`, `iteration_limit`,
+  `remaining_calls`, `unresolved_bash_failures`, `unresolved_write_failures`,
+  `resolved_failures`, `policy_rejected_bash`, and `final_deferrals`. Other
+  failures (provider errors, timeouts, max length, cancellation) emit neither
+  `final_accepted` nor `exhausted_after_notice`. The event never copies a
+  command, a path, content, model text, tool output, or a secret.
+- Meaning and cost: `final_accepted` means only that no failure was left in
+  the ledger; a successful command proves only that it exited successfully,
+  and the guard is not evidence that the work is correct. Deferred finals can
+  make a run use more of its existing budget than with the variable off.
+  Whether the notice improves correctness is unmeasured.
+
+`COMMANDAGENT_COMPATIBLE_REASONING_EFFORT` declares how hard an
+OpenAI-compatible server should reason. It is read from the process environment
+only (no `ANVIL_*` legacy name, no config file, no `.env`) when a provider
+client is built, and every clone, worker, and transport retry of that client
+sends the same value. It has no CLI flag.
+
+- Scope: every role whose provider resolves to the OpenAI-compatible transport,
+  that is the generic `openai-compatible` provider and `lm-studio`, for the
+  executor, the planner, and the classifier alike. Ollama native, OpenAI, and
+  Gemini roles never send it, and its value never stops them from starting.
+- Values: one of `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`,
+  in lowercase, after surrounding whitespace is trimmed. Case and aliases are
+  not converted. Unset, empty, or whitespace-only sends no field, so the
+  request is exactly the one sent without the variable. Any other value
+  (`LOW`, `true`, an unknown word, non-UTF-8 bytes) fails before the first
+  request with an error that names the variable and the accepted words but
+  not the value.
+- Wire: Chat Completions (`--api chat-completions`) adds a top-level
+  `"reasoning_effort": "<value>"`; Responses (`--api responses`) adds
+  `"reasoning": {"effort": "<value>"}`. Nothing else in the request changes:
+  `max_tokens` and `max_output_tokens` stay, and no OpenAI-only field or
+  Ollama `think` field is added.
+- Unsupported values: CommandAgent checks its own vocabulary only. It does not
+  ask the server which values the model supports and does not special-case
+  model or host names. When the server rejects the value (for example HTTP 400
+  for a word the model does not offer), the turn fails as an ordinary
+  non-retryable provider error; CommandAgent does not resend without the field,
+  with a different effort, through another API, or as `think`.
+- Other settings: `--think` still controls only Ollama native roles, and
+  `COMMANDAGENT_OPENAI_REASONING_EFFORT` still applies only to the `openai`
+  provider; neither falls back to this variable, and this variable does not
+  fall back to them.
+- Evidence: `--doctor` reports `config.compatible_reasoning_effort` per role as
+  `declared`, `omitted`, `not_applicable`, or `invalid` (an invalid value used
+  by a compatible role fails the check), and the headless summary records the
+  same declaration under `model_metadata.compatible_reasoning_effort`. Both
+  describe what CommandAgent sends, not what the server applied
+  (`server_support_verified` stays `false`). When a value is sent, the
+  `provider_request` event adds `requested_reasoning_effort`,
+  `reasoning_effort_source` (`env`), and `provider_role`.
+
+For example, with an OpenAI-compatible executor and a native Ollama planner:
+
+```bash
+COMMANDAGENT_COMPATIBLE_REASONING_EFFORT=low commandagent \
+  --provider openai-compatible --base-url http://127.0.0.1:11434/v1 \
+  --model glm-5.3-flash:cloud \
+  --planner-provider ollama --planner-model <planner-model> \
+  --prompt '<request>'
+```
+
+The executor sends `reasoning_effort: "low"`; the Ollama planner keeps its own
+`--think` setting and receives no effort field. If the planner also used
+`--planner-provider openai-compatible`, it would send the same `low`.
 
 ## Inspect the effective configuration
 

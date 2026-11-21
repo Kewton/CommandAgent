@@ -1,0 +1,26 @@
+   Compiling calc v0.1.0
+warning: unused variable: `scale`
+  --> src/lib.rs:7:9
+   |
+ 7 |     let scale = 10;
+   |         ^^^^^ help: if this is intentional, prefix it with an underscore: `_scale`
+   |
+   = note: `#[warn(unused_variables)]` on by default
+
+error[E0308]: mismatched types
+  --> src/lib.rs:21:20
+   |
+19 | pub fn ratio(total: u32, count: u32) -> f64 {
+   |                                         --- expected `f64` because of return type
+20 |     if count == 0 {
+21 |         return 0;
+   |                ^ expected `f64`, found integer
+   |
+help: use a float literal
+   |
+21 |         return 0.0;
+   |                 ++
+
+For more information about this error, try `rustc --explain E0308`.
+warning: `calc` (lib) generated 1 warning
+error: could not compile `calc` (lib) due to 1 previous error; 1 warning emitted

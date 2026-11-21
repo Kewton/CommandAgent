@@ -12,10 +12,15 @@ pub(crate) mod admission;
 pub(crate) mod formation_scope;
 #[cfg(test)]
 mod issue466_tests;
+#[cfg(test)]
+mod issue817_tests;
+#[cfg(test)]
+mod issue831_tests;
 mod literal_marker_formation;
 pub(crate) mod package_owner_scope;
 mod package_script_formation;
 pub(crate) mod profile_augmentation;
+pub(crate) mod profile_contract_reference;
 mod reader_obligations;
 mod verifier_formation;
 

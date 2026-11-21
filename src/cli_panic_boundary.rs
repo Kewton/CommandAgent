@@ -1,15 +1,16 @@
 use std::any::Any;
 use std::io::Write;
+use std::marker::PhantomData;
 use std::panic::{AssertUnwindSafe, PanicHookInfo};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
+use std::thread::ThreadId;
 
 use serde_json::{Value, json};
 
 use crate::config::Config;
 
-static PANIC_HOOK_LOCK: Mutex<()> = Mutex::new(());
-type SharedPanicHook = Arc<dyn Fn(&PanicHookInfo<'_>) + Sync + Send + 'static>;
+type PanicHook = Box<dyn Fn(&PanicHookInfo<'_>) + Sync + Send + 'static>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PanicDiagnostic {
@@ -40,51 +41,243 @@ impl PanicBoundaryContext {
     }
 }
 
-struct PanicHookGuard {
-    previous: Option<SharedPanicHook>,
-    _lock: MutexGuard<'static, ()>,
+/// Who may replace the process-wide panic hook. One thread at a time owns it;
+/// the owner may nest guards, and every other thread waits until it is free.
+struct PanicHookOwner {
+    thread: Option<ThreadId>,
+    depth: usize,
+    #[cfg(test)]
+    waiting: Vec<ThreadId>,
+}
+
+static PANIC_HOOK_OWNER: Mutex<PanicHookOwner> = Mutex::new(PanicHookOwner {
+    thread: None,
+    depth: 0,
+    #[cfg(test)]
+    waiting: Vec::new(),
+});
+static PANIC_HOOK_OWNER_CHANGED: Condvar = Condvar::new();
+
+fn lock_panic_hook_owner() -> MutexGuard<'static, PanicHookOwner> {
+    PANIC_HOOK_OWNER
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// One level of panic hook ownership. It is not `Send`, so it is released on
+/// the thread that took it.
+struct PanicHookLease {
+    _same_thread: PhantomData<*const ()>,
+}
+
+impl PanicHookLease {
+    fn acquire() -> Self {
+        let me = std::thread::current().id();
+        let mut owner = lock_panic_hook_owner();
+        if owner.thread != Some(me) {
+            #[cfg(test)]
+            {
+                owner.waiting.push(me);
+                PANIC_HOOK_OWNER_CHANGED.notify_all();
+            }
+            while owner.thread.is_some() {
+                owner = PANIC_HOOK_OWNER_CHANGED
+                    .wait(owner)
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+            }
+            #[cfg(test)]
+            owner.waiting.retain(|waiting| *waiting != me);
+            owner.thread = Some(me);
+        }
+        owner.depth += 1;
+        Self {
+            _same_thread: PhantomData,
+        }
+    }
+
+    #[cfg(test)]
+    fn try_acquire() -> Option<Self> {
+        let me = std::thread::current().id();
+        let mut owner = lock_panic_hook_owner();
+        if owner.thread.is_some_and(|thread| thread != me) {
+            return None;
+        }
+        owner.thread = Some(me);
+        owner.depth += 1;
+        Some(Self {
+            _same_thread: PhantomData,
+        })
+    }
+}
+
+impl Drop for PanicHookLease {
+    fn drop(&mut self) {
+        let mut owner = lock_panic_hook_owner();
+        owner.depth -= 1;
+        if owner.depth == 0 {
+            owner.thread = None;
+            PANIC_HOOK_OWNER_CHANGED.notify_all();
+        }
+    }
+}
+
+/// The only path that replaces the process-wide panic hook (Issue #1012).
+///
+/// `record` sees every panic while the guard is installed. A panic on the
+/// installing thread stops there; a panic on any other thread also reaches the
+/// hook that was installed before. Guards from different threads never
+/// overlap, guards on one thread nest, and dropping a guard puts back the
+/// exact hook it replaced.
+pub(crate) struct PanicHookGuard {
+    previous: Option<Arc<PanicHook>>,
+    _lease: PanicHookLease,
 }
 
 impl PanicHookGuard {
-    fn install(diagnostics: Arc<Mutex<Vec<PanicDiagnostic>>>) -> Self {
-        #[cfg(test)]
-        TEST_PANIC_HOOK_INSTALL_COUNT.with(|count| count.set(count.get() + 1));
-        let lock = PANIC_HOOK_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let previous: SharedPanicHook = Arc::from(std::panic::take_hook());
+    pub(crate) fn install(record: impl Fn(&PanicHookInfo<'_>) + Sync + Send + 'static) -> Self {
+        Self::replace(PanicHookLease::acquire(), record)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn try_install(
+        record: impl Fn(&PanicHookInfo<'_>) + Sync + Send + 'static,
+    ) -> Option<Self> {
+        PanicHookLease::try_acquire().map(|lease| Self::replace(lease, record))
+    }
+
+    fn replace(
+        lease: PanicHookLease,
+        record: impl Fn(&PanicHookInfo<'_>) + Sync + Send + 'static,
+    ) -> Self {
+        let previous = Arc::new(std::panic::take_hook());
         let previous_for_other_threads = Arc::clone(&previous);
         let owner = std::thread::current().id();
         std::panic::set_hook(Box::new(move |info| {
-            let on_owner_thread = std::thread::current().id() == owner;
-            // Provider workers can resume their panic on the CLI thread, so retain a bounded
-            // set and later match the caught payload instead of assuming one panic thread.
-            let mut diagnostics = diagnostics
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            if diagnostics.len() == 16 {
-                diagnostics.remove(0);
-            }
-            diagnostics.push(PanicDiagnostic::from_hook(info));
-            drop(diagnostics);
-            if !on_owner_thread {
+            record(info);
+            if std::thread::current().id() != owner {
                 previous_for_other_threads(info);
             }
         }));
         Self {
             previous: Some(previous),
-            _lock: lock,
+            _lease: lease,
         }
     }
 }
 
 impl Drop for PanicHookGuard {
     fn drop(&mut self) {
-        let _ = std::panic::take_hook();
+        // Dropping the installed hook releases its handle on the previous hook,
+        // so the previous hook itself goes back, not a wrapper around it.
+        drop(std::panic::take_hook());
         if let Some(previous) = self.previous.take() {
-            std::panic::set_hook(Box::new(move |info| previous(info)));
+            let previous: PanicHook = match Arc::try_unwrap(previous) {
+                Ok(previous) => previous,
+                Err(shared) => Box::new(move |info| shared(info)),
+            };
+            std::panic::set_hook(previous);
         }
     }
+}
+
+#[cfg(test)]
+fn panic_hook_address(hook: &PanicHook) -> *const () {
+    let hook: &(dyn Fn(&PanicHookInfo<'_>) + Sync + Send + 'static) = &**hook;
+    (hook as *const (dyn Fn(&PanicHookInfo<'_>) + Sync + Send + 'static)).cast::<()>()
+}
+
+/// Test-only: owns the panic hook for the whole test, installs a sentinel that
+/// keeps the message of every panic it sees, and puts the original hook back on
+/// drop. Other tests' threads can panic at any time, so a test asks whether the
+/// sentinel saw its own message instead of counting calls.
+#[cfg(test)]
+pub(crate) struct TestPanicHookSentinel {
+    seen: Arc<Mutex<Vec<String>>>,
+    address: *const (),
+    original: Option<PanicHook>,
+    _lease: PanicHookLease,
+}
+
+#[cfg(test)]
+impl TestPanicHookSentinel {
+    pub(crate) fn install() -> Self {
+        let lease = PanicHookLease::acquire();
+        let original = std::panic::take_hook();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&seen);
+        let sentinel: PanicHook = Box::new(move |info| {
+            sink.lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push(panic_payload_message(info.payload()));
+        });
+        let address = panic_hook_address(&sentinel);
+        std::panic::set_hook(sentinel);
+        Self {
+            seen,
+            address,
+            original: Some(original),
+            _lease: lease,
+        }
+    }
+
+    /// How many panics with exactly this message reached the sentinel.
+    pub(crate) fn seen(&self, message: &str) -> usize {
+        self.seen
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .iter()
+            .filter(|seen| *seen == message)
+            .count()
+    }
+
+    /// True when the installed hook is the sentinel itself, not a wrapper.
+    pub(crate) fn is_installed(&self) -> bool {
+        let current = std::panic::take_hook();
+        let installed = panic_hook_address(&current) == self.address;
+        std::panic::set_hook(current);
+        installed
+    }
+}
+
+#[cfg(test)]
+impl Drop for TestPanicHookSentinel {
+    fn drop(&mut self) {
+        // The hook cannot be replaced from a panicking thread; a failed assertion
+        // must report as a failure, not abort the test binary.
+        if std::thread::panicking() {
+            return;
+        }
+        if let Some(original) = self.original.take() {
+            std::panic::set_hook(original);
+        }
+    }
+}
+
+/// Test-only: blocks until `thread` is waiting to own the panic hook.
+#[cfg(test)]
+pub(crate) fn wait_until_waiting_for_panic_hook(thread: ThreadId) {
+    let mut owner = lock_panic_hook_owner();
+    while !owner.waiting.contains(&thread) {
+        owner = PANIC_HOOK_OWNER_CHANGED
+            .wait(owner)
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+    }
+}
+
+fn install_panic_hook(diagnostics: Arc<Mutex<Vec<PanicDiagnostic>>>) -> PanicHookGuard {
+    #[cfg(test)]
+    TEST_PANIC_HOOK_INSTALL_COUNT.with(|count| count.set(count.get() + 1));
+    PanicHookGuard::install(move |info| {
+        // Provider workers can resume their panic on the CLI thread, so retain a bounded
+        // set and later match the caught payload instead of assuming one panic thread.
+        let mut diagnostics = diagnostics
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if diagnostics.len() == 16 {
+            diagnostics.remove(0);
+        }
+        diagnostics.push(PanicDiagnostic::from_hook(info));
+    })
 }
 
 impl PanicDiagnostic {
@@ -132,7 +325,7 @@ where
     F: FnOnce() -> anyhow::Result<()>,
 {
     let captured = Arc::new(Mutex::new(Vec::new()));
-    let hook_guard = PanicHookGuard::install(Arc::clone(&captured));
+    let hook_guard = install_panic_hook(Arc::clone(&captured));
     let outcome = std::panic::catch_unwind(AssertUnwindSafe(operation));
     if let Err(payload) = std::panic::catch_unwind(AssertUnwindSafe(|| drop(hook_guard))) {
         stderr_line(&format!(
@@ -803,5 +996,231 @@ mod tests {
                 .is_some_and(|error| !error.is_empty()),
             "{stop:#}"
         );
+    }
+
+    #[test]
+    fn overlapping_slash_guard_cannot_take_the_boundary_owner_panic() {
+        // Forces the order from Issue #1012: the boundary guard is installed, a slash
+        // guard on another thread tries to install while it is held, then the boundary
+        // owner thread panics. The boundary must still record the panic location.
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join(".anvil/runs/overlap/events.jsonl");
+        let (go_tx, go_rx) = std::sync::mpsc::channel::<()>();
+        let (tried_tx, tried_rx) = std::sync::mpsc::channel::<bool>();
+        let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
+        let slash = std::thread::spawn(move || {
+            go_rx.recv().unwrap();
+            let guard = crate::tui::slash::try_install_test_panic_hook();
+            let overlapped = guard.is_some();
+            tried_tx.send(overlapped).unwrap();
+            done_rx.recv().unwrap();
+            drop(guard);
+            overlapped
+        });
+        request_test_fault();
+
+        let result = catch_with_context(context(dir.path(), &events), || {
+            go_tx.send(()).unwrap();
+            tried_rx.recv().unwrap();
+            inject_test_fault_if_requested();
+            Ok(())
+        });
+        done_tx.send(()).unwrap();
+        let overlapped = slash.join().unwrap();
+
+        assert!(result.unwrap_err().to_string().contains("internal_panic"));
+        let events = read_events(&events);
+        let stop = events.last().unwrap();
+        assert_eq!(
+            stop.get("panic_message").and_then(Value::as_str),
+            Some("fault injection: CLI run panic boundary")
+        );
+        assert!(
+            stop.get("panic_location")
+                .and_then(Value::as_str)
+                .is_some_and(|location| location.contains("cli_panic_boundary.rs")),
+            "{stop:#}"
+        );
+        assert!(
+            !overlapped,
+            "a slash panic hook must not be installed while the boundary hook is held"
+        );
+    }
+
+    #[test]
+    fn slash_guard_on_another_thread_waits_until_the_boundary_guard_is_removed() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join(".anvil/runs/wait/events.jsonl");
+        let (go_tx, go_rx) = std::sync::mpsc::channel::<()>();
+        let (installed_tx, installed_rx) = std::sync::mpsc::channel::<()>();
+        let slash = std::thread::spawn(move || {
+            go_rx.recv().unwrap();
+            let guard = crate::tui::slash::install_test_panic_hook();
+            installed_tx.send(()).unwrap();
+            drop(guard);
+        });
+        let slash_thread = slash.thread().id();
+        let mut installed_while_held = None;
+        request_test_fault();
+
+        let result = catch_with_context(context(dir.path(), &events), || {
+            go_tx.send(()).unwrap();
+            wait_until_waiting_for_panic_hook(slash_thread);
+            installed_while_held = Some(installed_rx.try_recv());
+            inject_test_fault_if_requested();
+            Ok(())
+        });
+        installed_rx.recv().unwrap();
+        slash.join().unwrap();
+
+        assert_eq!(
+            installed_while_held,
+            Some(Err(std::sync::mpsc::TryRecvError::Empty)),
+            "the slash guard must not be installed while the boundary guard is held"
+        );
+        assert!(result.unwrap_err().to_string().contains("internal_panic"));
+        let events = read_events(&events);
+        let stop = events.last().unwrap();
+        assert!(
+            stop.get("panic_location")
+                .and_then(Value::as_str)
+                .is_some_and(|location| location.contains("cli_panic_boundary.rs")),
+            "{stop:#}"
+        );
+    }
+
+    #[test]
+    fn nested_guards_restore_the_exact_previous_hook() {
+        let sentinel = TestPanicHookSentinel::install();
+        let captured = Arc::new(Mutex::new(Vec::new()));
+
+        // Assertions wait until the guards are gone: a guard cannot be removed
+        // from a panicking thread.
+        let boundary = install_panic_hook(Arc::clone(&captured));
+        let replaced_by_boundary = !sentinel.is_installed();
+        let slash = crate::tui::slash::install_test_panic_hook();
+        let replaced_by_slash = !sentinel.is_installed();
+        drop(slash);
+        let still_replaced_by_boundary = !sentinel.is_installed();
+        drop(boundary);
+
+        assert!(replaced_by_boundary);
+        assert!(replaced_by_slash);
+        assert!(still_replaced_by_boundary);
+        assert!(sentinel.is_installed());
+        let _ = std::thread::spawn(|| panic!("nested guards: after the guards are removed")).join();
+        assert_eq!(
+            sentinel.seen("nested guards: after the guards are removed"),
+            1
+        );
+        assert!(
+            !captured
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .iter()
+                .any(|diagnostic| diagnostic.message.starts_with("nested guards:"))
+        );
+    }
+
+    #[test]
+    fn other_thread_panic_reaches_the_previous_hook_and_owner_panic_does_not() {
+        let sentinel = TestPanicHookSentinel::install();
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let guard = install_panic_hook(Arc::clone(&captured));
+
+        let _ = std::thread::spawn(|| panic!("boundary other thread panic")).join();
+        let owner = std::panic::catch_unwind(|| panic!("boundary owner thread panic"));
+        drop(guard);
+
+        assert!(owner.is_err());
+        assert_eq!(sentinel.seen("boundary other thread panic"), 1);
+        assert_eq!(sentinel.seen("boundary owner thread panic"), 0);
+
+        // Other tests' threads may panic while the guard is installed; keep only
+        // this test's panics.
+        let captured = captured
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .iter()
+            .filter(|diagnostic| diagnostic.message.starts_with("boundary "))
+            .cloned()
+            .collect::<Vec<_>>();
+        let messages = captured
+            .iter()
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            messages,
+            ["boundary other thread panic", "boundary owner thread panic"]
+        );
+        assert!(
+            captured
+                .iter()
+                .all(|diagnostic| diagnostic.location.contains("cli_panic_boundary.rs")),
+            "{captured:?}"
+        );
+        assert!(sentinel.is_installed());
+    }
+
+    #[test]
+    fn slash_guard_nested_inside_the_boundary_guard_on_one_thread_returns() {
+        // The REPL installs the slash guard inside the CLI boundary guard on the
+        // same thread (lib.rs catch_cli_run -> repl -> slash::handle_command). A
+        // shared lock that cannot be re-entered would deadlock here, so the run is
+        // on its own thread and a bounded wait turns a stop into a failure.
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let dir = tempfile::tempdir().unwrap();
+            let events = dir.path().join(".anvil/runs/nested/events.jsonl");
+            let sentinel = TestPanicHookSentinel::install();
+            let mut slash_record = None;
+            let mut inner_caught = false;
+            let result = catch_with_context(context(dir.path(), &events), || {
+                let (slash, read) =
+                    crate::tui::slash::install_test_panic_hook_with_record("nested on one thread:");
+                let inner =
+                    std::panic::catch_unwind(|| panic!("nested on one thread: slash command"));
+                inner_caught = inner.is_err();
+                drop(slash);
+                slash_record = read();
+                panic!("nested on one thread: boundary run");
+            });
+            let stop = read_events(&events).last().cloned().unwrap();
+            let restored = sentinel.is_installed();
+            let forwarded = sentinel.seen("nested on one thread: slash command")
+                + sentinel.seen("nested on one thread: boundary run");
+            drop(sentinel);
+            done_tx
+                .send((
+                    result.map_err(|err| err.to_string()),
+                    stop,
+                    (inner_caught, slash_record),
+                    restored,
+                    forwarded,
+                ))
+                .unwrap();
+        });
+
+        let (result, stop, (inner_caught, slash_record), restored, forwarded) = done_rx
+            .recv_timeout(std::time::Duration::from_secs(60))
+            .expect("nesting the slash guard inside the boundary guard must not stop");
+
+        assert!(inner_caught);
+        assert!(result.unwrap_err().contains("internal_panic"));
+        let (message, location) = slash_record.expect("the slash hook records its panic");
+        assert_eq!(message, "nested on one thread: slash command");
+        assert!(location.contains("cli_panic_boundary.rs"), "{location}");
+        assert_eq!(
+            stop.get("panic_message").and_then(Value::as_str),
+            Some("nested on one thread: boundary run")
+        );
+        assert!(
+            stop.get("panic_location")
+                .and_then(Value::as_str)
+                .is_some_and(|location| location.contains("cli_panic_boundary.rs")),
+            "{stop:#}"
+        );
+        assert!(restored, "the hook from before the guards must be back");
+        assert_eq!(forwarded, 0, "owner-thread panics stay with the guards");
     }
 }

@@ -1,0 +1,6 @@
+{
+  "release_gate_status": "failed",
+  "guidance": [
+    "route_unreachable_from_entry:/notes/[id] (src/app/notes/[id]/page.tsx): add a link from the entry page to this route, or delete the page if it is not used"
+  ]
+}

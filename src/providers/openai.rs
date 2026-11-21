@@ -5,9 +5,11 @@ use std::sync::{Arc, Mutex};
 use reqwest::Client;
 use serde_json::{Value, json};
 
-use crate::config::{Config, OpenAiApi, Provider, load_process_api_key};
+use crate::config::{Config, OpenAiApi, Provider, ProviderRole, load_process_api_key};
 use crate::eval_events;
 use crate::state::ConversationMessage;
+use crate::structured_budget::identity::SendPurpose;
+use crate::structured_budget::transport::{self, BudgetedBody, RunBudgetHandle};
 use crate::tools::registry::ToolSpec;
 
 use super::streaming::{CancelToken, HttpCall};
@@ -31,6 +33,10 @@ pub struct OpenAiClient {
     eval_events_path: Option<PathBuf>,
     response_metadata: Option<ProviderResponseMetadata>,
     responses_state: Arc<Mutex<openai_responses::ConversationState>>,
+    /// The run's `usage_tariff` wallet (Issue #1006), shared by every clone. With it, every send
+    /// is reserved and started on disk before it leaves; without it nothing here changes.
+    run_budget: Option<Arc<RunBudgetHandle>>,
+    provider_role: ProviderRole,
 }
 
 impl fmt::Debug for OpenAiClient {
@@ -43,6 +49,7 @@ impl fmt::Debug for OpenAiClient {
             .field("retries", &self.retries)
             .field("api", &self.api)
             .field("eval_events_path", &self.eval_events_path)
+            .field("run_budget", &self.run_budget.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -63,7 +70,37 @@ impl OpenAiClient {
             eval_events_path: config.eval_events_path.clone(),
             response_metadata: None,
             responses_state: Arc::new(Mutex::new(openai_responses::ConversationState::default())),
+            run_budget: None,
+            provider_role: ProviderRole::Executor,
         })
+    }
+
+    /// The direct client of `role` for a run that holds a `usage_tariff` wallet: it posts only to
+    /// the built-in OpenAI endpoint, and each of its sends goes through that wallet. The factory
+    /// builds it only after `admission::admit_route_on` admitted the role.
+    pub(crate) fn from_env_under_run_budget(
+        config: &Config,
+        role: ProviderRole,
+        handle: &Arc<RunBudgetHandle>,
+    ) -> anyhow::Result<Self> {
+        let mut client = Self::from_env(config)?;
+        client.provider_role = role;
+        client.under_run_budget(handle, config.chat_timeout_secs)
+    }
+
+    /// Under a wallet the client follows no redirect and never asks for more output than the
+    /// policy allows, so a request a run would have made big is reserved, not refused.
+    fn under_run_budget(
+        mut self,
+        handle: &Arc<RunBudgetHandle>,
+        timeout_secs: u64,
+    ) -> anyhow::Result<Self> {
+        self.http = transport::no_redirect_client(timeout_secs)?;
+        if let Ok(ceiling) = usize::try_from(handle.max_output_tokens()) {
+            self.max_predict = self.max_predict.min(ceiling);
+        }
+        self.run_budget = Some(handle.clone());
+        Ok(self)
     }
 
     #[cfg(test)]
@@ -108,6 +145,8 @@ impl OpenAiClient {
             eval_events_path,
             response_metadata: None,
             responses_state: Arc::new(Mutex::new(openai_responses::ConversationState::default())),
+            run_budget: None,
+            provider_role: ProviderRole::Executor,
         }
     }
 
@@ -151,7 +190,8 @@ impl OpenAiClient {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone();
-        let body = openai_responses::build_request(
+        openai_responses::check_request(messages)?;
+        let mut body = openai_responses::build_request(
             model,
             messages,
             tools,
@@ -160,9 +200,12 @@ impl OpenAiClient {
             self.reasoning_effort.as_deref(),
             &state,
         );
+        if let Some(handle) = &self.run_budget {
+            under_wallet(&mut body, handle.max_output_tokens());
+        }
         self.emit_request(model, "responses", tools, native_tools_enabled);
         let (body, attempt) = self.post_json("/v1/responses", model, "responses", &body)?;
-        match openai_responses::parse_response(&body) {
+        match openai_responses::parse_session_response(&body, messages, &state) {
             Ok(parsed) => {
                 self.responses_state
                     .lock()
@@ -212,6 +255,11 @@ impl OpenAiClient {
             event["service_tier"] = json!(metadata.service_tier);
             event["reasoning_tokens"] = json!(metadata.reasoning_tokens);
         }
+        // Issue #1006: the validated cache write, additive and only when reported.
+        crate::providers::usage_observation::add_event_fields(
+            &mut event,
+            metadata.cache_write.as_ref(),
+        );
         eval_events::emit(self.eval_events_path.as_deref(), event);
     }
 
@@ -223,17 +271,49 @@ impl OpenAiClient {
         body: &Value,
     ) -> anyhow::Result<(String, usize)> {
         let call = HttpCall::new(&self.cancel)?;
+        let url = format!("{}{endpoint}", self.base_url);
+        // The bytes of every try, fixed once, with the endpoint they are posted to: the wallet
+        // reserves them only when that is its policy's endpoint.
+        let budgeted = self
+            .run_budget
+            .as_ref()
+            .map(|handle| {
+                BudgetedBody::for_responses(handle, body, send_purpose(self.provider_role), &url)
+            })
+            .transpose()?
+            .map(|budgeted| budgeted.of_session(crate::provider_call::current_final_repair()));
         for attempt in 0..=self.retries {
-            match call.run(async {
-                self.http
-                    .post(format!("{}{endpoint}", self.base_url))
-                    .bearer_auth(&self.api_key)
-                    .json(body)
-                    .send()
-                    .await
-            })? {
+            // A try cancelled before it reserves takes nothing from the wallet.
+            if budgeted.is_some() && call.is_cancelled() {
+                return Err(super::streaming::aborted_by_user());
+            }
+            let (request, mut send) = match &budgeted {
+                Some(budgeted) => {
+                    let (request, send) = budgeted
+                        .begin(self.http.post(&url))
+                        .map_err(transport::refused)?;
+                    (request.bearer_auth(&self.api_key), Some(send))
+                }
+                None => (
+                    self.http.post(&url).bearer_auth(&self.api_key).json(body),
+                    None,
+                ),
+            };
+            let outcome = call.run(async { request.send().await })?;
+            transport::note_outcome(&mut send, &outcome);
+            match outcome {
                 Ok(response) if response.status().is_success() => {
-                    return Ok((call.run(response.text())??, attempt + 1));
+                    let text = call
+                        .run(response.text())?
+                        .inspect_err(|error| transport::note_body_error(&mut send, error))?;
+                    // The usage is charged before anything reads the reply, and the calls of this
+                    // reply are of the send charged here, and of no other.
+                    if let Some(response) = transport::settle_body_identified(&mut send, &text)
+                        .map_err(transport::refused)?
+                    {
+                        crate::provider_call::note_settled_response(response);
+                    }
+                    return Ok((text, attempt + 1));
                 }
                 Ok(response)
                     if attempt == self.retries
@@ -385,6 +465,10 @@ impl ChatClient for OpenAiClient {
         true
     }
 
+    fn profile_tool_schema_wire(&self) -> super::profile_tool_schema::ProfileToolSchemaWire {
+        super::profile_tool_schema::ProfileToolSchemaWire::for_api(self.api)
+    }
+
     fn chat(
         &mut self,
         model: &str,
@@ -393,6 +477,23 @@ impl ChatClient for OpenAiClient {
         native_tools_enabled: bool,
     ) -> anyhow::Result<AssistantReply> {
         self.dispatch(model, messages, tools, native_tools_enabled)
+    }
+}
+
+/// What a wallet's request carries beyond the shared builder's: the standard service tier it is
+/// priced at, and no more output than the policy allows. `store: false` and the one `include`
+/// are the builder's already.
+fn under_wallet(body: &mut Value, ceiling: u64) {
+    body["service_tier"] = json!("default");
+    let asked = body["max_output_tokens"].as_u64().unwrap_or(ceiling);
+    body["max_output_tokens"] = json!(asked.min(ceiling));
+}
+
+const fn send_purpose(role: ProviderRole) -> SendPurpose {
+    match role {
+        ProviderRole::Executor => SendPurpose::Executor,
+        ProviderRole::Planner => SendPurpose::Planner,
+        ProviderRole::Classifier => SendPurpose::Classifier,
     }
 }
 
@@ -421,6 +522,9 @@ pub fn build_response_request(
 pub fn parse_openai_response(body: &str) -> anyhow::Result<AssistantReply> {
     openai_responses::parse_response(body).map(|parsed| parsed.reply)
 }
+
+#[cfg(test)]
+mod run_budget_tests;
 
 #[cfg(test)]
 mod tests {

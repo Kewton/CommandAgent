@@ -23,11 +23,9 @@ struct LegacyAdmission {
 fn issue498_saved_proof_has_independent_arithmetic_and_compatible_event_fields() {
     let root = tempfile::tempdir().unwrap();
     let c = super::super::issue478::nextjs_config(root.path());
-    let raw = saved();
+    let raw = saved_overflowing();
     let model = &target(&raw).instruction;
-    let host = include_str!(
-        "../../../../tests/corpus/apps/issue496-profile-guidance-capacity/host-guidance.txt"
-    );
+    let host = PROFILE_CONTRACT_REFERENCE;
     let m: Vec<_> = model.chars().collect();
     let h: Vec<_> = host.chars().collect();
     assert!(!model.contains(host) && !host.contains(model));
@@ -36,7 +34,10 @@ fn issue498_saved_proof_has_independent_arithmetic_and_compatible_event_fields()
         assert_ne!(m[m.len() - size..], h[..size]);
         assert_ne!(h[h.len() - size..], m[..size]);
     }
-    assert_eq!(m.len() + h.len(), 2766);
+    assert_eq!(
+        m.len() + h.len(),
+        2_480 + PROFILE_CONTRACT_REFERENCE.chars().count()
+    );
     let mut a = admission::Admission::default();
     let (mut candidate, _) = through_policy(&c, &mut a, &raw);
     assert!(
@@ -95,7 +96,7 @@ fn issue498_saved_proof_has_independent_arithmetic_and_compatible_event_fields()
 fn issue498_four_path_duties_cannot_escape_through_split_aliases_or_fragments() {
     let root = tempfile::tempdir().unwrap();
     let c = super::super::issue478::nextjs_config(root.path());
-    let raw = saved();
+    let raw = saved_overflowing();
     let mut original = StepPlan {
         goal: raw.goal.clone(),
         steps: vec![target(&raw).clone()],
@@ -132,7 +133,13 @@ fn issue498_four_path_duties_cannot_escape_through_split_aliases_or_fragments() 
                 proposed.steps.push(second);
             }
             "fragment" => {
-                let tail = proposed.steps[0].instruction.split_off(1500);
+                let at = proposed.steps[0]
+                    .instruction
+                    .char_indices()
+                    .nth(1500)
+                    .unwrap()
+                    .0;
+                let tail = proposed.steps[0].instruction.split_off(at);
                 second.instruction = tail;
                 proposed.steps.push(second);
             }
@@ -196,10 +203,8 @@ fn issue498_multi_path_overlap_is_unknown_then_existing_repair_reaches_ready() {
     let c = super::super::issue478::nextjs_config(root.path());
     let mut raw = bounded_plan(&c, 2501);
     raw.steps[0].expected_paths = vec!["a.txt".into(), "b.txt".into()];
-    let guidance = crate::planner::profile::resolve_profile_runtime(&c.profile)
-        .guidance(&raw.goal)
-        .unwrap();
-    raw.steps[0].instruction = guidance.chars().skip(1).collect();
+    let (model_text, merged) = overlapping_instructions();
+    raw.steps[0].instruction = model_text;
     let mut a = admission::Admission::default();
     let (mut candidate, _) = through_policy(&c, &mut a, &raw);
     assert!(candidate.steps[0].instruction.chars().count() > 2500);
@@ -207,7 +212,7 @@ fn issue498_multi_path_overlap_is_unknown_then_existing_repair_reaches_ready() {
         a.check(&c, None, &raw, &mut candidate, 1).unwrap(),
         admission::Decision::Retry(_)
     ));
-    raw.steps[0].instruction = guidance;
+    raw.steps[0].instruction = merged;
     let (mut candidate, _) = through_policy(&c, &mut a, &raw);
     assert!(matches!(
         a.check(&c, None, &raw, &mut candidate, 2).unwrap(),

@@ -20,12 +20,9 @@ use crate::providers::ChatClient;
 use crate::state::{ConversationMessage, SessionSnapshot, ToolCall};
 use crate::tools::args_recovery::recover_tool_arguments;
 use crate::tools::bash::BashOutcomeKind;
-use crate::tools::path_guard::{
-    normalize_workspace_path, resolve_existing, resolve_optional_existing,
-    validate_workspace_relative,
-};
+use crate::tools::path_guard::{normalize_workspace_path, resolve_existing};
 use crate::tools::registry::{
-    ToolContext, ToolRegistry, missing_arg_name, recoverable_tool_error, tool_error_kind,
+    ToolContext, missing_arg_name, recoverable_tool_error, tool_error_kind,
 };
 use crate::tui::status::UiStatus;
 use crate::tui::{InteractionUi, NOOP_UI};
@@ -35,6 +32,7 @@ use super::compact::compact_if_needed;
 use super::completion::{
     CompletionContract, format_verify_feedback_with_contract, target_implementation_files,
 };
+use super::completion_obligation_review::CompletionObligationReview;
 use super::dependency_setup::{self, NodeDependencySetupAuthority, NodeDependencySetupStatus};
 use super::edit_anchor_recovery::{
     EDIT_ANCHOR_FULL_FILE_WRITE_THRESHOLD, EditAnchorRecoveryState, emit_recovery_event,
@@ -43,7 +41,7 @@ use super::evidence::{RuntimeAcceptanceReport, verify_runtime_acceptance};
 use super::execution_progress::{ExecutionProgress, ExecutionProgressTracker};
 use super::import_scan::{format_missing_import_feedback, scan_relative_imports};
 use super::post_write_completion::PostWriteCompletionTracker;
-use super::prompt::{ToolPromptMode, build_request_messages};
+use super::prompt::{ToolPromptMode, build_guided_request_messages};
 use super::reachability::{
     RepairReachability, assess_repair_reachability_at_root, reachability_failure_kind,
     reachability_recovery_reason,
@@ -55,7 +53,10 @@ use super::repair_pressure::{
 use super::repair_progress::{
     RepairProgressVerdict, VerificationSignature, classify_repair_progress,
 };
+use super::requirement_plan::RequirementPlan;
 
+mod after_tool_completion;
+mod budget_exhaustion_observation;
 #[path = "loop_run/context.rs"]
 mod context;
 mod contract_outcome;
@@ -65,7 +66,14 @@ mod implementation_completion;
 #[path = "loop_run/inspect_tool_policy.rs"]
 mod inspect_tool_policy;
 mod max_length_guard;
+mod output_limit_feedback;
+#[path = "profile_tool_runtime.rs"]
+mod profile_tool_runtime;
 mod recoverable_tool_errors;
+mod repair_start_feedback;
+mod repair_turn_observation;
+mod requested_artifacts;
+pub(crate) use requested_artifacts::extract_requested_artifact_paths;
 #[path = "loop_run/runtime_bash_effects.rs"]
 mod runtime_bash_effects;
 mod runtime_bash_policy_telemetry;
@@ -425,11 +433,37 @@ pub(crate) fn run_session_with_outcome_with_options(
     ui: &dyn InteractionUi,
     options: RunSessionOptions,
 ) -> anyhow::Result<RunSessionOutcome> {
+    let _final_repair = provider_call::enter_final_repair(options.final_repair.as_ref());
+    let mut plan = RequirementPlan::default();
+    let run = (client, session, user_prompt, required_paths, config, ui);
+    let stages =
+        implementation_completion::structured_stage_completion::StageFunnel::enter(&options);
+    let result = stages.finish(run_session_planned(run, options, &mut plan), config);
+    plan.finish(result.is_ok(), ui.interrupted());
+    result
+}
+
+type RunArgs<'a, 'c> = (
+    &'a mut (dyn ChatClient + 'c),
+    &'a mut SessionSnapshot,
+    &'a str,
+    &'a [String],
+    &'a Config,
+    &'a dyn InteractionUi,
+);
+
+fn run_session_planned(
+    run: RunArgs<'_, '_>,
+    options: RunSessionOptions,
+    plan: &mut RequirementPlan,
+) -> anyhow::Result<RunSessionOutcome> {
+    let (client, session, user_prompt, required_paths, config, ui) = run;
     // Install the run's exact-value secret scope. The CLI installs the same
     // scope during config resolution; direct minimal-loop callers get it here.
     // A source refusal is propagated so the run refuses honestly.
     crate::config::install_run_secret_scope(config)?;
-    let registry = ToolRegistry::default();
+    let (registry, _schema_tools) =
+        profile_tool_runtime::session_registry(config, &*client, &options)?;
     let mut native_tools_enabled = super::tool_protocol::native_tools_enabled(
         config.tool_protocol,
         client.supports_native_tools(&config.model),
@@ -441,6 +475,23 @@ pub(crate) fn run_session_with_outcome_with_options(
         } else {
             None
         };
+    let mut obligation_review = CompletionObligationReview::start(
+        config,
+        options.scope == RunSessionScope::MinimalLoop,
+        completion_contract.is_some(),
+    )?;
+    let mut budget_closing = super::budget_closing::BudgetClosing::start(
+        config,
+        &options,
+        completion_contract.is_some(),
+    )?;
+    plan.start(
+        config,
+        &options,
+        completion_contract.is_some(),
+        &session.messages,
+        &*client,
+    )?;
     let implementation_completion =
         ImplementationCompletion::capture(config, &options, required_paths);
     let explicit_required_paths = !required_paths.is_empty();
@@ -484,10 +535,13 @@ pub(crate) fn run_session_with_outcome_with_options(
     let mut recoverable_tool_error_state = RecoverableToolErrorState::default();
     let mut execution_progress_tracker = ExecutionProgressTracker::default();
     let mut post_write_completion_tracker = PostWriteCompletionTracker::default();
+    let mut budget_observation = budget_exhaustion_observation::BudgetObservation::default();
     let mut edit_anchor_recovery_state = EditAnchorRecoveryState::default();
     let mut route_unbound_recovery_state =
         super::route_unbound_recovery::RouteUnboundRecoveryState::default();
     let mut malformed_native_tool_feedbacks = 0usize;
+    let mut output_limit =
+        output_limit_feedback::OutputLimitFeedback::new(config.eval_events_path.as_deref());
     let step_capability_gate = StepCapabilityGate::from_prompt(user_prompt, &options);
     let step_started = Instant::now();
     let step_wall_clock_cap = step_wall_clock_cap(&options);
@@ -560,6 +614,7 @@ pub(crate) fn run_session_with_outcome_with_options(
             return Ok(outcome);
         }
         let iterations_used = iteration + 1;
+        budget_observation.note_iteration(iterations_used);
         let remaining_iterations = iteration_limit.saturating_sub(iterations_used);
         pressure_inputs.remaining_budget = remaining_iterations;
         pressure_state = transition(pressure_inputs.clone());
@@ -614,6 +669,14 @@ pub(crate) fn run_session_with_outcome_with_options(
         if ui.interrupted() {
             bail!("interrupted by user");
         }
+        if iteration == 0 && pending_feedback.is_none() {
+            pending_feedback = repair_start_feedback::repair_start_write_guidance(
+                config.eval_events_path.as_deref(),
+                &options,
+                initial_read_only_streak,
+                config.max_iterations,
+            );
+        }
         compact_if_needed(&mut session.messages, config.context_budget);
         let specs = registry.specs().to_vec();
         let request_tools = if native_tools_enabled {
@@ -622,8 +685,16 @@ pub(crate) fn run_session_with_outcome_with_options(
             Vec::new()
         };
         let empty_fresh_retry_active = empty_fresh_retry_pending;
+        let request_feedback = budget_closing.request_feedback(
+            remaining_iterations,
+            iteration_limit,
+            pending_feedback
+                .as_deref()
+                .filter(|_| !empty_fresh_retry_active),
+        );
+        let request_feedback = output_limit.compose(request_feedback);
         let fresh_retry_messages;
-        let request_messages = if empty_fresh_retry_active {
+        let mut request_messages = if empty_fresh_retry_active {
             empty_fresh_retry_pending = false;
             eval_events::emit(
                 config.eval_events_path.as_deref(),
@@ -637,12 +708,12 @@ pub(crate) fn run_session_with_outcome_with_options(
                 }),
             );
             fresh_retry_messages = vec![ConversationMessage::user(user_prompt.to_string())];
-            build_request_messages(
+            build_guided_request_messages(
                 &fresh_retry_messages,
                 &specs,
                 &config.workspace_root,
-                None,
-                profile_guidance.as_deref(),
+                request_feedback.as_deref(),
+                options.prompt_guidance(profile_guidance.as_deref()),
                 if native_tools_enabled {
                     ToolPromptMode::Native
                 } else {
@@ -650,12 +721,12 @@ pub(crate) fn run_session_with_outcome_with_options(
                 },
             )
         } else {
-            build_request_messages(
+            build_guided_request_messages(
                 &session.messages,
                 &specs,
                 &config.workspace_root,
-                pending_feedback.as_deref(),
-                profile_guidance.as_deref(),
+                request_feedback.as_deref(),
+                options.prompt_guidance(profile_guidance.as_deref()),
                 if native_tools_enabled {
                     ToolPromptMode::Native
                 } else {
@@ -663,14 +734,22 @@ pub(crate) fn run_session_with_outcome_with_options(
                 },
             )
         };
+        plan.prepare_request(
+            &mut request_messages,
+            &session.messages,
+            remaining_iterations,
+        );
+        budget_closing.note_request(&request_messages);
         let label = format!("{} {}", client.label(), config.model);
         let call_scope = provider_call_scope_for_options(&options, pending_feedback.as_deref());
         let mut turn_events =
             eval_events::provider_turn::ExecutionTelemetry::new(config.eval_events_path.as_deref());
         let chat_outcome = {
             let mut guard = ui.before_model_call(&label);
-            let mut outcome = provider_call::chat_with_cancel_and_stream(
-                client,
+            let (mut watch, shared) = output_limit.watch_shared(&mut *client);
+            let mut outcome = budget_closing.chat_with_cancel_and_stream(
+                &mut watch,
+                shared,
                 config,
                 provider_call::ProviderChatRequest {
                     scope: call_scope,
@@ -689,6 +768,7 @@ pub(crate) fn run_session_with_outcome_with_options(
             }
             outcome
         };
+        output_limit.settle();
         let provider_turn_elapsed = chat_outcome.elapsed;
         record_time_sink(
             &mut time_sinks,
@@ -757,11 +837,13 @@ pub(crate) fn run_session_with_outcome_with_options(
                     }),
                 );
                 pending_feedback = Some(super::feedback::malformed_tool_call(&err.to_string()));
+                output_limit.observe_malformed(&err, config.num_predict);
                 continue;
             }
             Err(err)
                 if native_tools_enabled
                     && client.allows_xml_fallback()
+                    && !profile_tool_runtime::blocks_xml_fallback()
                     && provider_error_allows_xml_fallback(&err) =>
             {
                 eval_events::emit(
@@ -777,6 +859,7 @@ pub(crate) fn run_session_with_outcome_with_options(
                 native_tools_enabled = false;
                 session.native_tools_disabled = true;
                 pending_feedback = Some(super::feedback::malformed_tool_call(&err.to_string()));
+                output_limit.observe_malformed(&err, config.num_predict);
                 continue;
             }
             Err(err) => {
@@ -796,6 +879,7 @@ pub(crate) fn run_session_with_outcome_with_options(
                 return Err(err);
             }
         };
+        let plan_only_turn = plan.capture_reply(&mut reply);
         if config.tool_protocol == Some(crate::config::ToolProtocol::Text) {
             match super::tool_protocol::normalize_text_reply(&mut reply, &specs) {
                 Ok(repairs) => {
@@ -836,6 +920,10 @@ pub(crate) fn run_session_with_outcome_with_options(
             drop(turn_events);
             return Err(max_length_guard.stop(config, &options, user_prompt, &changed_paths));
         }
+        output_limit.observe_reply(&reply, config.num_predict);
+        if plan_only_turn {
+            continue;
+        }
         let mut tool_calls = Vec::new();
         for mut call in reply.tool_calls.clone() {
             let raw_shape = eval_events::argument_shape(&call.arguments);
@@ -847,7 +935,8 @@ pub(crate) fn run_session_with_outcome_with_options(
                     "arguments": raw_shape,
                 }),
             );
-            let recovered = recover_tool_arguments(&call.name, call.arguments.clone());
+            let recovered =
+                profile_tool_runtime::recover_tool_arguments(&call.name, call.arguments.clone());
             if recovered.changed {
                 eval_events::emit(
                     config.eval_events_path.as_deref(),
@@ -1043,7 +1132,7 @@ pub(crate) fn run_session_with_outcome_with_options(
             }
             if options.requires_action_tool_feedback(write_or_edit_seen, tool_call_count)
                 && (options.require_mutation_before_contract_short_circuit
-                    || looks_like_action_prompt(user_prompt))
+                    || after_tool_completion::looks_like_action_prompt(&options, user_prompt))
                 && !setup_step_policy::prompt_references_template_owned_artifacts(
                     &config.profile,
                     user_prompt,
@@ -1195,6 +1284,22 @@ pub(crate) fn run_session_with_outcome_with_options(
                     }
                 }
             }
+            if let Some(review) =
+                obligation_review.before_normal_final(iterations_used, remaining_iterations)
+            {
+                session.messages.pop();
+                pending_feedback = Some(review.to_string());
+                continue;
+            }
+            if let Some(feedback) =
+                budget_closing.before_normal_final(iterations_used, remaining_iterations)
+            {
+                session.messages.pop();
+                last_blocking_reason =
+                    Some(super::budget_closing::DEFERRAL_BLOCKING_REASON.to_string());
+                pending_feedback = Some(feedback.to_string());
+                continue;
+            }
             return Ok(RunSessionOutcome {
                 final_text: reply.content,
                 stop_reason: RunStopReason::AssistantFinal,
@@ -1234,7 +1339,13 @@ pub(crate) fn run_session_with_outcome_with_options(
         let mut batch_had_execution_progress = false;
         let mut write_required_rejection: Option<(String, bool, usize, Vec<String>, String)> = None;
         let missing_before_batch = missing_paths(&config.workspace_root, &required_paths);
-        for mut call in tool_calls {
+        let repair_batch_probe = repair_turn_observation::RepairBatchProbe::before_batch(
+            &config.workspace_root,
+            &options,
+            &verify_repair_state.changed_paths_at_failure,
+            &tool_calls,
+        );
+        for (call_index, mut call) in tool_calls.into_iter().enumerate() {
             let mut split_bash_segments = Vec::new();
             let mut bash_policy_substituted = false;
             if ui.interrupted() {
@@ -1256,6 +1367,7 @@ pub(crate) fn run_session_with_outcome_with_options(
             }) {
                 batch_had_recoverable_tool_error = true;
                 post_write_completion_tracker.note_recoverable_tool_error(&call.name);
+                budget_observation.note_tool_error(&call.name);
                 last_blocking_reason = Some("inspect_mutation_rejected".to_string());
                 let error = anyhow::anyhow!("{reason}");
                 let repeats = recoverable_tool_error_state.record(&call.name, &error);
@@ -1295,6 +1407,8 @@ pub(crate) fn run_session_with_outcome_with_options(
             ) {
                 batch_had_recoverable_tool_error = true;
                 post_write_completion_tracker.note_recoverable_tool_error(&call.name);
+                budget_observation.note_tool_error(&call.name);
+                budget_closing.note_write_failure(&call.name, &call.arguments);
                 last_blocking_reason = Some(READ_ONLY_STAGNATION_REASON.to_string());
                 let feedback = rejection.feedback.clone();
                 let selected_targets = write_required_state.selected_targets().to_vec();
@@ -1342,7 +1456,9 @@ pub(crate) fn run_session_with_outcome_with_options(
             } else {
                 batch_all_read_tools = false;
             }
-            if !matches!(call.name.as_str(), "Read" | "Glob" | "Grep") {
+            if !matches!(call.name.as_str(), "Read" | "Glob" | "Grep")
+                && !registry.is_stage_tool(&call.name)
+            {
                 batch_all_read_only_tools = false;
             }
             if call_is_edit {
@@ -1372,6 +1488,7 @@ pub(crate) fn run_session_with_outcome_with_options(
                 if decision.blocked {
                     batch_had_recoverable_tool_error = true;
                     post_write_completion_tracker.note_recoverable_tool_error(&call.name);
+                    budget_closing.note_bash_rejected(&call.name);
                     let policy_error =
                         anyhow::anyhow!("{}: {}", decision.policy_error_kind, decision.reason);
                     let repeats = recoverable_tool_error_state.record(&call.name, &policy_error);
@@ -1447,11 +1564,15 @@ pub(crate) fn run_session_with_outcome_with_options(
                                 decision.policy_error_kind
                             );
                         }
-                        let feedback = super::tool_feedback::recoverable_tool_feedback(
-                            &call.name,
-                            &policy_error,
-                            None,
-                        );
+                        let feedback =
+                            super::verify_refusal_hint::recoverable_tool_feedback_for_repeat(
+                                &call.name,
+                                &policy_error,
+                                &command,
+                                &config.workspace_root,
+                                repeats,
+                                config.eval_events_path.as_deref(),
+                            );
                         session.messages.push(ConversationMessage::tool_result(
                             call.name,
                             Some(call.id),
@@ -1476,7 +1597,10 @@ pub(crate) fn run_session_with_outcome_with_options(
                 let split_has_install = split_bash_segments
                     .iter()
                     .any(|segment| segment.command.install_family().is_some());
-                if call.name == "Bash" && (split_bash_segments.len() > 1 || split_has_install) {
+                if call.name == "Bash"
+                    && registry.allows(&call.name)
+                    && (split_bash_segments.len() > 1 || split_has_install)
+                {
                     crate::tools::allow_policy::authorize_current(
                         &call.name,
                         &call.arguments,
@@ -1497,6 +1621,7 @@ pub(crate) fn run_session_with_outcome_with_options(
                         )
                     })
                 } else {
+                    let registry = registry.for_call(config, chat_outcome.response, call_index);
                     registry.execute_with_cancel(
                         &call.name,
                         &call.arguments,
@@ -1522,8 +1647,25 @@ pub(crate) fn run_session_with_outcome_with_options(
                             "status": "ok",
                         }),
                     );
+                    if implementation_completion.absorb_stage_notes(registry.take_stage_notes()) {
+                        batch_all_read_only_tools = false;
+                        batch_had_execution_progress = true;
+                    }
+                    for path in registry.take_committed_paths() {
+                        write_or_edit_seen = true;
+                        post_write_completion_tracker.note_successful_write(&path);
+                        if !changed_paths.contains(&path) {
+                            changed_paths.push(path.clone());
+                        }
+                        if !batch_changed_paths.contains(&path) {
+                            batch_changed_paths.push(path);
+                        }
+                    }
                     if matches!(call.name.as_str(), "Write" | "Edit") {
                         write_or_edit_seen = true;
+                        budget_observation.note_successful_write();
+                        obligation_review.note_successful_edit();
+                        budget_closing.note_write_success(&call.name, &call.arguments);
                         max_length_guard.write_or_edit_succeeded();
                         turn_events.write_or_edit_succeeded();
                         pressure_inputs.read_only_streak = 0;
@@ -1563,6 +1705,8 @@ pub(crate) fn run_session_with_outcome_with_options(
                 Err(err) if recoverable_tool_error(&err) => {
                     batch_had_recoverable_tool_error = true;
                     post_write_completion_tracker.note_recoverable_tool_error(&call.name);
+                    budget_observation.note_tool_error(&call.name);
+                    budget_closing.note_tool_error(&call.name, &call.arguments, &err);
                     let kind = tool_error_kind(&err);
                     let err_text = err.to_string();
                     let repeats = recoverable_tool_error_state.record(&call.name, &err);
@@ -1714,6 +1858,13 @@ pub(crate) fn run_session_with_outcome_with_options(
                 )
             });
             if let Some(execution_progress) = execution_progress {
+                budget_observation.note_bash(execution_progress);
+                budget_closing.note_bash(
+                    recovered_bash_command(&call.name, &call.arguments).as_deref(),
+                    execution_progress,
+                );
+                obligation_review
+                    .note_bash_result(execution_progress != ExecutionProgress::NotSuccessful);
                 post_write_completion_tracker.note_bash_result(
                     execution_progress != ExecutionProgress::NotSuccessful,
                     crate::tools::bash::formatted_environment_failure_kind(&result),
@@ -1775,12 +1926,21 @@ pub(crate) fn run_session_with_outcome_with_options(
         if options.scope == RunSessionScope::MinimalLoop
             && required_paths.is_empty()
             && completion_contract.is_none()
+            && !implementation_completion.stage_has_unmet_obligation()
             && let Some(evidence) = post_write_completion_tracker.observe_batch(
                 batch_all_read_tools,
                 &batch_read_paths,
                 batch_had_recoverable_tool_error,
             )
         {
+            if let Some(feedback) = budget_closing
+                .before_post_write_read_completion(iterations_used, remaining_iterations)
+            {
+                last_blocking_reason =
+                    Some(super::budget_closing::DEFERRAL_BLOCKING_REASON.to_string());
+                pending_feedback = Some(feedback.to_string());
+                continue;
+            }
             eval_events::emit(
                 config.eval_events_path.as_deref(),
                 json!({
@@ -1909,6 +2069,13 @@ pub(crate) fn run_session_with_outcome_with_options(
         if required_paths.is_empty()
             && options.allows_tool_only_step_completion()
             && !batch_had_recoverable_tool_error
+            && !repair_turn_observation::defers_tool_observation_completion(
+                &options,
+                batch_had_edit,
+                &repair_batch_probe,
+                &config.workspace_root,
+            )
+            && !implementation_completion.stage_holds_tool_only_completion()
         {
             eval_events::emit(
                 config.eval_events_path.as_deref(),
@@ -1934,7 +2101,7 @@ pub(crate) fn run_session_with_outcome_with_options(
             });
         }
         implementation_completion.merge_changes(&config.workspace_root, &mut changed_paths);
-        if required_paths_satisfied_after_tool(
+        if after_tool_completion::required_paths_satisfied_after_tool(
             &config.workspace_root,
             &required_paths,
             &initially_missing_paths,
@@ -2064,31 +2231,21 @@ pub(crate) fn run_session_with_outcome_with_options(
                 pending_feedback = Some(feedback);
                 continue;
             }
-            eval_events::emit(
+            if let Some(stop) = after_tool_completion::stop(
                 config.eval_events_path.as_deref(),
-                json!({
-                    "event": "loop_stop",
-                    "reason": "required_artifacts_satisfied_after_tool",
-                    "required_paths": required_paths,
-                }),
-            );
-            return Ok(RunSessionOutcome {
-                final_text: format!(
-                    "required artifacts satisfied: {}",
-                    required_paths.join(", ")
-                ),
-                stop_reason: RunStopReason::RequiredArtifactsSatisfiedAfterTool,
-                changed_paths,
-                iterations: iteration + 1,
-                tool_calls: tool_call_count,
-                missing_required_paths: Vec::new(),
-                missing_capabilities: Vec::new(),
-                missing_evidence: Vec::new(),
-                missing_obligations: Vec::new(),
-                verify_attempts,
-                last_blocking_reason,
-                last_provider_error,
-            });
+                &options,
+                &required_paths,
+                &initially_missing_paths,
+            ) {
+                return Ok(stop.into_outcome(
+                    changed_paths,
+                    iteration + 1,
+                    tool_call_count,
+                    verify_attempts,
+                    last_blocking_reason,
+                    last_provider_error,
+                ));
+            }
         }
         let mut missing = missing_after_batch;
         if !missing.is_empty()
@@ -2165,6 +2322,8 @@ pub(crate) fn run_session_with_outcome_with_options(
             continue;
         }
     }
+    plan.note_budget_exhausted();
+    budget_closing.note_budget_exhausted();
     let mut missing = missing_paths(&config.workspace_root, &required_paths);
     if last_blocking_reason.is_none() {
         last_blocking_reason = post_write_completion_tracker.environment_failure_reason();
@@ -2247,6 +2406,7 @@ pub(crate) fn run_session_with_outcome_with_options(
             "last_blocking_reason": last_blocking_reason,
             "last_provider_error": last_provider_error.as_deref().map(eval_events::body_snippet),
     });
+    let loop_stop_event = budget_observation.with_fields(loop_stop_event, iteration_limit);
     eval_events::emit(config.eval_events_path.as_deref(), loop_stop_event);
     if !non_scaffold_missing.is_empty() {
         bail!(
@@ -4218,169 +4378,6 @@ fn provider_error_allows_native_tool_retry(err: &anyhow::Error) -> bool {
         || lower.contains("provider parse")
 }
 
-pub(crate) fn extract_requested_artifact_paths(root: &Path, prompt: &str) -> Vec<String> {
-    let mut paths = Vec::new();
-    let mut seen = BTreeSet::new();
-    let mut in_required_block = false;
-    for line in prompt.lines() {
-        let trimmed = line.trim();
-        if trimmed
-            .to_ascii_lowercase()
-            .starts_with("required final artifacts")
-        {
-            in_required_block = true;
-            continue;
-        }
-        if in_required_block {
-            if trimmed.is_empty() {
-                continue;
-            }
-            if !is_artifact_list_line(trimmed) && looks_like_section_boundary(trimmed) {
-                in_required_block = false;
-            } else if let Some(candidate) = artifact_candidate_from_line(trimmed)
-                && requested_artifact_path_allowed(root, &candidate)
-                && seen.insert(candidate.clone())
-            {
-                paths.push(candidate);
-                continue;
-            }
-        }
-        for candidate in backticked_candidates(trimmed) {
-            if looks_like_artifact_path(&candidate)
-                && requested_artifact_path_allowed(root, &candidate)
-                && seen.insert(candidate.clone())
-            {
-                paths.push(candidate);
-            }
-        }
-    }
-    paths
-}
-
-fn requested_artifact_path_allowed(root: &Path, raw: &str) -> bool {
-    if validate_workspace_relative(raw).is_err() {
-        return false;
-    }
-    let path = Path::new(raw);
-    let blocked = [
-        ".commandagent",
-        ".anvil",
-        ".git",
-        "target",
-        "node_modules",
-        ".next",
-    ];
-    if path.components().any(|component| {
-        component
-            .as_os_str()
-            .to_str()
-            .is_some_and(|part| blocked.contains(&part))
-    }) {
-        return false;
-    }
-    resolve_optional_existing(root, raw).is_ok()
-}
-
-fn required_paths_satisfied_after_tool(
-    root: &Path,
-    required_paths: &[String],
-    initially_missing_paths: &[String],
-    progress_seen: bool,
-) -> bool {
-    if required_paths.is_empty() || !missing_paths(root, required_paths).is_empty() {
-        return false;
-    }
-    progress_seen
-        || initially_missing_paths
-            .iter()
-            .any(|path| resolve_existing(root, path).is_ok())
-}
-
-fn is_artifact_list_line(line: &str) -> bool {
-    let line = line.trim_start();
-    line.starts_with("- ")
-        || line.starts_with("* ")
-        || line.chars().next().is_some_and(|ch| ch.is_ascii_digit())
-}
-
-fn looks_like_section_boundary(line: &str) -> bool {
-    line.ends_with(':') || line.starts_with('#')
-}
-
-fn artifact_candidate_from_line(line: &str) -> Option<String> {
-    let mut value = line.trim();
-    value = value
-        .trim_start_matches("- ")
-        .trim_start_matches("* ")
-        .trim_start();
-    if let Some((head, tail)) = value.split_once(". ")
-        && head.chars().all(|ch| ch.is_ascii_digit())
-    {
-        value = tail.trim_start();
-    }
-    let first = value.split_whitespace().next().unwrap_or_default();
-    let candidate = first
-        .trim_matches('`')
-        .trim_matches('"')
-        .trim_matches('\'')
-        .trim_end_matches([',', ';']);
-    if looks_like_artifact_path(candidate) {
-        Some(candidate.to_string())
-    } else {
-        None
-    }
-}
-
-fn backticked_candidates(line: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut rest = line;
-    while let Some(start) = rest.find('`') {
-        let after_start = &rest[start + 1..];
-        let Some(end) = after_start.find('`') else {
-            break;
-        };
-        out.push(after_start[..end].trim().to_string());
-        rest = &after_start[end + 1..];
-    }
-    out
-}
-
-fn looks_like_artifact_path(value: &str) -> bool {
-    if value.is_empty() || value.starts_with("http://") || value.starts_with("https://") {
-        return false;
-    }
-    if value.contains('/') {
-        return true;
-    }
-    matches!(
-        value,
-        "Cargo.toml"
-            | "README.md"
-            | "package.json"
-            | "tsconfig.json"
-            | "index.html"
-            | "pyproject.toml"
-    ) || Path::new(value).extension().is_some_and(|ext| {
-        matches!(
-            ext.to_str().unwrap_or_default(),
-            "js" | "jsx"
-                | "ts"
-                | "tsx"
-                | "rs"
-                | "py"
-                | "md"
-                | "txt"
-                | "csv"
-                | "json"
-                | "toml"
-                | "yaml"
-                | "yml"
-                | "html"
-                | "css"
-        )
-    })
-}
-
 fn looks_like_progress_without_tool(content: &str) -> bool {
     let lower = content.to_ascii_lowercase();
     lower.contains("i will")
@@ -4389,21 +4386,6 @@ fn looks_like_progress_without_tool(content: &str) -> bool {
         || lower.contains("実装します")
         || lower.contains("進めます")
 }
-fn looks_like_action_prompt(content: &str) -> bool {
-    let lower = content.to_ascii_lowercase();
-    lower.contains("create")
-        || lower.contains("write")
-        || lower.contains("edit")
-        || lower.contains("fix")
-        || lower.contains("implement")
-        || lower.contains("add ")
-        || lower.contains("build")
-        || lower.contains("作成")
-        || lower.contains("実装")
-        || lower.contains("修正")
-        || lower.contains("追加")
-}
-
 fn changed_path_from_call(root: &Path, arguments: &serde_json::Value) -> Option<String> {
     let normalized = normalized_tool_path_arg(root, arguments)?;
     let path = resolve_existing(root, &normalized).ok()?;
@@ -4712,7 +4694,7 @@ mod tests {
             &config(dir.path().to_path_buf()),
         )
         .unwrap();
-        assert_eq!(result, "required artifacts satisfied: a.txt");
+        assert_eq!(result, "done");
         assert_eq!(
             std::fs::read_to_string(dir.path().join("a.txt")).unwrap(),
             "ok"
@@ -4972,30 +4954,34 @@ mod tests {
     #[test]
     fn default_run_session_options_preserve_prompt_artifact_extraction() {
         let dir = tempfile::tempdir().unwrap();
-        let mut fake = Fake::new(vec![Ok(AssistantReply {
-            content: String::new(),
-            tool_calls: vec![ToolCall::new(
-                "Write",
-                json!({"path":"a.txt","content":"ok"}),
-            )],
-            prompt_tokens: None,
-            completion_tokens: None,
-        })]);
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.eval_events_path = Some(dir.path().join("events.jsonl"));
+        let mut fake = Fake::new(vec![
+            Ok(AssistantReply {
+                content: String::new(),
+                tool_calls: vec![ToolCall::new(
+                    "Write",
+                    json!({"path":"a.txt","content":"ok"}),
+                )],
+                prompt_tokens: None,
+                completion_tokens: None,
+            }),
+            Ok(AssistantReply::text("done")),
+        ]);
         let mut session = SessionSnapshot::new();
         let outcome = run_session_with_outcome_with_ui(
             &mut fake,
             &mut session,
             "Create the file.\n\nRequired final artifacts:\n- a.txt",
             &[],
-            &config(dir.path().to_path_buf()),
+            &cfg,
             &NOOP_UI,
         )
         .unwrap();
-        assert_eq!(
-            outcome.stop_reason,
-            RunStopReason::RequiredArtifactsSatisfiedAfterTool
-        );
+        assert_eq!(outcome.stop_reason, RunStopReason::AssistantFinal);
         assert!(dir.path().join("a.txt").is_file());
+        let events = std::fs::read_to_string(dir.path().join("events.jsonl")).unwrap();
+        assert!(events.contains(r#""effective_required_paths":["a.txt"]"#));
     }
 
     #[test]
@@ -5165,6 +5151,7 @@ export default function Page(){
 
     #[test]
     fn verify_step_with_bash_then_final_text_is_allowed() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         let mut fake = Fake::new(vec![
             Ok(AssistantReply {
@@ -5192,6 +5179,7 @@ export default function Page(){
 
     #[test]
     fn verify_step_with_bash_only_can_delegate_to_runner() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         let mut fake = Fake::new(vec![Ok(AssistantReply {
             content: String::new(),
@@ -5217,6 +5205,7 @@ export default function Page(){
 
     #[test]
     fn verify_step_bash_semantic_pipe_is_policy_error_not_evidence() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("package.json"), r#"{"scripts":{}}"#).unwrap();
         let events_path = dir.path().join(".anvil/runs/test/events.jsonl");
@@ -5295,6 +5284,7 @@ export default function Page(){
 
     #[test]
     fn verify_step_runtime_splits_shell_control_bash_segments() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("src/app")).unwrap();
         std::fs::write(
@@ -5314,7 +5304,7 @@ export default function Page(){
             content: String::new(),
             tool_calls: vec![ToolCall::new(
                 "Bash",
-                json!({"command":"ls -R src/app && node -p \"require('./package.json').scripts.build\""}),
+                json!({"command":"ls -R src/app && cat package.json"}),
             )],
             prompt_tokens: None,
             completion_tokens: None,
@@ -5346,7 +5336,7 @@ export default function Page(){
             "{bash_result}"
         );
         assert!(
-            bash_result.contains("segment 2 command: node -p"),
+            bash_result.contains("segment 2 command: cat package.json"),
             "{bash_result}"
         );
         assert!(bash_result.contains("page.tsx"), "{bash_result}");
@@ -5368,7 +5358,7 @@ export default function Page(){
         );
         assert_eq!(
             policy["original_command"],
-            "ls -R src/app && node -p \"require('./package.json').scripts.build\""
+            "ls -R src/app && cat package.json"
         );
         assert_eq!(policy["violation_kind"], "shell_control_split");
         assert_eq!(policy["normalized_commands"].as_array().unwrap().len(), 2);
@@ -5388,6 +5378,7 @@ export default function Page(){
 
     #[test]
     fn verify_step_runtime_substitutes_install_segment_before_verify_segment() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("package.json"),
@@ -5443,6 +5434,7 @@ export default function Page(){
 
     #[test]
     fn verify_step_runtime_splits_multiline_bash_segments() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("src")).unwrap();
         std::fs::write(dir.path().join("package.json"), "{}").unwrap();
@@ -5555,6 +5547,7 @@ export default function Page(){
 
     #[test]
     fn verify_step_runtime_preserves_and_short_circuit() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         let mut fake = Fake::new(vec![Ok(AssistantReply {
             content: String::new(),
@@ -5593,6 +5586,7 @@ export default function Page(){
 
     #[test]
     fn verify_step_runtime_strips_output_truncation_pipe_before_execute() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         let events_path = dir.path().join(".anvil/runs/test/events.jsonl");
         let mut cfg = config(dir.path().to_path_buf());
@@ -5673,6 +5667,7 @@ export default function Page(){
 
     #[test]
     fn verify_step_runtime_rejects_custom_status_echo_before_safe_retry() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("src/app")).unwrap();
         std::fs::write(
@@ -5788,6 +5783,7 @@ export default function Page(){
 
     #[test]
     fn setup_step_bash_shell_control_is_runtime_setup_not_verifier_evidence() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         let events_path = dir.path().join(".anvil/runs/test/events.jsonl");
         let mut cfg = config(dir.path().to_path_buf());
@@ -5861,13 +5857,14 @@ export default function Page(){
             completion_tokens: None,
         })]);
         let mut session = SessionSnapshot::new();
-        let outcome = run_session_with_outcome_with_ui(
+        let outcome = run_session_with_outcome_with_options(
             &mut fake,
             &mut session,
             "create the file",
             &[],
             &cfg,
             &NOOP_UI,
+            RunSessionOptions::plan_step(RunSessionStepKind::Implement),
         )
         .unwrap();
         assert_eq!(
@@ -6289,13 +6286,14 @@ export default function Page(){
             completion_tokens: None,
         })]);
         let mut session = SessionSnapshot::new();
-        let outcome = run_session_with_outcome_with_ui(
+        let outcome = run_session_with_outcome_with_options(
             &mut fake,
             &mut session,
             "create page",
             &["src/app/page.tsx".to_string()],
             &config(dir.path().to_path_buf()),
             &NOOP_UI,
+            RunSessionOptions::plan_step(RunSessionStepKind::Implement),
         )
         .unwrap();
         assert_eq!(outcome.changed_paths, vec!["src/app/page.tsx"]);
@@ -6335,7 +6333,7 @@ export default function Page(){
             &config(dir.path().to_path_buf()),
         )
         .unwrap();
-        assert_eq!(result, "required artifacts satisfied: a.txt");
+        assert_eq!(result, "done");
         assert_eq!(
             std::fs::read_to_string(dir.path().join("a.txt")).unwrap(),
             "ok"
@@ -6362,6 +6360,7 @@ export default function Page(){
                 prompt_tokens: None,
                 completion_tokens: None,
             }),
+            Ok(AssistantReply::text("a.txt written")),
         ]);
         let mut session = SessionSnapshot::new();
         let result = run_session(
@@ -6371,7 +6370,7 @@ export default function Page(){
             &config(dir.path().to_path_buf()),
         )
         .unwrap();
-        assert_eq!(result, "required artifacts satisfied: a.txt");
+        assert_eq!(result, "a.txt written");
         assert_eq!(
             std::fs::read_to_string(dir.path().join("a.txt")).unwrap(),
             "ok"
@@ -6532,6 +6531,7 @@ export default function Page(){
                 prompt_tokens: None,
                 completion_tokens: None,
             }),
+            Ok(AssistantReply::text("done")),
         ]);
         let mut session = SessionSnapshot::new();
         let result = run_session_with_required_paths(
@@ -6543,8 +6543,8 @@ export default function Page(){
         )
         .unwrap();
 
-        assert_eq!(result, "required artifacts satisfied: a.txt");
-        assert_eq!(fake.native_flags(), vec![true, true]);
+        assert_eq!(result, "done");
+        assert_eq!(fake.native_flags(), vec![true, true, true]);
         assert!(!session.native_tools_disabled);
     }
 
@@ -6575,45 +6575,6 @@ export default function Page(){
         assert_eq!(result, "final");
         assert_eq!(fake.native_flags(), vec![true, true, true, false]);
         assert!(session.native_tools_disabled);
-    }
-
-    #[test]
-    fn requested_artifact_path_extraction_rejects_escape_and_metadata_paths() {
-        let dir = tempfile::tempdir().unwrap();
-        let prompt = "\
-Required final artifacts:
-- ../outside.txt
-- /tmp/out.txt
-- .anvil/session.json
-- target/debug/app
-- node_modules/pkg/index.js
-- package.json
-- src/app/page.tsx
-";
-        let paths = extract_requested_artifact_paths(dir.path(), prompt);
-        assert_eq!(paths, vec!["package.json", "src/app/page.tsx"]);
-    }
-
-    #[test]
-    fn requested_artifact_path_extraction_rejects_backticked_escape() {
-        let dir = tempfile::tempdir().unwrap();
-        let prompt = "Create `src/main.rs`, not `../main.rs` or `.anvil/log.json`.";
-        let paths = extract_requested_artifact_paths(dir.path(), prompt);
-        assert_eq!(paths, vec!["src/main.rs"]);
-    }
-
-    #[test]
-    #[cfg(unix)]
-    fn requested_artifact_path_extraction_rejects_symlink_escape() {
-        let dir = tempfile::tempdir().unwrap();
-        std::os::unix::fs::symlink("/tmp", dir.path().join("out")).unwrap();
-        let prompt = "\
-Required final artifacts:
-- out/file.txt
-- safe/file.txt
-";
-        let paths = extract_requested_artifact_paths(dir.path(), prompt);
-        assert_eq!(paths, vec!["safe/file.txt"]);
     }
 
     #[test]
@@ -6685,13 +6646,14 @@ Required final artifacts:
             }),
         ]);
         let mut session = SessionSnapshot::new();
-        let outcome = run_session_with_outcome_with_ui(
+        let outcome = run_session_with_outcome_with_options(
             &mut fake,
             &mut session,
             "create a page",
             &["src/app/page.tsx".to_string()],
             &config(dir.path().to_path_buf()),
             &NOOP_UI,
+            RunSessionOptions::plan_step(RunSessionStepKind::Implement),
         )
         .unwrap();
         assert_eq!(
@@ -6863,6 +6825,7 @@ Required final artifacts:
                 prompt_tokens: None,
                 completion_tokens: None,
             }),
+            Ok(AssistantReply::text("done")),
         ]);
         let mut session = SessionSnapshot::new();
         let outcome = run_session_with_outcome_with_ui(
@@ -6874,10 +6837,7 @@ Required final artifacts:
             &NOOP_UI,
         )
         .unwrap();
-        assert_eq!(
-            outcome.stop_reason,
-            RunStopReason::RequiredArtifactsSatisfiedAfterTool
-        );
+        assert_eq!(outcome.stop_reason, RunStopReason::AssistantFinal);
     }
 
     #[test]

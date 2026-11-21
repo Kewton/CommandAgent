@@ -14,6 +14,9 @@ use crate::minimal_loop::interaction_probe::{
     INTERACTION_PROBE_SETUP_REMEDIATION, ProbeAvailability,
 };
 
+mod compatible_effort;
+mod openrouter_routing;
+
 const SCHEMA_VERSION: &str = "1";
 const OLLAMA_TIMEOUT: Duration = Duration::from_secs(2);
 const OPENAI_ENDPOINT: &str = "https://api.openai.com";
@@ -414,6 +417,8 @@ fn add_resolved_configuration_checks(checks: &mut Vec<DoctorCheck>, config: &Con
         config.planner_provider,
         config.ollama_think,
     ));
+    checks.push(compatible_effort::compatible_reasoning_effort_check(config));
+    checks.push(openrouter_routing::routing_check(config));
 }
 
 fn offline_mode_check(enabled: bool) -> DoctorCheck {
@@ -648,6 +653,10 @@ fn add_config_file_checks(
 }
 
 fn add_provider_checks(checks: &mut Vec<DoctorCheck>, config: &Config) {
+    if let Some(refused) = run_budget_check(config) {
+        checks.push(refused);
+        return;
+    }
     let ollama_roles = [
         ("executor", config.provider, config.model.as_str()),
         (
@@ -688,11 +697,7 @@ fn add_provider_checks(checks: &mut Vec<DoctorCheck>, config: &Config) {
     })
     .collect::<Vec<_>>();
     if !lm_studio_roles.is_empty() {
-        let api_token =
-            crate::env_compat::var(crate::providers::lm_studio::LM_STUDIO_API_TOKEN_ENV)
-                .ok()
-                .map(|value| value.trim().to_string())
-                .filter(|value| !value.is_empty());
+        let api_token = crate::providers::lm_studio::process_api_token();
         checks.push(DoctorCheck::new(
             "provider.lm_studio.api_token",
             "provider",
@@ -733,7 +738,7 @@ fn add_provider_checks(checks: &mut Vec<DoctorCheck>, config: &Config) {
         let api_token = compatible
             .api_key_env
             .as_deref()
-            .and_then(|name| std::env::var(name).ok())
+            .and_then(process_credential)
             .filter(|value| !value.trim().is_empty());
         checks.push(DoctorCheck::new(
             "provider.openai_compatible.api_key",
@@ -786,9 +791,8 @@ fn add_provider_checks(checks: &mut Vec<DoctorCheck>, config: &Config) {
                 checks.push(openai_model_identity_check(role, model));
             }
         }
-        let openai_key = std::env::var("OPENAI_API_KEY")
-            .ok()
-            .filter(|value| !value.trim().is_empty());
+        let openai_key =
+            process_credential("OPENAI_API_KEY").filter(|value| !value.trim().is_empty());
         checks.push(process_credential_check_with(
             "OPENAI_API_KEY",
             "provider.openai.api_key",
@@ -807,9 +811,51 @@ fn add_provider_checks(checks: &mut Vec<DoctorCheck>, config: &Config) {
             "provider.gemini.api_key",
             "Gemini key",
             &crate::config::read_dotenv(&config.workspace_root),
-            |name| std::env::var(name).ok(),
+            process_credential,
         ));
     }
+}
+
+/// Why no provider check is sent, when none is. A provider check is a send no run budget counts,
+/// so with one selected none is sent. Nor is one sent when the key's variable is a control of the
+/// run budget, selected or not: on macOS the start takes that variable out of the environment,
+/// so a selection under that name would not be seen. The doctor returns before the run's own
+/// check of the names, so it makes the same ones here: the name the configuration kept, and the
+/// name the start took.
+fn run_budget_check(config: &Config) -> Option<DoctorCheck> {
+    use crate::structured_budget::entry::{
+        Unmetered, refuse, refuse_a_control_named_as_key, refuse_a_control_the_start_takes,
+    };
+    let (refusal, message, remediation) = match (
+        refuse(Unmetered::ProviderCheck),
+        refuse_a_control_named_as_key(config).and_then(|()| refuse_a_control_the_start_takes()),
+    ) {
+        (Ok(()), Ok(())) => return None,
+        (Err(refusal), _) => (
+            refusal,
+            "a run budget is selected, so no provider check is sent: nothing would count it",
+            "check the providers in a process with no run budget selected",
+        ),
+        (Ok(()), Err(refusal)) => (
+            refusal,
+            "the key's variable is a control of the run budget, so no provider check is sent",
+            "name the key with a variable of its own",
+        ),
+    };
+    Some(DoctorCheck::new(
+        "provider.run_budget",
+        "provider",
+        "Run budget",
+        CheckStatus::Fail,
+        message,
+        Some(remediation.to_string()),
+        json!({ "refusal": refusal.to_string() }),
+    ))
+}
+
+/// A credential as the run itself resolves it, so the report matches what the run will use.
+pub(crate) fn process_credential(name: &str) -> Option<String> {
+    crate::startup_credentials::var(name).ok()
 }
 
 fn openai_model_identity_check(role: &str, model: &str) -> DoctorCheck {

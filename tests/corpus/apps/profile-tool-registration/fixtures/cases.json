@@ -1,0 +1,33 @@
+{
+  "issue": "#972",
+  "kind": "synthetic",
+  "accepted": [
+    {"id": "config-object-profile", "kind": "synthetic", "profile": "tool-config-a", "tool": "ReadConfigObject", "published": ["Read", "ReadConfigObject"]},
+    {"id": "document-index-profile", "kind": "synthetic", "profile": "tool-index-b", "tool": "ReadDocIndex", "published": ["Read", "Grep", "ReadDocIndex"]},
+    {"id": "selected-pack", "kind": "synthetic", "profile": "tool-pack-host", "pack": "tool-select-pack", "tool": "ReadDocIndex", "published": ["Read", "Glob", "ReadDocIndex"]}
+  ],
+  "refusals": [
+    {"id": "unknown-id", "kind": "synthetic", "profile": "tool-unknown-id", "refusal": "unknown_tool_id"},
+    {"id": "builtin-name-collision", "kind": "synthetic", "profile": "tool-collision", "refusal": "name_collision"},
+    {"id": "removed-builtin-name-collision", "kind": "synthetic", "profile": "tool-collision-removed", "refusal": "name_collision"},
+    {"id": "two-tools-one-name", "kind": "synthetic", "profile": "tool-collision-pair", "refusal": "name_collision"},
+    {"id": "schema-pin-mismatch", "kind": "synthetic", "profile": "tool-bad-schema-pin", "refusal": "invalid_pin"},
+    {"id": "dependency-pin-malformed-target", "kind": "synthetic", "profile": "tool-bad-dependency-pin", "refusal": "invalid_pin"},
+    {"id": "dependency-swapped-before-start", "kind": "synthetic", "profile": "tool-swapped-dependency", "refusal": "invalid_pin"},
+    {"id": "effect-not-implemented-g3", "kind": "synthetic", "profile": "tool-effect-g3", "refusal": "unavailable"},
+    {"id": "nested-schema-not-implemented-g2", "kind": "synthetic", "profile": "tool-nested-g2", "refusal": "unavailable"},
+    {"id": "declared-feature-not-implemented", "kind": "synthetic", "profile": "tool-declared-feature", "refusal": "unavailable"},
+    {"id": "effect-contradicts-registry", "kind": "synthetic", "profile": "tool-effect-conflict", "refusal": "conflicting_declaration"},
+    {"id": "limit-wider-than-registry", "kind": "synthetic", "profile": "tool-wide-limit", "refusal": "conflicting_declaration"},
+    {"id": "runtime-nobody-registered", "kind": "synthetic", "profile": "tool-no-runtime", "refusal": "unavailable"},
+    {"id": "process-runtime-not-implemented", "kind": "synthetic", "profile": "tool-process-runtime", "refusal": "unavailable"},
+    {"id": "os-feature-not-in-force", "kind": "synthetic", "profile": "tool-os-required", "refusal": "unavailable"}
+  ],
+  "off": [
+    {"id": "generic-native", "kind": "synthetic", "profile": "generic"},
+    {"id": "generic-text-protocol", "kind": "synthetic", "profile": "generic"},
+    {"id": "undeclared-draft", "kind": "synthetic", "profile": "tool-off-draft"},
+    {"id": "undeclared-draft-selected-pack", "kind": "synthetic", "profile": "tool-off-draft", "pack": "tool-off-pack"},
+    {"id": "planner-generic", "kind": "synthetic", "profile": "generic"}
+  ]
+}

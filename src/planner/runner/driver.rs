@@ -3,6 +3,7 @@
 mod report_signature;
 pub(super) use report_signature::verification_report_signature;
 
+use super::super::profiles::step_checks;
 #[allow(unused_imports, reason = "names used by test modules")]
 use super::{
     AssistantReply, BTreeSet, ChatClient, CompletionContract, Config, Duration,
@@ -263,6 +264,7 @@ pub(super) fn planner_chat_with_request_retry(
     messages: &[crate::state::ConversationMessage],
     ui: &dyn InteractionUi,
 ) -> anyhow::Result<AssistantReply> {
+    crate::tools::profile_tools::refuse_before_provider(&config.workspace_root, config)?;
     let mut last_error = None;
     for request_attempt in 1..=PLANNER_PROVIDER_REQUEST_ATTEMPTS {
         let result = {
@@ -932,6 +934,7 @@ pub fn generate_and_run_step_plan_with_ui(
     config: &Config,
     ui: &dyn InteractionUi,
 ) -> anyhow::Result<String> {
+    crate::tools::profile_tools::refuse_for_client(config, &*execution)?;
     let plan = generate_step_plan_with_ui(planner, goal, config, ui)?;
     save_step_plan(&config.workspace_root, &plan)?;
     run_step_plan_with_ui(execution, &plan, config, ui)
@@ -951,6 +954,7 @@ pub fn run_step_plan_with_ui(
     config: &Config,
     ui: &dyn InteractionUi,
 ) -> anyhow::Result<String> {
+    crate::tools::profile_tools::refuse_for_client(config, &*client)?;
     let mut session = SessionSnapshot::new();
     run_step_plan_with_session_with_ui(
         client,
@@ -965,6 +969,9 @@ pub fn run_step_plan_with_ui(
     )
     .map(|outcome| outcome.summary)
     .map_err(|err| anyhow::anyhow!("{}", err.message))
+    .and_then(|summary| {
+        crate::planner::structured_stages::refuse_unmet_plan(config).map(|()| summary)
+    })
 }
 
 pub(super) fn missing_final_artifacts(root: &Path, required_paths: &[String]) -> Vec<String> {
@@ -2612,33 +2619,7 @@ pub(super) fn tool_call_names(tool_calls: &[crate::state::ToolCall]) -> String {
 }
 
 pub(super) fn plan_generation_system_prompt() -> String {
-    [
-        "You are a deterministic planning component for a local coding agent.",
-        "Return only one JSON object. Do not include markdown fences, prose, comments, or XML.",
-        "The JSON object must have top-level keys: goal, steps.",
-        "Each step must include id, kind, instruction, expected_paths, verify, and expected_result.",
-        "Step id must be a quoted string. Use kebab-case such as inspect-workspace.",
-        "expected_result must be exactly \"pass\" or \"fail\". Do not put prose in expected_result.",
-        "Use 2 to 8 steps for normal implementation tasks, with a maximum of 12 steps.",
-        "Allowed step kinds: inspect, setup, implement, verify, report.",
-        "Use inspect only for reading or assessing state; it must not declare expected_paths or verify commands.",
-        "Use setup for dependency manifests or setup files; do not run build/test verification in setup.",
-        "Use implement/create/edit/work/repair semantics as implement steps, with concrete expected_paths.",
-        "Use verify only for deterministic checks. Do not request file changes in verify steps.",
-        "Use report only for explicit blockers such as dependency_missing, unavailable external service, required user input, or unfixable local blocker. Report is not success.",
-        "Normal success plans must end with a verify step or an artifact-owning setup/implement step, not a final summary report.",
-        "Expected paths must be workspace-relative, exact, and owned by one implement/setup step.",
-        "Do not put dependency/build side-effect directories such as node_modules, .next, __pycache__, .venv, venv, dist, build, target, coverage, or out in expected_paths unless the user goal explicitly asks for that artifact path.",
-        "Prefer tests, builds, smoke checks, or content assertions over file existence checks.",
-        "Use file existence checks only as a fallback when no stronger deterministic verification fits.",
-        "Implement/setup instructions should say what each expected artifact will contain.",
-        "Verify commands must not use shell control syntax such as &&, ||, |, or ;.",
-        "For multi-statement Node checks, create a smoke-check.js artifact and verify with node smoke-check.js.",
-        "Do not put dev server startup or network setup in verify.",
-        "For Next.js, create package.json and app entrypoints before npm run build.",
-        "Do not use node --check for .ts or .tsx files.",
-    ]
-    .join("\n")
+    crate::planner::plan_generation_guidance::system_prompt()
 }
 
 pub(super) fn build_step_plan_user_prompt(goal: &str, config: &Config) -> String {
@@ -2713,7 +2694,7 @@ pub(super) fn build_step_plan_user_prompt_stable(goal: &str, config: &Config) ->
         prompt.push_str("- Browser readiness is verified by the runtime at final acceptance.\n");
         prompt.push_str("- GOOD verify examples:\n");
         prompt.push_str("  - test -f package.json\n");
-        prompt.push_str("  - node -p \"require('./package.json').scripts.dev\"\n");
+        prompt.push_str("  - grep -q \"next dev\" package.json\n");
         prompt.push_str("- BAD verify examples:\n");
         prompt.push_str("  - npm install\n");
         prompt.push_str("  - npm run dev\n");
@@ -2783,7 +2764,7 @@ pub(super) fn build_step_plan_user_prompt_legacy(goal: &str, config: &Config) ->
         prompt.push_str("- Browser readiness is verified by the runtime at final acceptance.\n");
         prompt.push_str("- GOOD verify examples:\n");
         prompt.push_str("  - test -f package.json\n");
-        prompt.push_str("  - node -p \"require('./package.json').scripts.dev\"\n");
+        prompt.push_str("  - grep -q \"next dev\" package.json\n");
         prompt.push_str("- BAD verify examples:\n");
         prompt.push_str("  - npm install\n");
         prompt.push_str("  - npm run dev\n");
@@ -2929,7 +2910,7 @@ pub(super) fn build_step_prompt_stable(
     append_bullets_or_none(&mut prompt, &step.expected_paths);
 
     prompt.push_str("\n\nVerification commands for this step:\n");
-    append_bullets_or_none(&mut prompt, &step.verify);
+    prompt.push_str(&step_checks::verify_prompt_bullets(&step.verify));
 
     prompt.push_str("\n\nExpected verification result:\n");
     prompt.push_str(step_expected_result(step));
@@ -2968,7 +2949,7 @@ pub(super) fn build_step_prompt_legacy(
     append_bullets_or_none(&mut prompt, &step.expected_paths);
 
     prompt.push_str("\n\nVerification commands for this step:\n");
-    append_bullets_or_none(&mut prompt, &step.verify);
+    prompt.push_str(&step_checks::verify_prompt_bullets(&step.verify));
 
     prompt.push_str("\n\nExpected verification result:\n");
     prompt.push_str(step_expected_result(step));

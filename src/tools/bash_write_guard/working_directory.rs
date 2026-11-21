@@ -251,6 +251,10 @@ fn walk(text: &str, ambiguous: bool, cr_mode: CrMode, root: Option<&Path>) -> In
         function_keyword = true;
     }
 
+    // Issue #930: a spelling whose every occurrence is a proven data word (a
+    // read-only program, a pattern, display text) names no file, so it is not
+    // re-checked against the working-directory candidates either.
+    let data_only = crate::tools::bash::argument_roles::data_only_words(text, cr_mode);
     let mut overflow = false;
     let mut file_words: Vec<String> = Vec::new();
     for segment in tokens.split(|token| *token == ShellToken::SegmentEnd) {
@@ -290,12 +294,17 @@ fn walk(text: &str, ambiguous: bool, cr_mode: CrMode, root: Option<&Path>) -> In
                 if matches!(program.as_str(), "cd" | "pushd" | "popd")
         );
         if !cwd_program {
+            let is_data = |word: &str| words.contains(&word) && data_only.contains(word);
             for word in &words {
-                if is_relative_word(word) {
+                if is_relative_word(word) && !is_data(word) {
                     inspection.relative_words.push((*word).to_string());
                 }
             }
-            file_words.extend(file_reading_words(&words, &resolution));
+            file_words.extend(
+                file_reading_words(&words, &resolution)
+                    .into_iter()
+                    .filter(|word| !is_data(word)),
+            );
             file_words.extend(redirect_target_words(segment));
         }
         let Resolution::Program {

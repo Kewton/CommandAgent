@@ -2,7 +2,10 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use commandagent::minimal_loop::evidence::verify_runtime_acceptance_with_hints;
-use commandagent::minimal_loop::import_scan::{route_bound_closure, scan_relative_imports};
+use commandagent::minimal_loop::import_scan::{
+    ImportScanIssue, format_missing_import_feedback, format_missing_import_findings,
+    route_bound_closure, scan_relative_imports,
+};
 use commandagent::minimal_loop::interaction_probe::static_html_probe_selection;
 use commandagent::minimal_loop::reachability::{
     assess_repair_reachability_at_root, reachability_failure_kind,
@@ -295,6 +298,36 @@ fn dangling_workspace_alias_corpus_is_reported_before_completion() {
 }
 
 #[test]
+fn issue842_missing_export_feedback_lists_exports_of_recorded_runs() {
+    let root =
+        Path::new("tests/corpus/apps/issue842-missing-export-lists-available-exports/fixtures");
+    for (source, expected) in [
+        (
+            "src/app/api/notes/route.ts",
+            "src/lib/notes.ts exports: deleteNote, getNotes, saveNote",
+        ),
+        (
+            "src/app/page.tsx",
+            "src/lib/game-logic.ts exports: Alien, Entity, GameState, GameWorld, INITIAL_WORLD, Player, Projectile, createAlienGrid, fireProjectile, updateGame",
+        ),
+    ] {
+        let missing = scan_relative_imports(root, &[source.to_string()])
+            .expect("scan issue842 corpus fixture")
+            .into_iter()
+            .filter(|item| matches!(item.issue, ImportScanIssue::MissingExport { .. }))
+            .collect::<Vec<_>>();
+        assert!(!missing.is_empty(), "{source}: no missing export reported");
+        let feedback = format_missing_import_feedback(&missing);
+        let findings = format_missing_import_findings(root, &missing);
+        assert!(feedback.contains(expected), "{source}: {feedback}");
+        assert!(
+            findings.iter().all(|finding| finding.contains(expected)),
+            "{source}: {findings:?}"
+        );
+    }
+}
+
+#[test]
 fn japanese_json_persistence_goal_requires_reload_evidence() {
     let goal = "TODOアプリを作成し、データはjsonファイルで永続化してほしいです";
     let contract = interaction_repair_contract("nextjs", goal);
@@ -344,7 +377,7 @@ fn issue430_utf8_response_window_reports_honest_api_failure() {
         assert_eq!(
             report.profile_failures,
             [
-                "api_contract_failure: POST /api/shifts used by src/app/page.tsx does not check Response.ok before accepting the mutation"
+                "api_contract_failure: POST /api/shifts used by src/app/page.tsx does not check Response.ok before accepting the mutation; accepted forms: `const res = await fetch(...)` then return/throw when `!res.ok`, a simple ternary whose two branches are both `await fetch(...)` bound to the same const and checked by the same guard, or `fetch(...).then((res) => ...)` whose callback returns/throws first when `!res.ok`, is only `if (res.ok) { ... }`, or is `res.ok ? res.json() : null` with the next `.then((data) => ...)` returning/throwing first when `!data`"
             ],
             "{report:?}"
         );

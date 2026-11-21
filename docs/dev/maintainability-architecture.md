@@ -31,6 +31,70 @@ serialize the schemas in `eval_events/typed.rs`; equivalence tests freeze their
 legacy JSON shape. New internal events should prefer a typed payload while
 retaining schema version 1 unless a migration is explicitly authorized.
 
+## Event file append atomicity
+
+Within one process, an events file that is a regular file holds one event per
+physical line: one JSON object followed by one LF, with no bytes of another
+writer inside it (Issue #987). Every in-process writer of an events file
+builds its record before it writes and then appends it through
+`eval_events/append_writer.rs` under one process-wide lock:
+
+- `emit` and `append_event_failsafe`, and through them the OS sandbox status
+  events, provider worker threads, speculative phase workers, and the GUI
+  server's own events;
+- the outermost provider-turn flush, which writes the turn's event line and
+  its spooled tail under a single acquisition of the lock;
+- `workflow::orchestrator::emit`, which shares its file with sandbox events.
+
+The lock is one for the whole process rather than one per path, so other
+spellings of the same file (relative, `..`, a symlink) are serialized too.
+Nothing under the lock emits, redacts, publishes, or touches the provider-turn
+spool registry, so a flush cannot re-enter it. Redaction still happens before
+an event is buffered, spooled, or written.
+
+A failed write is reported as it was at develop `fc903248`: `emit` and the
+provider-turn `Drop` print a warning (each time), while
+`append_event_failsafe`, `ExecutionTelemetry::finish`, and the workflow `emit`
+return the error. Bytes already written stay in the file; the writer never
+truncates, repairs, or rewrites it. Short writes and `Interrupted` are retried.
+
+A failure that leaves a line open in a regular file (the last byte written is
+not its LF) marks that file: its handle is held, keyed by the device and inode
+read from the handle opened for the write (never from the path), and every
+later append to it in this process fails without writing, under any spelling
+of its path. A new file created at the same path is a different inode and is
+written. Both opens of a provider turn's flush go through this one check. The
+mark lives only as long as the process; another process, or the next run,
+does not see it. Without an inode identity (not Unix) every events file
+shares one key, so a mark refuses every events file in the process. A handle
+whose identity cannot be read gets nothing written. A panic while the lock is
+held makes every later locked append fail.
+
+A provider turn's tail is copied by its recorded length. A read error or an
+early end of the spool (`UnexpectedEof`) while it is copied fails the flush;
+the bytes copied until then stay in the file, and when they end inside a line
+the file is marked. This differs from a spool write that fails: its bytes are
+never committed, so no flush copies them. A nested turn whose merge into its
+parent fails is lost whole while the parent keeps its lines and its event.
+
+Line readers are unchanged: `commandagent runs <id> --events` still fails on a
+malformed line, and the terminal report and completion snapshot still skip it.
+Read constraint: a line cut inside a multi-byte character makes the file
+invalid UTF-8, and then those readers see none of its lines, including the
+whole lines before the cut (`runs` lists the stop reason as `unknown`). This
+was already so at `fc903248`; the readers are not loosened here.
+
+Outside this guarantee: another process appending to the same file (the GUI
+server hands its events path to the child run through
+`COMMANDAGENT_EVAL_EVENTS`, and both write it), network filesystems, and
+durability across a crash. No cross-process file lock is taken. An events
+path whose opened handle is not a regular file (a FIFO, a device) is written
+outside the lock with the calls of `fc903248`, a provider turn's tail through
+a second append open included (classified again: a regular file by then is
+written as above), so a FIFO waiting for its reader never holds up other
+writers; its lines get no guarantee and a failure there marks nothing. A
+handle from either open whose metadata cannot be read is refused.
+
 ## Browser probe asset
 
 The Playwright program is stored at

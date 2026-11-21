@@ -1,0 +1,15 @@
+{
+  "source_run": "campaign-G1/stage3a (develop 2d3e78b0); copied unmodified",
+  "files": [
+    {
+      "file": "content-q-plan.yaml",
+      "source": "content-q/work/.commandagent/plans/plan-01a16901-d5bc-7bf3-8060-47d33e93afab.yaml",
+      "sha256": "2a8cb3309cc613e75f32716b8df13d7033e80e7c3fdc47c894c7a57ee6c37bf2"
+    },
+    {
+      "file": "ambig-plan.yaml",
+      "source": "ambig-q/work/.commandagent/plans/plan-01a16907-f356-7f93-acbd-0f7fff25b1bd.yaml",
+      "sha256": "396b2d62dd64cfb9705ae3ea6fe4afc8faf0cf4014cac1f335ca8631ad16fb75"
+    }
+  ]
+}

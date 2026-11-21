@@ -853,7 +853,7 @@ fn focused_behavioral_repair_exhaustion_handoff_uses_probe_failure() {
 
 #[test]
 #[cfg(unix)]
-fn overlay_only_restart_after_probe_success_fails_without_reachable_restart_contract() {
+fn overlay_only_restart_after_probe_success_is_partial_not_full() {
     let _probe_guard = dev_server_probe_test_guard();
     let dir = tempfile::tempdir().unwrap();
     let port = free_local_port();
@@ -878,7 +878,7 @@ fn overlay_only_restart_after_probe_success_fails_without_reachable_restart_cont
 
     let report = ultra_final_acceptance_report(&plan, &cfg).unwrap();
 
-    assert!(!report.is_pass(), "{report:?}");
+    assert!(report.is_pass(), "{report:?}");
     let event_text = std::fs::read_to_string(&events).unwrap();
     assert!(
         event_text.contains(
@@ -886,13 +886,12 @@ fn overlay_only_restart_after_probe_success_fails_without_reachable_restart_cont
         ),
         "{event_text}"
     );
-    assert!(
-        event_text.contains("interaction_unverified:terminal_state_not_reached"),
-        "{event_text}"
-    );
-    assert!(event_text.contains("contract_instrumentation_missing:restart"));
-    assert!(event_text.contains("\"release_gate_status\":\"failed\""));
+    assert!(!event_text.contains("contract_instrumentation_missing:restart"));
     let ultra = latest_event(&events, "ultra_final_acceptance");
+    assert_eq!(ultra["release_gate_status"], "partial");
+    let reasons = ultra["release_gate_reasons"].to_string();
+    assert!(reasons.contains("interaction_unverified:terminal_state_not_reached"));
+    assert!(!event_text.contains("full_success") && !event_text.contains("release_ready"));
     let recovery_prompt_path = ultra
         .get("recovery_prompt_path")
         .and_then(Value::as_str)
@@ -927,13 +926,13 @@ fn overlay_only_restart_after_probe_success_fails_without_reachable_restart_cont
     );
     assert_eq!(
         ultra.get("final_acceptance_status").and_then(Value::as_str),
-        Some("incomplete")
+        Some("partial")
     );
     assert_eq!(
         ultra
             .get("interaction_evidence_status")
             .and_then(Value::as_str),
-        Some("failed:contract_instrumentation_missing:restart")
+        Some("unverified:terminal_state_not_reached")
     );
     assert_eq!(
         ultra

@@ -323,6 +323,16 @@ impl CompletionContract {
                         continue;
                     }
                 };
+            if let Some(verdict) = crate::planner::verify::host_check_segment::judge_token(
+                &normalized_command,
+                root,
+                self.active_profile(),
+            ) {
+                if let Err(reason) = verdict {
+                    report.push_command_failure(command.clone(), reason);
+                }
+                continue;
+            }
             match crate::minimal_loop::verifier_env::run_checked(&normalized_command, root, offline)
             {
                 Ok(output) => {
@@ -339,13 +349,9 @@ impl CompletionContract {
                 }
                 Err(err) => {
                     let reason = err.to_string();
-                    if let Some(reason) =
-                        classify_python_test_discovery_failure(root, &command, &reason)
-                    {
-                        report.push_command_failure(command.clone(), reason);
-                    } else {
-                        report.push_command_failure(command.clone(), reason);
-                    }
+                    let reason = classify_python_test_discovery_failure(root, &command, &reason)
+                        .unwrap_or(reason);
+                    report.push_command_failure(command.clone(), reason);
                 }
             }
         }

@@ -1,0 +1,52 @@
+case_id = "responses-run-budget"
+source = "Issue #1006 (G5): synthetic runs of the binary and the clients against disposable 127.0.0.1 fakes, with synthetic prices and replies; the off rows were recorded from the production code of base ff920681b8bfa9d6e11560837a83ffd96f6340bd before the feature existed; not a model-capability or bench measurement"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[json_fields]
+fixtures/cases.json:issue = "#1006"
+fixtures/cases.json:kind = "synthetic"
+fixtures/off-golden.json:issue = "#1006"
+fixtures/off-golden.json:kind = "responses-run-budget-off"
+fixtures/off-golden.json:source = "ff920681"
+source-manifest.json:base_sha = "ff920681b8bfa9d6e11560837a83ffd96f6340bd"
+source-manifest.json:origin = "synthetic"
+
+[fixture_contains]
+fixtures/cases.json = [
+  "\"criterion\": \"AC1\"",
+  "\"criterion\": \"AC2\"",
+  "\"criterion\": \"AC3\"",
+  "\"criterion\": \"AC4\"",
+  "\"criterion\": \"AC5\"",
+  "\"criterion\": \"AC6\"",
+  "\"criterion\": \"AC7\"",
+  "\"criterion\": \"AC8\"",
+  "\"criterion\": \"AC9\""
+]
+fixtures/off-golden.json = [
+  "\"id\": \"responses-ordinary-reply\"",
+  "\"id\": \"responses-tool-call\"",
+  "\"id\": \"responses-reasoning-replay\"",
+  "\"id\": \"responses-retry\"",
+  "\"id\": \"chat-ordinary-reply\"",
+  "\"id\": \"direct-responses-retry\""
+]

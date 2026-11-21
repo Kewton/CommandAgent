@@ -1,0 +1,33 @@
+case_id = "structured-run-budget"
+source = "Issue #976 (G5): synthetic runs of the binary against a disposable 127.0.0.1 fake with no wallet selected; the off golden is byte-equal to the records of the code before and after each #976 merge (3c546943, fea0a54e, 62634272, d2afc7bb); not a model-capability or bench measurement"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[json_fields]
+fixtures/cases.json:issue = "#976"
+fixtures/cases.json:kind = "synthetic"
+fixtures/off-golden.json:issue = "#976"
+fixtures/off-golden.json:kind = "structured-run-budget-off"
+source-manifest.json:origin = "synthetic"
+
+[fixture_contains]
+fixtures/cases.json = ["\"criterion\": \"AC1\"", "\"criterion\": \"AC6\""]
+fixtures/off-golden.json = ["\"id\": \"compatible-chat-tool-call\"", "\"id\": \"compatible-chat-retry\"", "\"id\": \"lm-studio-chat-tool-call\""]

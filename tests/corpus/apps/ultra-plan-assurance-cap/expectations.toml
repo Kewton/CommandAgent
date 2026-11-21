@@ -1,0 +1,38 @@
+case_id = "ultra-plan-assurance-cap"
+source = "Issue 985 synthetic draft profiles: ultra_plan_complete carries the admission cap"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[json_fields]
+source-manifest.json:kind = "synthetic"
+cases.json:kind = "synthetic"
+cases.json:issue = "#985"
+
+[fixture_contains]
+extension-root/profiles/cap-standalone/manifest.toml = ["id = \"cap-standalone\""]
+extension-root/profiles/python-cli/overlay.toml = ["id = \"cap-python-cli\"", "status = \"draft\"", "base_profile = \"python-cli\""]
+cases.json = [
+  "\"name\": \"standalone\"",
+  "\"name\": \"standalone-failed\"",
+  "\"name\": \"overlay\"",
+  "\"name\": \"admitted\"",
+  "\"assurance_reason\": \"profile_not_admitted\""
+]

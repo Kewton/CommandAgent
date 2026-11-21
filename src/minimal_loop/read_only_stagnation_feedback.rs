@@ -264,4 +264,133 @@ mod tests {
         assert!(event.contains(r#""selection_reason":"contract_attribute""#));
         assert!(!event.contains(r#""target_path":"package.json""#));
     }
+
+    const CONTENT_G_SMOKE_CHECK: &str = "const { readOne } = require('./src/lib/persistence');\n\
+const value = readOne('missing');\n\
+if (value !== null) throw new Error('expected null, got ' + value);\n";
+
+    fn content_g_workspace(persistence_js: &str) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src/lib")).unwrap();
+        std::fs::write(dir.path().join("smoke-check.js"), CONTENT_G_SMOKE_CHECK).unwrap();
+        std::fs::write(dir.path().join("src/lib/persistence.js"), persistence_js).unwrap();
+        std::fs::write(dir.path().join("src/lib/persistence.ts"), "export {};\n").unwrap();
+        std::fs::write(
+            dir.path().join("src/lib/types.ts"),
+            "export type Todo = {};\n",
+        )
+        .unwrap();
+        dir
+    }
+
+    fn verify_storage(root: &Path) -> crate::planner::verify::VerificationReport {
+        let step = crate::planner::step_plan::PlanStep {
+            id: "verify-storage".to_string(),
+            kind: "verify".to_string(),
+            expected_result: "pass".to_string(),
+            instruction: "Run the storage smoke check".to_string(),
+            expected_paths: Vec::new(),
+            verify: vec!["node smoke-check.js".to_string()],
+        };
+        crate::planner::verify::verify_step(root, &step)
+    }
+
+    fn write_required_state(root: &Path, prompt: &str) -> (WriteRequiredState, String) {
+        let events = root.join("events.jsonl");
+        let options = RunSessionOptions::plan_step(RunSessionStepKind::Verify)
+            .with_path_fallback_candidates(vec!["src/lib/types.ts".to_string()]);
+        let mut state = WriteRequiredState::default();
+        let feedback = maybe_read_only_stagnation_feedback(
+            Some(&events),
+            root,
+            "nextjs",
+            prompt,
+            7,
+            7,
+            &options,
+            &mut state,
+            &RunSessionErrorContext::default(),
+            &[],
+            &[],
+            &["src/lib/types.ts".to_string()],
+            None,
+        )
+        .expect("write pressure feedback");
+        (state, feedback)
+    }
+
+    #[test]
+    fn failed_node_verify_names_the_loaded_file_for_write_pressure() {
+        let dir = content_g_workspace("exports.readOne = () => undefined;\n");
+        let report = verify_storage(dir.path());
+        assert_eq!(report.command_failures.len(), 1, "{report:?}");
+        assert!(report.dependency_missing.is_empty(), "{report:?}");
+        let prompt = crate::planner::repair::build_repair_prompt_with_context(
+            "verify-storage",
+            &report,
+            &crate::planner::repair::RepairContext {
+                workspace_root: Some(dir.path().to_path_buf()),
+                ..Default::default()
+            },
+        );
+
+        let (state, feedback) = write_required_state(dir.path(), &prompt);
+
+        assert_eq!(state.selected_targets(), ["src/lib/persistence.js"]);
+        assert_eq!(
+            state.selection_reason(),
+            Some(WriteRequiredSelectionReason::DiagnosisMapped)
+        );
+        assert!(feedback.contains("src/lib/persistence.js"), "{feedback}");
+        assert!(!feedback.contains("src/lib/types.ts"), "{feedback}");
+        let event = std::fs::read_to_string(dir.path().join("events.jsonl")).unwrap();
+        assert!(
+            event.contains(r#""selection_reason":"diagnosis_mapped""#),
+            "{event}"
+        );
+
+        std::fs::write(
+            dir.path().join("src/lib/persistence.js"),
+            "exports.readOne = () => null;\n",
+        )
+        .unwrap();
+        let passed = verify_storage(dir.path());
+        assert!(passed.command_failures.is_empty(), "{passed:?}");
+    }
+
+    #[test]
+    fn unnameable_failure_keeps_the_fallback_selection() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src/hooks")).unwrap();
+        std::fs::write(
+            dir.path().join("src/hooks/useTodos.ts"),
+            "import { Todo } from '../lib/types';\n",
+        )
+        .unwrap();
+        let mut report = crate::planner::verify::VerificationReport::pass();
+        report.push_command_failure(
+            "grep -q \"src/lib/types\" src/hooks/useTodos.ts",
+            "exit status 1",
+        );
+        let prompt = crate::planner::repair::build_repair_prompt_with_context(
+            "verify-hook",
+            &report,
+            &crate::planner::repair::RepairContext {
+                workspace_root: Some(dir.path().to_path_buf()),
+                ..Default::default()
+            },
+        );
+        assert!(!prompt.contains("write-pressure target"), "{prompt}");
+
+        let (state, _) = write_required_state(dir.path(), &prompt);
+
+        assert_eq!(
+            state.selected_targets().first().map(String::as_str),
+            Some("src/lib/types.ts")
+        );
+        assert_eq!(
+            state.selection_reason(),
+            Some(WriteRequiredSelectionReason::Fallback)
+        );
+    }
 }

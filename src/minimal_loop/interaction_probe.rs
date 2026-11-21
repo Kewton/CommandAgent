@@ -13,6 +13,14 @@ use crate::eval_events;
 use crate::minimal_loop::verifier_env;
 
 mod observation_decode;
+#[cfg(test)]
+mod persistence_attribution_tests;
+#[cfg(test)]
+mod persistence_commit_tests;
+#[cfg(test)]
+mod recovery_attribution_tests;
+#[cfg(test)]
+mod start_attribution_tests;
 
 const AVAILABILITY_TIMEOUT: Duration = Duration::from_secs(10);
 const INTERACTION_TIMEOUT: Duration = Duration::from_secs(120);
@@ -144,6 +152,7 @@ pub struct BrowserInteractionObservation {
     pub input_after_marker: String,
     pub recovery_before_marker: String,
     pub recovery_after_marker: String,
+    pub recovery_control: String,
     pub input_state_changed: bool,
     pub input_contract_state_changed: bool,
     pub input_state_evaluated_after_start: bool,
@@ -531,7 +540,7 @@ fn ensure_managed_package_json(tool_dir: &Path) -> anyhow::Result<()> {
     .with_context(|| format!("failed to write {}", path.display()))
 }
 
-fn run_setup_command(
+pub(crate) fn run_setup_command(
     root: &Path,
     cwd: &Path,
     program: &OsStr,
@@ -549,6 +558,7 @@ fn run_setup_command(
     command
         .args(args)
         .current_dir(cwd)
+        .envs(playwright_browsers_path_env())
         .stdin(Stdio::null())
         .stdout(Stdio::from(stdout))
         .stderr(Stdio::from(stderr));
@@ -596,6 +606,14 @@ fn npm_global_root(root: &Path, npm_program: &OsStr) -> Option<PathBuf> {
 fn node_path_env(node_path: Option<&Path>) -> Vec<(&'static str, OsString)> {
     node_path
         .map(|path| vec![("NODE_PATH", path.as_os_str().to_os_string())])
+        .unwrap_or_default()
+}
+
+/// Forward the parent's `PLAYWRIGHT_BROWSERS_PATH` (a directory, not a secret)
+/// so Playwright looks where the user installed the browsers.
+pub(crate) fn playwright_browsers_path_env() -> Vec<(&'static str, OsString)> {
+    std::env::var_os("PLAYWRIGHT_BROWSERS_PATH")
+        .map(|path| vec![("PLAYWRIGHT_BROWSERS_PATH", path)])
         .unwrap_or_default()
 }
 
@@ -737,6 +755,7 @@ pub fn probe_browser_interaction_against_running_server_with_options(
         .envs(node_path_env(
             resolution.node_path.as_deref().map(Path::new),
         ))
+        .envs(playwright_browsers_path_env())
         .stdin(Stdio::null())
         .stdout(Stdio::from(stdout_log))
         .stderr(Stdio::from(stderr_log));
@@ -1173,7 +1192,10 @@ fn write_probe_script(path: &Path) -> std::io::Result<()> {
 }
 
 fn interaction_probe_script() -> &'static str {
-    include_str!("assets/interaction_probe.js")
+    concat!(
+        include_str!("assets/interaction_probe/persistence_commit.js"),
+        include_str!("assets/interaction_probe.js")
+    )
 }
 
 fn open_stdio_logs(run_dir: &Path) -> std::io::Result<(std::fs::File, std::fs::File)> {
@@ -1240,6 +1262,7 @@ fn merge_script_stdout_failure_value(mut value: Value, logs: &InteractionStdio) 
             "input_after_marker",
             "recovery_before_marker",
             "recovery_after_marker",
+            "recovery_control",
             "start_transition",
             "start_control_found",
             "primary_start_transition",
@@ -1444,6 +1467,7 @@ fn failure_observation(
         input_after_marker: String::new(),
         recovery_before_marker: String::new(),
         recovery_after_marker: String::new(),
+        recovery_control: String::new(),
         input_state_changed: false,
         input_contract_state_changed: false,
         input_state_evaluated_after_start: false,
@@ -1736,6 +1760,9 @@ fn interaction_observation_json(observation: &BrowserInteractionObservation) -> 
     }
     if let Some(measured_navigation_ms) = observation.measured_navigation_ms {
         value["probe"]["measured_navigation_ms"] = json!(measured_navigation_ms);
+    }
+    if !observation.recovery_control.is_empty() {
+        value["recovery_control"] = json!(observation.recovery_control);
     }
     if !observation.failure_kind.is_empty() {
         value["failure_kind"] = json!(observation.failure_kind);
@@ -2041,7 +2068,7 @@ mod tests {
         let digest = Sha256::digest(interaction_probe_script().as_bytes());
         assert_eq!(
             format!("{digest:x}"),
-            "34dec4fba96134a7413291ef8baa42b2bc2964c738866db73ed2a7915a00d29b"
+            "d0acdf146d66d3837f4efd25df171ddddd8c016a7f36c0fc4eadc6ad23fcc09a"
         );
         let script = interaction_probe_script();
         assert!(script.contains("HELD_INPUT_OBSERVE_MS"));
@@ -2050,6 +2077,7 @@ mod tests {
         assert!(script.contains("startControl.isEnabled()"));
         assert!(script.contains("changedTopLevelStateKeys(input_before_marker, beforeReloadText)"));
         assert!(script.contains("!start_control_found && !textEntryObserved"));
+        assert!(script.starts_with("// Persistence commit witness (IC-44)."));
     }
 
     #[test]
@@ -2373,7 +2401,7 @@ mod tests {
         );
     }
 
-    fn node_available() -> bool {
+    pub(super) fn node_available() -> bool {
         matches!(
             Command::new("node")
                 .arg("--version")
@@ -2385,7 +2413,7 @@ mod tests {
         )
     }
 
-    fn spawn_probe_http_server() -> Option<(u16, thread::JoinHandle<()>)> {
+    pub(super) fn spawn_probe_http_server() -> Option<(u16, thread::JoinHandle<()>)> {
         let listener = match TcpListener::bind(("127.0.0.1", 0)) {
             Ok(listener) => listener,
             Err(err) => {
@@ -2842,7 +2870,7 @@ module.exports = {
     /// machine. A 12s budget therefore left no headroom for CI scheduling
     /// jitter and produced spurious `probe_infrastructure_failed:probe_timeout`
     /// failures instead of the persistence verdict under test.
-    const FAKE_PROBE_SCENARIO_BUDGET: Duration = Duration::from_secs(60);
+    pub(super) const FAKE_PROBE_SCENARIO_BUDGET: Duration = Duration::from_secs(60);
 
     /// Wall-clock budget for tests that spawn a fake npm/npx/node child and
     /// assert the child's lifecycle: setup artifacts plus second-run
@@ -2994,7 +3022,7 @@ module.exports = {
             observation
                 .persistence_changed_dimensions
                 .iter()
-                .any(|dimension| dimension == "typed_token"),
+                .any(|dimension| dimension == "todos"),
             "{observation:?}"
         );
         assert!(

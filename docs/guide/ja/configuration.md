@@ -63,7 +63,7 @@ platform の `commandagent` state directory に書き込み、既存 state の l
 
 ## Preset
 
-`--preset <name>` で preset を選択します。preset セクションでは、現在の 21 キーすべてを
+`--preset <name>` で preset を選択します。preset セクションでは、現在の 22 キーすべてを
 受け付けます。文字列／列挙値はダブルクォートで囲み、数値はクォートなしの整数で指定します。
 
 | Preset キー | 受け付ける値 | どの層にもない場合の実効 fallback |
@@ -89,6 +89,7 @@ platform の `commandagent` state directory に書き込み、既存 state の l
 | `stream` | `"on"` または `"off"` | REPL ではオン、それ以外はオフ |
 | `prompt_layout` | `"stable"` または `"legacy"` | トップレベル値、その後 `"legacy"` |
 | `plan_preset` | `"none"` または `"profile"` | トップレベル／計算された planner 値 |
+| `openrouter_provider` | `only`・`order`（provider slug の配列）と `allow_fallbacks`（boolean）だけを持つ 1 行の inline table。`openai-compatible` の役割が `provider` object として送る。例：`api = "chat_completions"` と `{ only = ["open-inference/fp4"], allow_fallbacks = false }`。`{}` は継承した table を解除（[プロバイダ](providers.md) を参照） | routing なし |
 
 `extends` は単一継承です。子が定義したフィールドを優先し、不足フィールドを親から継承します。
 親も 1 個の親を継承できますが、親が見つからない場合や `a -> b -> a` のような循環はエラーです。
@@ -190,11 +191,11 @@ preset のマージは、`model`、`provider`、`planner_model`、`planner_provi
 11 個の完全性フィールドをすでに持ちながら `prompt_layout` を省略している場合、探索が停止し、
 優先度の低いファイルにある同じ preset の `prompt_layout` は継承されません。`prompt_layout` を
 優先度の高い同じ preset に置くか、意図した下位層まで探索されるように完全性フィールドを残してください。
-受け付ける 21 キーと、早期停止条件の 11 キーを同じものと仮定しないでください。
+受け付ける 22 キーと、早期停止条件の 11 キーを同じものと仮定しないでください。
 
 ## トップレベルキー
 
-`config.toml` のトップレベルで有効なキーは次の 6 個だけです。
+`config.toml` のトップレベルで有効なキーは次の 8 個だけです。
 
 | キー | 受け付ける値 | 対応する CLI 上書き |
 | --- | --- | --- |
@@ -204,6 +205,8 @@ preset のマージは、`model`、`provider`、`planner_model`、`planner_provi
 | `stream` | `"on"` または `"off"` | `--stream` |
 | `prompt_layout` | `"stable"` または `"legacy"` | `--prompt-layout` |
 | `plan_preset` | `"none"` または `"profile"` | `--plan-preset` |
+| `request_pattern` | `"off"` または `"jev"`。jev は direct の `--prompt` の依頼を判定して案内を足します | `--request-pattern` |
+| `request_pattern_threshold` | `0` から `1` の数（既定 `0.8`）。jev の確信度がこれ未満なら案内を足しません | なし |
 
 ```toml
 extension_root = "extensions"
@@ -288,6 +291,13 @@ OpenAI キーと任意の `LM_STUDIO_API_TOKEN` はプロセス環境だけか�
 | `COMMANDAGENT_PACK_VERSION` | 選択済み pack の version を内部で受け渡します。手で設定せず、`--pack` または preset で指定してください。 |
 | `COMMANDAGENT_PACK_HASH` | 選択済み pack の exact-byte hash を内部で受け渡します。手で設定せず、`--pack` または preset で指定してください。 |
 | `COMMANDAGENT_UX_DEMO_FAST` / `ANVIL_UX_DEMO_FAST` | 開発・デモ用に `--ux-demo` の待機を短くします。値の真偽ではなく変数の存在を判定します。 |
+| `COMMANDAGENT_SYSTEM_GUIDANCE` | direct の `--prompt` の run で、provider へのすべての request の system prompt に共通の案内文を 1 つ足します。未設定・空文字なら何も変わりません。下を参照してください。 |
+| `COMMANDAGENT_COMPATIBLE_REASONING_EFFORT` | OpenAI 互換の transport（`openai-compatible` と `lm-studio`）を使う role に推論の強さを宣言します。未設定・空文字なら何も送りません。下を参照してください。 |
+| `COMMANDAGENT_COMPLETION_OBLIGATION_REVIEW` | 実験用です。`once` で、generic の編集 run が最初の通常の最終回答の前に依頼の義務を一度だけ見直します。未設定・空文字・`off`（既定）なら何も変わりません。下を参照してください。 |
+| `COMMANDAGENT_ADAPTER_CONFIG_ROOT` | operator root。ワークスペースの外にある絶対パスのディレクトリで、`profile-tools/<id>.json` と `run-budgets/<id>.json` を置きます。[operator root・profile tools・run budget](profile-tools.md) を参照してください。 |
+| `COMMANDAGENT_RUN_BUDGET` | ID で run budget を選びます。宣言は `<operator root>/run-budgets/<id>.json` から読みます。未設定なら off です。[run budget](profile-tools.md#run-budget) を参照してください。 |
+| `COMMANDAGENT_REQUIREMENT_PLAN` | 実験用です。`once` で、新しい generic の run が最初の実装の前に短い要求計画ノートを書きます。未設定・空文字・`off`（既定）なら何も変わりません。下を参照してください。 |
+| `COMMANDAGENT_BUDGET_CLOSING` | 実験用です。`once` で、generic の direct run の反復上限の 3 回前に締めを一度だけ案内し、失敗した確認や書込みが未解決のままの final を通常の final として終わらせません。未設定・空文字・`off`（既定）なら何も変わりません。下を参照してください。 |
 
 `COMMANDAGENT_*` 項目では現在名が優先されます。現在名がない場合だけ対応する `ANVIL_*` 名を使い、
 1 回だけ非推奨警告を出します。それでも表中の旧名は、現在サポートされている正確な綴りです。
@@ -295,6 +305,188 @@ OpenAI キーと任意の `LM_STUDIO_API_TOKEN` はプロセス環境だけか�
 `COMMANDAGENT_PACK_*` の 4 変数は例外で、直接読み込まれ、`ANVIL_*` の旧名を持ちません。これらは
 選択済み pack の内部受け渡しであり、利用者向け設定ではありません。pack の選択には `--pack` または
 preset を使ってください。
+
+`COMMANDAGENT_SYSTEM_GUIDANCE` は、共通の指示文を比べるための opt-in です。direct の `--prompt` の run の
+開始時に、プロセス環境だけから 1 回読みます。`ANVIL_*` の旧名はなく、設定ファイルや `.env` からは読みません。
+plan の入口、TUI、`--model-probe` はこの変数を使いません。設定すると、その run の provider へのすべての
+request（各 turn、tool 呼び出し後の turn、空応答の fresh retry、native と XML の tool protocol）の
+「Request guidance」block に文を 1 回ずつ載せます。`--request-pattern jev` が pattern を採用したときは、
+その pattern の案内の後に「Common guidance:」の行に続けて載せます。元の依頼、profile の案内、session の履歴、
+`request_pattern_resolved` event、jev を呼ぶ条件は変わりません。値は UTF-8 で 8 KiB（8192 bytes）以下、
+空白だけでないことが必要です。満たさないときは、値を含めず変数名と理由だけを示すエラーで run が失敗します。
+この文は通常の案内であり、tool の権限を与えたり外したりせず、検証・completion・acceptance・予算の規則も
+変えません。run の secret scrub は適用されますが、値に秘密を入れないでください。
+
+`COMMANDAGENT_COMPLETION_OBLIGATION_REVIEW` は、完了前の一度の見直しを測るための実験用 opt-in です。
+既定は off で、網羅性や検証の gate ではありません。minimal loop の run の開始時に、プロセス環境だけから
+1 回読みます（`ANVIL_*` の旧名・設定ファイル・`.env`・CLI flag はありません）。run の途中で変えても効きません。
+
+- 値：未設定・空文字・空白だけ・`off` なら無効で、変数がないときとまったく同じ run になります。provider への
+  request とその順序、event、停止理由、assurance は変わらず、新しい event も出ません。`once`（前後の空白を除き、
+  小文字）で有効になります。それ以外の値（`ONCE` や UTF-8 でない byte 列を含む）は、最初の request の前に、
+  変数名は示し値は示さない固定のエラーで run が失敗します。
+- 対象：effective profile が `generic` で、completion contract がなく、Write か Edit が成功した、plan の step ではない
+  minimal loop の run です。既存のチェック（必要な path、action prompt の確認、相対 import）をすべて通った
+  最初の通常の assistant final だけを、残りの loop iteration が 3 以上のときに対象にします。plan の step
+  （`PlanRunStep`）、completion contract 付きの run、read-only の run、自動の post-write read 完了、自動の
+  required-artifact 完了、予算切れは延期しません。wall-clock の上限、cancel、既存の失敗が優先されます。
+- 動作：その final を一度だけ延期し、固定の依頼を 1 回渡します。元の依頼に明記された義務を最大 5 項目で整理し、
+  確認済みのものと対応づけ、未確認の重要な境界・異常系・出力形式を 1〜2 件選び、実装ではなく依頼から期待結果を
+  導いて、許可済みの tool で実行し、矛盾を観測した場合だけ直すよう求めます。次の通常の final は既存のチェックを
+  もう一度通り、その新しい回答で run が終わります。延期した回答は返しません。model が見直しについて何を言っても
+  （「網羅した」など）、解除の条件にも阻止の条件にもなりません。二回目の依頼、iteration の追加、既存 counter の
+  reset はしません。
+- host の観測：依頼の後に成功した Write/Edit と、代替されていない Bash の結果を、tool の status ではなく既存の
+  実行進捗の分類で数え、最後に成功した編集より古い Bash の成功は失効させます。非 zero の終了、tool error、
+  policy の拒否は成功に数えず、新しい blocker にもしません。成功したコマンドは実行されたことしか示しません。
+  `echo` や無関係なコマンド、誤った自作の確認のこともあり、負例の試験は非 zero が正しいこともあります。model の
+  自己申告も証拠ではありません。
+- event：run は `completion_obligation_review` を記録します。`phase` は `triggered`、`closed`（`reason` は
+  `next_final`、別の経路で run が終わったときは `scope_exit_before_next_final`）、`skipped`（固定の理由）で、
+  `iteration`、`remaining_iterations`、`prompt_version`、`successful_bash_since_latest_edit` などの数値を
+  持ちます。prompt、コマンド、model の文、tool の出力、秘密値は写さず、網羅や検証の合格を示す field もありません。
+  既存の event、停止理由、summary の `assurance_level=reduced`、acceptance と release の gate は変わりません。
+- 費用：見直しで provider の呼び出しは通常 1〜3 回増えますが、保証はありません。model が残りの iteration を
+  既存の上限まで使うこともあります。見直しで正答率が上がるかは測定されていません。
+
+`COMMANDAGENT_REQUIREMENT_PLAN` は、実装の前に依頼の義務と小さい確認例の期待結果を model に書かせる実験用 opt-in です。
+既定は off です。ノートは model 自身の未検証のメモで、host は形と大きさだけを確かめ、正しさや網羅性は保証しません。
+網羅性・検証・受入の gate でもありません。minimal loop の run の開始時に、プロセス環境だけから 1 回読みます
+（`ANVIL_*` の旧名・設定ファイル・`.env`・CLI flag はありません）。run の途中で変えても効きません。
+
+- 値：未設定・空文字・空白だけ・`off` なら無効で、変数がないときとまったく同じ run になります。provider への
+  request とその順序、event、停止理由、assurance は変わらず、新しい event も出ません。`once`（前後の空白を除き、
+  小文字）で有効になります。それ以外の値（`ONCE` や UTF-8 でない byte 列を含む）は、最初の request の前に、
+  変数名は示し値は示さない固定のエラーで run が失敗します。
+- 併用不可：`COMMANDAGENT_COMPLETION_OBLIGATION_REVIEW=once` と同時に `once` にすると、最初の request の前に、
+  2 つの変数名だけを示すエラーで run が失敗します。この変数が off なら、完了前の見直しは従来どおり動きます。
+- 対象：effective profile が `generic` で、completion contract がなく、以前の会話の続きではない、plan の step
+  ではない新しい minimal loop の run のうち、最初の request の後に loop iteration が 4 以上残るものです。plan の
+  step（`PlanRunStep`）、他の profile、completion contract 付きの run、resume や後続の turn、host より前に XML の
+  tool call を解析する provider の client（Ollama）の run、予算の足りない run は skip します。run の途中から有効になることはありません。
+- request：最初の request にだけ固定の案内を 1 つ付けます。最初の返答の冒頭に `<requirement_plan>` の JSON block を
+  書き、依頼に明記された義務を最大 5 件（`id`・`stated_requirement`・`expected_behavior`・`assumption`）、確認例を
+  最大 2 件（`obligation_id`・`input_outline`・`expected_outcome`・`reason_from_request`）挙げ、期待結果は実装より
+  先に依頼から決め、曖昧な点は仮定として書くよう求めます。返答はそのまま通常の作業や tool 呼び出しに進めます。
+- 上限：block は UTF-8 で 8 KiB まで、正規化後のノートは 2048 文字まで、義務は 1〜5 件、例は 0〜2 件です。受け付ける
+  field はこれだけで、id は重複できず、例は存在する義務を指す必要があります。block がない、返答の冒頭にない、
+  JSON が壊れている・途中で切れている、未知の field、重複した id、存在しない参照、上限超過のどれでもノート全体を
+  捨てます（切り詰めて残しません）。run はノートなしで続き、ノートを求め直すことはありません。
+- 扱い：host は XML の tool call を取り出す前、tool を実行する前に、最初の返答から block を取り除きます。block の
+  中と、閉じていない block より後ろは tool call として読みません。最初の返答に 2 つ目・入れ子・閉じていない block が
+  あってもノートは不正になります。host が返答を見る前に provider の client が自分で返答の XML tool call を解析する
+  場合（現状は Ollama の client だけ）は発火せず、`reason` が `provider_unsupported` の `skipped` になり、案内も
+  送らず変数が off のときとまったく同じ run になります。これは制限で、Ollama は native の tool call を使う run も
+  含めて全体が対象外です。LM Studio、OpenRouter などの OpenAI 互換 endpoint、OpenAI、Gemini は対象外になりません。残したノートは run の secret scrub を通り、その
+  run のメモリにだけあり、session・ファイル・runtime namespace には書きません。resume や後続の turn で戻ることも
+  ありません。run の後続の request には毎回ちょうど 1 つ、元の依頼の直後に、model 自身の未検証のメモであり元の
+  依頼と後続のユーザー訂正が優先するという固定の見出しを付けた assistant 側の文脈として入れます。system prompt に
+  つなげることはなく、依頼・tool の結果・pending feedback を置き換えません。履歴の compaction と空応答の fresh
+  retry でも残り、retry は増えません。後続のユーザー入力があるとノートは古いものとして送らなくなり、計画し直しも
+  しません。
+- 計画だけの turn：最初の返答が正しい block だけ（tool call も他の文もない）なら、その返答は既存の iteration と
+  provider 呼び出しの 1 回として数え、run は先へ進みます。iteration を足したり戻したりせず、既存の counter も
+  リセットしません。失敗・timeout・cancel・予算切れはそのままです。
+- event：run は `requirement_plan` を記録します。`phase` は `requested`・`captured`・`skipped`・`released`、`reason`
+  は固定の語で、`prompt_version`・`iteration`・`remaining_iterations`・`obligation_count`・`example_count`・
+  `note_chars`・`plan_only_turn` を持ちます。`captured` は形が正しかったという意味で、内容が正しいという意味では
+  ありません。ノート・依頼・例の値・tool の出力・秘密・未知の key 名・parser のメッセージは写しません。既存の
+  event、停止理由、assurance、受入と release の gate は変わらず、自作の例の成功や model の「全部確認した」で何も
+  上がりません。ノートが正答を増やすかどうかは未測定です。
+
+`COMMANDAGENT_BUDGET_CLOSING` は、generic の direct run の反復予算の末尾に向けた実験用 opt-in です。
+既定は off で、検証・受入・成功の gate ではありません。minimal loop の run の開始時に、プロセス環境だけから
+1 回読みます（`ANVIL_*` の旧名・設定ファイル・`.env`・CLI flag はありません）。run の途中で変えても効きません。
+
+- 値：未設定・空文字・空白だけ・`off` なら無効で、変数がないときとまったく同じ run になります。provider への
+  request とその順序、event、停止理由は変わらず、新しい状態も event も出ません。`once`（前後の空白を除き、
+  小文字）で有効になります。それ以外の値（`ONCE` や UTF-8 でない byte 列を含む）は、最初の request の前に、
+  変数名は示し値は示さない固定のエラーで run が失敗します。
+- 対象：step kind・phase scope・recovery の義務のない minimal loop の run で、effective profile が `generic`、
+  completion contract がないもの。plan の step（`PlanRunStep`）・recovery・final acceptance の repair・ほかの
+  profile・completion contract のある run は状態を持たず、何も出しません。effort・model・provider・依頼の
+  言葉では変わりません。
+- 案内：残りの呼出しが現在の回を含めて 3 回になったとき、実際に送る request に固定の案内（prompt version 1）を
+  一度だけ付けます。要旨は「残りは 3 回。新しい改善や作り直しは始めない。必要な変更が残っていれば最小限で行い、
+  確認を 1 回実行する。確認が成功したら tool を呼ばずに、変えた file・実行した確認・その結果を報告して終える。
+  失敗した、または実行できなかったときは成功と書かず、残っている問題を報告する」です。その request の既存の
+  feedback は残り、案内はその後ろに付きます。空応答の後の fresh-session retry では案内だけが feedback になり、
+  retry は従来どおり過去の履歴を送りません。案内は、送った request に含まれ、その request が client に渡された
+  ときだけ記録されます（渡した後に中断されても記録され、client を呼ぶ前の cancel では記録されません）。
+  run に 1 回までで、
+  反復の上限が 3 以下なら出ません。tool と権限は変わりません。cancel の挙動は、その request についてだけ 1 点
+  変わります。provider の呼出しが中断で先に返った後に worker が client に届いても、その request を遅れて送りません。
+- 台帳：host は run の開始から、未解決の失敗を memory に保持します。実行された（policy で拒否・置換されて
+  いない）Bash で、既存の execution-progress の分類が成功でないとしたものは、同じ command が後で成功したときだけ
+  解除されます。recoverable error または拒否になった Write/Edit は、それに対応する後の成功だけで解除されます。
+  対応とは、同じ Edit（path・`old_string`・`new_string`・`replace_all`）、同じ Write（path と内容）、または失敗した
+  Edit の `new_string` を含み `old_string` を含まなくなった内容の、同じ path への Write です（`new_string` が
+  `old_string` を含む Edit は Write では解除されません）。path は tools の正規化の後に成分から組み直して比べるので、
+  `a//b`・`a/./b`・`a/b` は同じ対象です。`..` は解決しません。tool の層が実行前に拒否した Bash（engine 専用や
+  秘密の path、引数の欠落、path の confinement、保護された path。error の型か、message の先頭の host 自身の語で
+  判定します）は失敗ではなく拒否として数えます。timeout など、実行された可能性のある command の error は、command や
+  出力に何が書かれていても失敗のままです。無関係な command・別の path への書込み・同じ file の別の
+  Edit・Read・後に書込みがあることだけ・model の発言（「直した」「未完了」を含む）では何も解除されません。
+  特定できない失敗は未解決のままです。policy で拒否された Bash は失敗にも成功にも数えず、件数だけを残します。
+- guard：案内の後、既存の確認（required path・action prompt の確認・相対 import・完了前の見直し）をすべて
+  通った通常の final でも、失敗が 1 件でも残っていれば、何回目の final でも返しません。回答を取り除き、
+  「失敗を直して同じ確認を通すか、未完了として報告する」固定の feedback を渡し、既存の予算の中で loop を
+  続けます。呼出し・反復・時間・retry は増えません。予算が尽きれば既存の予算切れの経路で run は失敗し、
+  reason は既存の優先順で決まります。書込み後の Read による自動完了も、案内の後は同じ規則に従います。失敗が
+  残っている間は run を終えず、tool の結果は残したまま、同じ feedback を次の request に渡し、既存の予算の中で
+  loop を続けます。案内の前の final、案内の前や失敗が残っていないときのその自動完了、その他の既存の停止は
+  従来どおりです。
+- event：run は `budget_closing` を記録します。`phase` は `notice`・`final_deferred`・`final_accepted`・
+  `exhausted_after_notice`、`guard_reason` は固定の語で、`prompt_version`・`iteration`・`iteration_limit`・
+  `remaining_calls`・`unresolved_bash_failures`・`unresolved_write_failures`・`resolved_failures`・
+  `policy_rejected_bash`・`final_deferrals` を持ちます。provider error・timeout・max length・cancel など
+  ほかの失敗では `final_accepted` も `exhausted_after_notice` も出ません。command・path・内容・model の文・
+  tool の出力・秘密は写しません。
+- 意味と費用：`final_accepted` は台帳に失敗が残っていなかったという意味だけです。成功した command は正常に
+  終わったことしか示さず、guard は作業が正しいことの証拠ではありません。差し戻しで、変数が off のときより
+  既存の予算を多く使うことがあります。案内が正答を増やすかどうかは未測定です。
+
+`COMMANDAGENT_COMPATIBLE_REASONING_EFFORT` は、OpenAI 互換 server に推論の強さを指定する宣言です。
+provider の client を作るときにプロセス環境だけから読みます（`ANVIL_*` の旧名はなく、設定ファイルや
+`.env` からは読みません）。その client の clone・worker・通信の再試行は同じ値を送ります。CLI flag はありません。
+
+- 適用範囲：provider が OpenAI 互換の transport に解決される role、つまり汎用の `openai-compatible` と
+  `lm-studio` のすべてで、executor・planner・classifier を区別しません。Ollama native・OpenAI・Gemini の
+  role には送らず、この値がそれらの role の起動を止めることもありません。
+- 値：前後の空白を除いた上で `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max` のいずれか
+  （小文字）。大文字小文字や別名は変換しません。未設定・空文字・空白だけなら field を送らず、変数がない
+  ときと同じ request になります。それ以外の値（`LOW`、`true`、未知の語、UTF-8 でない byte 列）は、最初の
+  request の前に、変数名と許容語を示し値は示さないエラーで失敗します。
+- wire：Chat Completions（`--api chat-completions`）は最上位に `"reasoning_effort": "<値>"` を、
+  Responses（`--api responses`）は `"reasoning": {"effort": "<値>"}` を足します。request のほかの部分は
+  変わりません。`max_tokens` と `max_output_tokens` はそのままで、OpenAI 専用の field や Ollama の
+  `think` は足しません。
+- 対応しない値：CommandAgent が確かめるのは自分の語彙だけです。model がどの値に対応するかを server に
+  問い合わせず、model 名や host 名で特別扱いもしません。server が値を拒んだとき（たとえば model が
+  持たない語への HTTP 400）は、通常の再試行しない provider エラーとして turn が失敗します。field を
+  外したり、別の強さ・別の API・`think` に置き換えたりして送り直すことはしません。
+- ほかの設定との関係：`--think` は今までどおり Ollama native の role だけに効き、
+  `COMMANDAGENT_OPENAI_REASONING_EFFORT` は `openai` provider だけに効きます。どちらもこの変数へ
+  fallback せず、この変数もそれらへ fallback しません。
+- 証跡：`--doctor` は `config.compatible_reasoning_effort` に role ごとの `declared`・`omitted`・
+  `not_applicable`・`invalid` を示し（互換 role が使う値が不正ならこの check は失敗します）、headless
+  summary は同じ宣言を `model_metadata.compatible_reasoning_effort` に記録します。どちらも CommandAgent が
+  送る内容であり、server が適用したことではありません（`server_support_verified` は `false` のまま）。
+  値を送ったときは `provider_request` event に `requested_reasoning_effort`・`reasoning_effort_source`
+  （`env`）・`provider_role` が加わります。
+
+たとえば executor が OpenAI 互換、planner が Ollama native の場合：
+
+```bash
+COMMANDAGENT_COMPATIBLE_REASONING_EFFORT=low commandagent \
+  --provider openai-compatible --base-url http://127.0.0.1:11434/v1 \
+  --model glm-5.3-flash:cloud \
+  --planner-provider ollama --planner-model <planner-model> \
+  --prompt '<依頼>'
+```
+
+executor は `reasoning_effort: "low"` を送ります。Ollama の planner は自分の `--think` の設定のままで、
+effort の field を受け取りません。planner も `--planner-provider openai-compatible` なら、同じ `low` を送ります。
 
 ## 実効設定の確認
 

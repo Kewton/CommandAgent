@@ -520,6 +520,7 @@ fn run_with_ui(
     config: &Config,
     ui: &dyn InteractionUi,
 ) -> anyhow::Result<String> {
+    crate::tools::profile_tools::refuse_for_client(config, &*execution)?;
     if config.recovery_plan_auto_runs == 0 {
         return execute_initial(initial, planner, execution, config, ui);
     }
@@ -599,10 +600,12 @@ fn drive(
     let mut controller = AutoRecoveryController::new(config.recovery_plan_auto_runs);
     loop {
         let error = outcome.result.expect_err("failed result checked above");
+        let refused = crate::structured_budget::command::refused(config).is_some();
         let candidate = match outcome
             .failure
             .expect("failed attempt always has a typed failure")
         {
+            AttemptFailure::Recoverable(candidate) if !refused => *candidate,
             AttemptFailure::Interrupted => {
                 emit(
                     config,
@@ -612,7 +615,7 @@ fn drive(
                 );
                 return Err(error);
             }
-            AttemptFailure::NonRecoverable => {
+            AttemptFailure::NonRecoverable | AttemptFailure::Recoverable(_) => {
                 emit(
                     config,
                     "recovery_plan_auto_run_stopped",
@@ -630,7 +633,6 @@ fn drive(
                 );
                 return Err(error);
             }
-            AttemptFailure::Recoverable(candidate) => *candidate,
         };
         let Some(used) = controller.next_run() else {
             emit(

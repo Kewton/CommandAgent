@@ -1,0 +1,6112 @@
+//! Issue #975 (G4): stages declared over propose-artifacts tools, through a real admission.
+//!
+//! What is decided around a call, on every OS, is in the unit tests of
+//! `src/tools/profile_tools/effects.rs` and `src/planner/structured_stages/`. Here is the path
+//! from a profile's manifest to an admitted set and, where the strict isolation exists, from a
+//! provider's raw reply to a commit. The process is a fixed script for `/bin/bash`, written and
+//! pinned here. It takes no shell text from a model and cannot fork, so it uses builtins only.
+//! No model, key, external provider, or Jev call is used, and the only provider is a fake on
+//! 127.0.0.1.
+
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard, OnceLock};
+
+use commandagent::tools::profile_tools::{admit_selected, directory_pin};
+use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
+
+const REGISTRY_ENV: &str = "COMMANDAGENT_ADAPTER_CONFIG_ROOT";
+const WALK_PROFILE: &str = "stage-walk";
+const NO_FLOOR_PROFILE: &str = "stage-no-floor";
+const UNKNOWN_TOOL_PROFILE: &str = "stage-unknown-tool";
+const NO_ARGUMENT_PROFILE: &str = "stage-no-argument";
+#[cfg(target_os = "macos")]
+const MARKER_NAME_PROFILE: &str = "stage-marker-name";
+#[cfg(target_os = "macos")]
+const ENTRY_PROFILE: &str = "stage-entry";
+const UPPER_TOOL_ID: &str = "stage-upper-tool";
+const LOWER_TOOL_ID: &str = "stage-lower-tool";
+const BARE_TOOL_ID: &str = "stage-bare-tool";
+const UPPER_TOOL: &str = "ProposeUpper";
+const LOWER_TOOL: &str = "ProposeLower";
+const UPPER_OUTPUT: &str = "out/upper.json";
+const LOWER_OUTPUT: &str = "out/lower.json";
+const FIXED_INPUT: &str = "fixed/seed.json";
+const CANDIDATE: &[u8] = b"{\"stage\":\"candidate\"}\n";
+
+static LOCK: Mutex<()> = Mutex::new(());
+
+fn lock() -> MutexGuard<'static, ()> {
+    LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn sha256(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+fn encode_base64(bytes: &[u8]) -> String {
+    const SYMBOLS: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut text = String::new();
+    for chunk in bytes.chunks(3) {
+        let word = (u32::from(chunk[0]) << 16)
+            | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8)
+            | u32::from(*chunk.get(2).unwrap_or(&0));
+        for index in 0..4 {
+            if index <= chunk.len() {
+                text.push(SYMBOLS[(word >> (18 - 6 * index) & 63) as usize] as char);
+            } else {
+                text.push('=');
+            }
+        }
+    }
+    text
+}
+
+fn manifest(profile: &str, tools: &[&str], stages: &[(&str, &str)]) -> String {
+    let declared = tools
+        .iter()
+        .map(|id| format!("  {{ id = \"{id}\", effect = \"propose-artifacts\" }},\n"))
+        .collect::<String>();
+    let staged = stages
+        .iter()
+        .map(|(stage, tool)| {
+            format!(
+                "  {{ id = \"{stage}\", targets = [{{ id = \"main\", tool_id = \"{tool}\" }}] }},\n"
+            )
+        })
+        .collect::<String>();
+    format!(
+        "[metadata]\nid = \"{profile}\"\ndisplay_name = \"Stage {profile}\"\nschema_version = \"v2\"\ntask_family = \"generic\"\n[plan]\nintent = \"create\"\nphases = [\n  {{ id = \"implementation\", prompt = \"Write the notes for {{goal}}.\" }},\n]\n[artifacts]\nrequired = [\"notes.txt\"]\n[guidance.variants.contract]\ntriggers = [{{ condition = \"always\" }}]\nmessages = {{ instruction = \"Write notes.txt.\" }}\n[[checks.final]]\nid = \"scaffold_files_present\"\nparams = {{ files = [\"notes.txt\"] }}\n[profile_tools]\nschema_version = \"profile-tool.declaration/v2\"\nbuiltin_tools = [\"Read\"]\ntools = [\n{declared}]\n[profile_tools.stages]\nstages = [\n{staged}]\n"
+    )
+}
+
+fn extension() {
+    // Each time: the off control registers a root of its own, as the base it was recorded on has
+    // to be able to read it.
+    commandagent::planner::extension_profiles::register(extension_root()).unwrap();
+}
+
+fn extension_root() -> &'static Path {
+    static ROOT: OnceLock<PathBuf> = OnceLock::new();
+    ROOT.get_or_init(|| {
+        let root = std::fs::canonicalize(tempfile::tempdir().unwrap().keep()).unwrap();
+        let both = [UPPER_TOOL_ID, LOWER_TOOL_ID];
+        let walk = [("upper", UPPER_TOOL_ID), ("lower", LOWER_TOOL_ID)];
+        #[cfg(target_os = "macos")]
+        {
+            // The history replaces a whole token holding a word like this one, so a commit's
+            // answer naming the stage below it has to fall to its fixed form.
+            let marked = [("upper", UPPER_TOOL_ID), ("api_key_stage", LOWER_TOOL_ID)];
+            let directory = root.join(format!("profiles/{MARKER_NAME_PROFILE}"));
+            std::fs::create_dir_all(&directory).unwrap();
+            std::fs::write(
+                directory.join("manifest.toml"),
+                manifest(MARKER_NAME_PROFILE, &both, &marked),
+            )
+            .unwrap();
+            // A preset an entry can run as it is: an ultra plan needs two phases.
+            let directory = root.join(format!("profiles/{ENTRY_PROFILE}"));
+            std::fs::create_dir_all(&directory).unwrap();
+            std::fs::write(
+                directory.join("manifest.toml"),
+                manifest(ENTRY_PROFILE, &both, &walk).replace(
+                    "phases = [\n  { id = \"implementation\", prompt = \"Write the notes for {goal}.\" },\n]",
+                    "phases = [\n  { id = \"first\", prompt = \"Phase-first: submit the upper stage for {goal}.\" },\n  { id = \"second\", prompt = \"Phase-second: submit the lower stage for {goal}.\" },\n]",
+                ),
+            )
+            .unwrap();
+        }
+        for (profile, text) in [
+            (WALK_PROFILE, manifest(WALK_PROFILE, &both, &walk)),
+            (NO_FLOOR_PROFILE, manifest(NO_FLOOR_PROFILE, &both, &walk)),
+            (
+                UNKNOWN_TOOL_PROFILE,
+                manifest(
+                    UNKNOWN_TOOL_PROFILE,
+                    &[UPPER_TOOL_ID],
+                    &[("upper", "stage-never-declared")],
+                ),
+            ),
+            (
+                NO_ARGUMENT_PROFILE,
+                manifest(
+                    NO_ARGUMENT_PROFILE,
+                    &[BARE_TOOL_ID],
+                    &[("bare", BARE_TOOL_ID)],
+                ),
+            ),
+        ] {
+            let directory = root.join(format!("profiles/{profile}"));
+            std::fs::create_dir_all(&directory).unwrap();
+            std::fs::write(directory.join("manifest.toml"), text).unwrap();
+        }
+        commandagent::planner::extension_profiles::register(&root).unwrap();
+        root
+    })
+}
+
+/// Passes unless the arguments ask it not to. Bash has no digest or base64 builtin, so both are
+/// computed here and written into the fixed script.
+fn tool_script() -> String {
+    format!(
+        r#"IFS= read -r request
+take() {{ local pattern="\"$1\":\"([^\"]+)\""; [[ $request =~ $pattern ]] && printf -v "$2" '%s' "${{BASH_REMATCH[1]}}"; }}
+take request_id rid; take tool_id tid; take runtime_sha256 run; take input_revision rev; take schema_sha256 sch
+status=passed; said='[]'
+if [[ $request == *'"mode":"bad"'* ]]; then status=failed; said='[{{"code":"shape","message":"the shape is off"}}]'; fi
+printf '%s' "{{\"protocol\":\"profile-tool.result/v1\",\"request_id\":\"$rid\",\"tool_id\":\"$tid\",\"runtime_sha256\":\"$run\",\"input_revision\":\"$rev\",\"schema_sha256\":\"$sch\",\"checks\":[{{\"id\":\"shape\",\"status\":\"$status\"}}],\"outputs\":[{{\"id\":\"artifact\",\"sha256\":\"{digest}\",\"bytes_base64\":\"{encoded}\"}}],\"diagnostics\":$said}}"
+"#,
+        digest = sha256(CANDIDATE),
+        encoded = encode_base64(CANDIDATE),
+    )
+}
+
+fn stage_schema(inputs: &[&str]) -> Value {
+    json!({
+        "protocol": "profile-tool.schema/v1",
+        "root": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["mode", "expected_revision"],
+            "properties": {
+                "mode": {"type": "string", "enum": ["good", "bad"]},
+                "expected_revision": {"type": "string"},
+            },
+        },
+        "inputs": inputs,
+    })
+}
+
+struct Env {
+    _workspace: tempfile::TempDir,
+    _evidence: tempfile::TempDir,
+    _operator: tempfile::TempDir,
+    root: PathBuf,
+    evidence: PathBuf,
+    registry: PathBuf,
+    tools: PathBuf,
+}
+
+impl Env {
+    /// Sets the registry variable; the caller holds `LOCK`.
+    fn new() -> Self {
+        extension();
+        let workspace = tempfile::tempdir().unwrap();
+        let evidence = tempfile::tempdir().unwrap();
+        let operator = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(workspace.path()).unwrap();
+        let evidence_path = std::fs::canonicalize(evidence.path()).unwrap();
+        let base = std::fs::canonicalize(operator.path()).unwrap();
+        let (registry, tools) = (base.join("registry"), base.join("tools"));
+        std::fs::create_dir_all(registry.join("profile-tools")).unwrap();
+        std::fs::create_dir_all(&tools).unwrap();
+        std::fs::create_dir_all(root.join("fixed")).unwrap();
+        std::fs::write(root.join(FIXED_INPUT), b"a fixed seed").unwrap();
+        // SAFETY: every env mutation in this binary holds `LOCK`.
+        unsafe { std::env::set_var(REGISTRY_ENV, &registry) };
+        Self {
+            _workspace: workspace,
+            _evidence: evidence,
+            _operator: operator,
+            root,
+            evidence: evidence_path,
+            registry,
+            tools,
+        }
+    }
+
+    /// A later process over what an earlier one set up. The registry variable is already set.
+    #[cfg(target_os = "macos")]
+    fn over(root: PathBuf, evidence: PathBuf) -> Self {
+        extension();
+        let unused = || tempfile::tempdir().unwrap();
+        Self {
+            _workspace: unused(),
+            _evidence: unused(),
+            _operator: unused(),
+            root,
+            evidence,
+            registry: PathBuf::new(),
+            tools: PathBuf::new(),
+        }
+    }
+
+    fn write_tool(&self, tool: (&str, &str, &str), schema: &Value, stage: Option<Value>) {
+        let (tool_id, name, output) = tool;
+        let directory = self.tools.join(tool_id);
+        std::fs::create_dir_all(&directory).unwrap();
+        let script = directory.join("tool.sh");
+        std::fs::write(&script, tool_script()).unwrap();
+        let shell = std::fs::canonicalize(if cfg!(target_os = "macos") {
+            "/bin/bash"
+        } else {
+            "/bin/sh"
+        })
+        .unwrap();
+        let mut descriptor = json!({
+            "protocol": "profile-tool.descriptor/v1",
+            "tool_id": tool_id,
+            "name": name,
+            "version": "1.0.0",
+            "description": "Propose one artifact for a synthetic fixture.",
+            "effect": "propose-artifacts",
+            "parameters": [],
+            "schema_sha256": sha256(serde_json::to_string(schema).unwrap().as_bytes()),
+            "schema": schema,
+            "runtime": {"kind": "pinned_process", "id": "fixed-script"},
+            "limits": {"max_input_bytes": 1 << 20, "max_output_bytes": 64 * 1024},
+            "process": {
+                "protocol": "profile-tool.process/v1",
+                "executable": {
+                    "path": shell,
+                    "sha256": sha256(&std::fs::read(&shell).unwrap()),
+                },
+                "dependency_directories": [{
+                    "path": directory,
+                    "sha256": directory_pin(&directory).unwrap(),
+                }],
+                "argv": [script],
+                "cwd": directory,
+                "env": {"TOOL_MODE": "fixture"},
+                "limits": {"timeout_ms": 10_000, "max_result_bytes": 64 * 1024},
+                "outputs": [{"id": "artifact", "path": output}],
+            },
+        });
+        if let Some(stage) = stage {
+            descriptor["stage"] = stage;
+        }
+        std::fs::write(
+            self.registry.join(format!("profile-tools/{tool_id}.json")),
+            descriptor.to_string(),
+        )
+        .unwrap();
+    }
+
+    /// The upper stage's output is an input of the lower one. It is not there yet: admission
+    /// must not need it.
+    fn write_walk_tools(&self, floor: Option<Value>) {
+        self.write_tool(
+            (UPPER_TOOL_ID, UPPER_TOOL, UPPER_OUTPUT),
+            &stage_schema(&[FIXED_INPUT]),
+            floor.clone(),
+        );
+        self.write_tool(
+            (LOWER_TOOL_ID, LOWER_TOOL, LOWER_OUTPUT),
+            &stage_schema(&[UPPER_OUTPUT, FIXED_INPUT]),
+            floor,
+        );
+    }
+
+    fn admission_error(&self, profile: &str) -> String {
+        admit_selected(&self.root, profile, None)
+            .err()
+            .map(|refusal| refusal.to_string())
+            .unwrap_or_else(|| panic!("{profile} was admitted"))
+    }
+
+    fn workspace(&self) -> &Path {
+        &self.root
+    }
+}
+
+fn floor() -> Value {
+    json!({
+        "required_checks": ["shape"],
+        "attempts_per_target": 4,
+        "attempts_per_run": 16,
+        "deadline_seconds": 600,
+    })
+}
+
+#[test]
+fn a_stage_over_a_tool_nobody_declared_is_refused_at_admission() {
+    let _guard = lock();
+    let env = Env::new();
+    env.write_walk_tools(Some(floor()));
+    let error = env.admission_error(UNKNOWN_TOOL_PROFILE);
+    assert!(
+        error.starts_with("profile_tool_refused: stage_contract_refused:"),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_stage_tool_without_its_operators_floor_is_refused_at_admission() {
+    let _guard = lock();
+    let env = Env::new();
+    env.write_walk_tools(None);
+    let error = env.admission_error(NO_FLOOR_PROFILE);
+    assert!(
+        error.starts_with("profile_tool_refused: stage_contract_refused:"),
+        "{error}"
+    );
+    assert!(error.contains("floor"), "{error}");
+}
+
+/// The off control: runs with no stage declaration, through the public session and plan entries,
+/// against what the base commit's production code did with the same replies. It runs on every OS.
+mod off_control {
+    use std::collections::{BTreeMap, VecDeque};
+    use std::io::{Read as _, Write as _};
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex, OnceLock};
+    use std::time::{Duration, Instant};
+
+    use commandagent::config::{
+        Action, Config, ConfigFieldSources, NarrationMode, OllamaThink, OpenAiApi, PlanPreset,
+        PromptLayout, Provider, ToolProtocol,
+    };
+    use commandagent::minimal_loop::loop_run::run_session_with_outcome_with_ui;
+    use commandagent::planner::adjudication::contract::IntentId;
+    use commandagent::planner::runner::{run_step_plan, run_ultra_plan};
+    use commandagent::planner::step_plan::{PlanStep, StepPlan};
+    use commandagent::planner::ultra_plan::{UltraPhase, UltraPlan};
+    use commandagent::providers::profile_tool_schema::ProfileToolSchemaWire;
+    use commandagent::providers::streaming::CancelToken;
+    use commandagent::providers::{
+        AssistantReply, ChatClient, ProviderResponseMetadata, ResponseTiming, client_from_config,
+    };
+    use commandagent::sensitive_data::{SecretCatalog, install_scope};
+    use commandagent::state::{ConversationMessage, SessionSnapshot};
+    use commandagent::tools::profile_tools::{
+        ProfileToolReadExecutor, ReadToolOutput, register_read_executor,
+    };
+    use commandagent::tools::registry::ToolSpec;
+    use commandagent::tui::NOOP_UI;
+    use serde_json::{Value, json};
+
+    use super::{REGISTRY_ENV, lock, sha256};
+
+    const OFF_GOLDEN: &str =
+        include_str!("corpus/apps/structured-stage-receipts/fixtures/off-golden.json");
+    const CASES: &str = include_str!("corpus/apps/structured-stage-receipts/fixtures/cases.json");
+    const MANIFEST: &str =
+        include_str!("corpus/apps/structured-stage-receipts/source-manifest.json");
+    const BASE_SHA: &str = "d2360125210564351f30e42bbc1a9f5e51f2b3cc";
+    /// Issue #1004: the attempts replay was recorded on this commit, apart from the off control.
+    const ATTEMPTS_REPLAY_GOLDEN: &str =
+        include_str!("corpus/apps/structured-stage-receipts/fixtures/attempts-replay-golden.json");
+    const ATTEMPTS_REPLAY_BASE_SHA: &str = "028d63d196355f6ba68d64f2a47861f1260b2971";
+    const DUMMY_SECRET: &str = "fake-dummy-credential-975-not-a-real-key";
+    const FLAT_PROFILE: &str = "stage-off-flat";
+    const FLAT_TOOL: &str = "stage-off-flat-read";
+    const FLAT_RUNTIME: &str = "stage-off-flat-runtime";
+    const FLAT_PARAMETERS: &str = r#"[{"name":"path","kind":"workspace_path","required":true,"description":"Workspace-relative file."}]"#;
+    /// Next to the secret: the words this feature made fixed, as text a run can carry.
+    const RESERVED_WORDS_PROMPT: &str = "Check fake-dummy-credential-975-not-a-real-key next to stage_incomplete structured_stage_incomplete structured_stage_refused structured_stage_unmet.";
+
+    fn set_env(name: &str, value: Option<&str>) {
+        // SAFETY: every env mutation in this binary holds `LOCK`.
+        unsafe {
+            match value {
+                Some(value) => std::env::set_var(name, value),
+                None => std::env::remove_var(name),
+            }
+        }
+    }
+
+    /// One list of requests and the replies they get, in the order they came.
+    #[derive(Default)]
+    struct Lane {
+        requests: Mutex<Vec<String>>,
+        replies: Mutex<VecDeque<String>>,
+    }
+
+    struct FakeHttp {
+        url: String,
+        main: Arc<Lane>,
+        plans: Arc<Lane>,
+        stop: Arc<AtomicBool>,
+        thread: Option<std::thread::JoinHandle<()>>,
+    }
+
+    struct Heard {
+        requests: Vec<String>,
+        plan_requests: Vec<String>,
+        unused: usize,
+    }
+
+    impl FakeHttp {
+        /// `plans`, when there are any, answer the requests that offer no tool, whichever thread
+        /// sends them. With one queue, a plan's request could get a reply meant for a step.
+        fn start(replies: Vec<String>, plans: Vec<String>) -> Self {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let url = format!("http://{}", listener.local_addr().unwrap());
+            let split = !plans.is_empty();
+            let lane = |replies: Vec<String>| {
+                Arc::new(Lane {
+                    requests: Mutex::default(),
+                    replies: Mutex::new(VecDeque::from(replies)),
+                })
+            };
+            let (main, plans) = (lane(replies), lane(plans));
+            let stop = Arc::new(AtomicBool::new(false));
+            let thread = {
+                let (main, plans, stop) = (main.clone(), plans.clone(), stop.clone());
+                std::thread::spawn(move || {
+                    while !stop.load(Ordering::SeqCst) {
+                        match listener.accept() {
+                            Ok((stream, _)) => serve(stream, &main, split.then_some(&*plans)),
+                            Err(_) => std::thread::sleep(std::time::Duration::from_millis(2)),
+                        }
+                    }
+                })
+            };
+            Self {
+                url,
+                main,
+                plans,
+                stop,
+                thread: Some(thread),
+            }
+        }
+
+        fn finish(mut self) -> Heard {
+            self.stop.store(true, Ordering::SeqCst);
+            self.thread.take().unwrap().join().unwrap();
+            Heard {
+                requests: self.main.requests.lock().unwrap().clone(),
+                plan_requests: self.plans.requests.lock().unwrap().clone(),
+                unused: self.main.replies.lock().unwrap().len()
+                    + self.plans.replies.lock().unwrap().len(),
+            }
+        }
+    }
+
+    fn offers_no_tool(body: &str) -> bool {
+        serde_json::from_str::<Value>(body)
+            .ok()
+            .is_some_and(|body| body["tools"].as_array().is_none_or(Vec::is_empty))
+    }
+
+    fn serve(mut stream: std::net::TcpStream, main: &Lane, plans: Option<&Lane>) {
+        stream.set_nonblocking(false).unwrap();
+        let mut bytes = Vec::new();
+        let mut chunk = [0u8; 8192];
+        let body_start = loop {
+            let read = stream.read(&mut chunk).unwrap_or(0);
+            if read == 0 {
+                return;
+            }
+            bytes.extend_from_slice(&chunk[..read]);
+            if let Some(position) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
+                break position + 4;
+            }
+        };
+        let head = String::from_utf8_lossy(&bytes[..body_start]).to_ascii_lowercase();
+        let length = head
+            .lines()
+            .find_map(|line| line.strip_prefix("content-length:"))
+            .and_then(|value| value.trim().parse::<usize>().ok())
+            .unwrap_or(0);
+        while bytes.len() < body_start + length {
+            let read = stream.read(&mut chunk).unwrap_or(0);
+            if read == 0 {
+                break;
+            }
+            bytes.extend_from_slice(&chunk[..read]);
+        }
+        let body = String::from_utf8_lossy(&bytes[body_start..]).to_string();
+        let lane = plans.filter(|_| offers_no_tool(&body)).unwrap_or(main);
+        lane.requests.lock().unwrap().push(body);
+        let reply = lane
+            .replies
+            .lock()
+            .unwrap()
+            .pop_front()
+            .unwrap_or_else(|| text_reply("script exhausted"));
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{reply}",
+            reply.len()
+        );
+        let _ = stream.write_all(response.as_bytes());
+    }
+
+    fn text_reply(content: &str) -> String {
+        json!({"choices": [{"message": {"role": "assistant", "content": content}}]}).to_string()
+    }
+
+    fn tool_reply(name: &str, raw: &str) -> String {
+        json!({"choices": [{"message": {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{
+                "id": "call-0",
+                "type": "function",
+                "function": {"name": name, "arguments": raw},
+            }],
+        }}]})
+        .to_string()
+    }
+
+    fn write_reply() -> String {
+        tool_reply("Write", r#"{"path":"notes.txt","content":"the notes\n"}"#)
+    }
+
+    fn step_plan_reply(goal: &str, id: &str) -> String {
+        text_reply(
+            &json!({"goal": goal, "steps": [{
+                "id": id,
+                "kind": "implement",
+                "expected_result": "pass",
+                "instruction": goal,
+                "expected_paths": ["notes.txt"],
+                "verify": [],
+            }]})
+            .to_string(),
+        )
+    }
+
+    struct FlatReader;
+
+    impl std::fmt::Debug for FlatReader {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("FlatReader")
+        }
+    }
+
+    impl ProfileToolReadExecutor for FlatReader {
+        fn read(&self, _root: &Path, arguments: &Value) -> anyhow::Result<ReadToolOutput> {
+            Ok(ReadToolOutput {
+                text: format!("flat read of {arguments}"),
+                usage: None,
+            })
+        }
+    }
+
+    /// A root the base can read too: a tool set with no stage in it.
+    fn register_off_extension() {
+        static ROOT: OnceLock<PathBuf> = OnceLock::new();
+        let root = ROOT.get_or_init(|| {
+            let root = std::fs::canonicalize(tempfile::tempdir().unwrap().keep()).unwrap();
+            let directory = root.join(format!("profiles/{FLAT_PROFILE}"));
+            std::fs::create_dir_all(&directory).unwrap();
+            std::fs::write(
+                directory.join("manifest.toml"),
+                format!(
+                    "[metadata]\nid = \"{FLAT_PROFILE}\"\ndisplay_name = \"Stage off\"\nschema_version = \"v2\"\ntask_family = \"generic\"\n[plan]\nintent = \"create\"\nphases = [\n  {{ id = \"implementation\", prompt = \"Write the notes for {{goal}}.\" }},\n]\n[artifacts]\nrequired = [\"notes.txt\"]\n[guidance.variants.contract]\ntriggers = [{{ condition = \"always\" }}]\nmessages = {{ instruction = \"Write notes.txt.\" }}\n[[checks.final]]\nid = \"scaffold_files_present\"\nparams = {{ files = [\"notes.txt\"] }}\n[profile_tools]\nschema_version = \"profile-tool.declaration/v1\"\nbuiltin_tools = [\"Read\", \"Write\"]\ntools = [\n  {{ id = \"{FLAT_TOOL}\", effect = \"read\" }},\n]\n"
+                ),
+            )
+            .unwrap();
+            register_read_executor(FLAT_RUNTIME, Arc::new(FlatReader));
+            root
+        });
+        commandagent::planner::extension_profiles::register(root).unwrap();
+    }
+
+    fn flat_registry() -> tempfile::TempDir {
+        let registry = tempfile::tempdir().unwrap();
+        let directory = registry.path().join("profile-tools");
+        std::fs::create_dir_all(&directory).unwrap();
+        let descriptor = json!({
+            "protocol": "profile-tool.descriptor/v1",
+            "tool_id": FLAT_TOOL,
+            "name": "ReadFlatConfig",
+            "version": "1.0.0",
+            "description": "Read one configuration object.",
+            "effect": "read",
+            "parameters": serde_json::from_str::<Value>(FLAT_PARAMETERS).unwrap(),
+            "schema_sha256": sha256(FLAT_PARAMETERS.as_bytes()),
+            "runtime": {"kind": "in_process", "id": FLAT_RUNTIME},
+            "limits": {"max_input_bytes": 1024, "max_output_bytes": 4096},
+        });
+        std::fs::write(
+            directory.join(format!("{FLAT_TOOL}.json")),
+            descriptor.to_string(),
+        )
+        .unwrap();
+        registry
+    }
+
+    fn base_config(root: &Path, evidence: &Path, profile: &str, url: &str) -> Config {
+        Config {
+            workspace_root: root.to_path_buf(),
+            state_dir: evidence.join("state"),
+            eval_events_path: Some(evidence.join("events.jsonl")),
+            completion_contract_path: None,
+            yes: true,
+            offline: false,
+            context_budget: 100_000,
+            model: "m".to_string(),
+            provider: Provider::LmStudio,
+            tool_protocol: None,
+            openai_api: OpenAiApi::ChatCompletions,
+            prompt_layout: PromptLayout::Stable,
+            plan_preset: PlanPreset::None,
+            intent_override: None,
+            planner_model: "m".to_string(),
+            planner_provider: Provider::LmStudio,
+            planner_think: Some(OllamaThink::False),
+            classifier_model: "m".to_string(),
+            classifier_provider: Provider::LmStudio,
+            openai_compatible: None,
+            ollama_host: "http://localhost:11434".to_string(),
+            ollama_think: None,
+            lm_studio_host: url.to_string(),
+            num_predict: 100,
+            max_iterations: 8,
+            recovery_plan_auto_runs: 0,
+            chat_timeout_secs: 30,
+            chat_timeout_source: "override:test".to_string(),
+            field_sources: ConfigFieldSources::default(),
+            chat_retries: 1,
+            stream: false,
+            resume: None,
+            fresh_session: false,
+            no_footer: false,
+            narration: NarrationMode::Normal,
+            profile: profile.to_string(),
+            profile_explicit: true,
+            profile_inference: None,
+            style: "default".to_string(),
+            action: Action::Repl,
+        }
+    }
+
+    const NORMALIZED_NUMBER_FIELDS: [&str; 6] = [
+        "epoch",
+        "occurred_at_epoch_ms",
+        "duration_ms",
+        "elapsed_ms",
+        "estimated_prompt_tokens_sent",
+        "estimated_stable_prefix_chars",
+    ];
+
+    fn normalize_text(paths: &[(&Path, &str)], url: &str, text: &str) -> String {
+        let mut text = text.replace(url, "<URL>");
+        for (path, marker) in paths {
+            text = text.replace(&path.display().to_string(), marker);
+        }
+        for (pattern, replacement) in [
+            (r"elapsed_ms: [0-9]+", "elapsed_ms: <N>"),
+            (r"total_duration_ms=[0-9]+", "total_duration_ms=<N>"),
+            (r#""epoch": ?[0-9]+"#, r#""epoch":"<N>""#),
+            (
+                r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+                "<ID>",
+            ),
+        ] {
+            text = regex::Regex::new(pattern)
+                .unwrap()
+                .replace_all(&text, replacement)
+                .into_owned();
+        }
+        text
+    }
+
+    fn normalize_value(paths: &[(&Path, &str)], url: &str, value: &Value) -> Value {
+        match value {
+            Value::Object(object) => Value::Object(
+                object
+                    .iter()
+                    .map(|(key, value)| {
+                        let value = if NORMALIZED_NUMBER_FIELDS.contains(&key.as_str())
+                            && value.is_number()
+                        {
+                            json!("<N>")
+                        } else {
+                            normalize_value(paths, url, value)
+                        };
+                        (key.clone(), value)
+                    })
+                    .collect(),
+            ),
+            Value::Array(items) => Value::Array(
+                items
+                    .iter()
+                    .map(|item| normalize_value(paths, url, item))
+                    .collect(),
+            ),
+            Value::String(text) => Value::String(normalize_text(paths, url, text)),
+            other => other.clone(),
+        }
+    }
+
+    fn artifacts(root: &Path) -> BTreeMap<String, String> {
+        let mut files = BTreeMap::new();
+        let mut pending = vec![root.to_path_buf()];
+        while let Some(directory) = pending.pop() {
+            for entry in std::fs::read_dir(directory).unwrap().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    pending.push(path);
+                } else {
+                    let relative = path.strip_prefix(root).unwrap().display().to_string();
+                    let text = String::from_utf8_lossy(&std::fs::read(&path).unwrap()).to_string();
+                    files.insert(relative, text);
+                }
+            }
+        }
+        files
+    }
+
+    #[derive(Clone, Copy)]
+    enum Entry {
+        Session,
+        TextSession,
+        StepPlan,
+        Ultra,
+        /// As an explicit profile runs: the next phase's plan is asked for on another thread.
+        UltraSpeculating,
+        Investigate,
+        Fix,
+    }
+
+    struct OffRow {
+        id: &'static str,
+        profile: &'static str,
+        entry: Entry,
+        prompt: &'static str,
+        replies: fn() -> Vec<String>,
+    }
+
+    /// For a row with two threads: what answers the requests that offer no tool.
+    fn plans_of(row: &OffRow) -> Vec<String> {
+        if matches!(row.entry, Entry::UltraSpeculating) {
+            vec![
+                step_plan_reply("Write the notes", "step-first"),
+                step_plan_reply("Write the notes again", "step-second"),
+            ]
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// What this feature changed the wiring of: a session, a plain plan, an ultra plan and its
+    /// final acceptance, and the two ends that have none.
+    const OFF_ROWS: [OffRow; 9] = [
+        OffRow {
+            id: "chat-native-write-and-read",
+            profile: "generic",
+            entry: Entry::Session,
+            prompt: "Write notes.txt and read it.",
+            replies: || {
+                vec![
+                    write_reply(),
+                    tool_reply("Read", r#"{"path":"notes.txt"}"#),
+                    text_reply("done"),
+                ]
+            },
+        },
+        OffRow {
+            id: "text-xml-write",
+            profile: "generic",
+            entry: Entry::TextSession,
+            prompt: "Write notes.txt.",
+            replies: || {
+                vec![
+                    text_reply(
+                        "<anvil_tool_call name=\"Write\">{\"path\":\"notes.txt\",\"content\":\"a\"}</anvil_tool_call>",
+                    ),
+                    text_reply("done"),
+                ]
+            },
+        },
+        OffRow {
+            id: "flat-extension-read",
+            profile: FLAT_PROFILE,
+            entry: Entry::Session,
+            prompt: "Read the settings.",
+            replies: || {
+                vec![
+                    tool_reply("ReadFlatConfig", r#"{"path":"settings.json"}"#),
+                    text_reply("done"),
+                ]
+            },
+        },
+        OffRow {
+            id: "dummy-secret-next-to-reserved-words",
+            profile: "generic",
+            entry: Entry::Session,
+            prompt: RESERVED_WORDS_PROMPT,
+            replies: || {
+                vec![
+                    tool_reply(
+                        "Write",
+                        r#"{"path":"notes.txt","content":"stage_incomplete fake-dummy-credential-975-not-a-real-key structured_stage_refused"}"#,
+                    ),
+                    text_reply("structured_stage_unmet done"),
+                ]
+            },
+        },
+        OffRow {
+            id: "step-plan-write",
+            profile: "generic",
+            entry: Entry::StepPlan,
+            prompt: "Write the notes.",
+            replies: || vec![write_reply(), text_reply("done")],
+        },
+        OffRow {
+            id: "ultra-plan-two-phases",
+            profile: "generic",
+            entry: Entry::Ultra,
+            prompt: "Write the notes.",
+            replies: || {
+                vec![
+                    step_plan_reply("Write the notes", "step-first"),
+                    write_reply(),
+                    text_reply("done"),
+                    step_plan_reply("Write the notes again", "step-second"),
+                    write_reply(),
+                    text_reply("done"),
+                ]
+            },
+        },
+        OffRow {
+            id: "ultra-plan-speculating",
+            profile: "generic",
+            entry: Entry::UltraSpeculating,
+            prompt: "Write the notes.",
+            replies: || {
+                vec![
+                    write_reply(),
+                    text_reply("done"),
+                    write_reply(),
+                    text_reply("done"),
+                ]
+            },
+        },
+        OffRow {
+            id: "investigate-end",
+            profile: "generic",
+            entry: Entry::Investigate,
+            prompt: "Find out why it fails.",
+            replies: || {
+                vec![
+                    text_reply(
+                        &json!({"goal": "reproduce", "steps": [{
+                            "id": "step-reproduce",
+                            "kind": "verify",
+                            "expected_result": "fail",
+                            "instruction": "Reproduce the failure",
+                            "expected_paths": [],
+                            "verify": ["test -f no-such-marker"],
+                        }]})
+                        .to_string(),
+                    ),
+                    step_plan_reply("Write the notes", "step-report"),
+                    write_reply(),
+                    text_reply("done"),
+                ]
+            },
+        },
+        OffRow {
+            id: "fix-end",
+            profile: "generic",
+            entry: Entry::Fix,
+            prompt: "Fix the missing notes.",
+            replies: || {
+                vec![
+                    text_reply(
+                        &json!({"goal": "reproduce", "steps": [{
+                            "id": "step-reproduce",
+                            "kind": "verify",
+                            "expected_result": "fail",
+                            "instruction": "Reproduce the failure",
+                            "expected_paths": [],
+                            "verify": ["test -f notes.txt"],
+                        }]})
+                        .to_string(),
+                    ),
+                    step_plan_reply("Write the notes", "step-repair"),
+                    write_reply(),
+                    text_reply("done"),
+                ]
+            },
+        },
+    ];
+
+    /// Issue #1010: how long a later phase's plan may wait for its start. Past it the call fails
+    /// and so does the row; it never decides a pass.
+    const START_GATE_BOUND: Duration = Duration::from_secs(10);
+    const START_GATE_POLL: Duration = Duration::from_millis(1);
+
+    /// When the gate lets a later phase's plan go to the real client.
+    #[derive(Clone, Copy)]
+    enum Release {
+        /// As soon as the events file holds that phase's start.
+        AtStart,
+        /// Later on purpose: once the file also holds the main thread's line of this name for
+        /// the same phase.
+        AfterMainLine(&'static str),
+    }
+
+    /// What the gate did: the phases it let go, and the waits that ran out.
+    #[derive(Debug, Default, Clone, PartialEq)]
+    struct GateReport {
+        released: Vec<String>,
+        failed: Vec<String>,
+    }
+
+    /// Issue #1010: the product writes `speculative_phase_plan_started` after it spawns the thread
+    /// that plans the next phase (`pipeline.rs`), and nothing holds that thread back in between,
+    /// so the `provider_request` its client writes can land first. In this setup, a call that
+    /// plans a later phase reaches the real client only once the events file holds that phase's
+    /// start. Any other call, the first phase's plan among them, goes on at once. The gate tells
+    /// the calls apart by the phase prompt they carry, not by a thread, and writes no event: the
+    /// real client writes them all.
+    struct StartGate {
+        events: PathBuf,
+        /// The prompt and id of every phase after the first.
+        later_phases: Vec<(String, String)>,
+        release: Release,
+        bound: Duration,
+        waiting: AtomicUsize,
+        /// How many times a waiting call looked and found no start yet.
+        held: AtomicUsize,
+        report: Mutex<GateReport>,
+    }
+
+    impl StartGate {
+        fn new(events: PathBuf, plan: &UltraPlan, release: Release, bound: Duration) -> Arc<Self> {
+            Arc::new(Self {
+                events,
+                later_phases: plan
+                    .phases
+                    .iter()
+                    .skip(1)
+                    .map(|phase| (phase.prompt.clone(), phase.id.clone()))
+                    .collect(),
+                release,
+                bound,
+                waiting: AtomicUsize::new(0),
+                held: AtomicUsize::new(0),
+                report: Mutex::default(),
+            })
+        }
+
+        fn report(&self) -> GateReport {
+            self.report.lock().unwrap().clone()
+        }
+
+        fn later_phase_ids(&self) -> Vec<String> {
+            self.later_phases.iter().map(|(_, id)| id.clone()).collect()
+        }
+
+        /// One value after another, as `record_off_row` reads them; a value still being written
+        /// ends the read.
+        fn has_line(&self, event: &str, field: &str, phase: &str) -> bool {
+            let text = std::fs::read_to_string(&self.events).unwrap_or_default();
+            serde_json::Deserializer::from_str(&text)
+                .into_iter::<Value>()
+                .map_while(Result::ok)
+                .any(|value| value["event"] == event && value[field] == phase)
+        }
+
+        fn ready(&self, phase: &str) -> bool {
+            self.has_line(OTHER_THREAD_STARTS, "next_phase_id", phase)
+                && match self.release {
+                    Release::AtStart => true,
+                    Release::AfterMainLine(event) => self.has_line(event, "phase_id", phase),
+                }
+        }
+
+        /// `Ok` at once for a call that plans no later phase. Otherwise waits, up to the bound,
+        /// until that phase's start is written, and fails if it is not.
+        fn pass(&self, messages: &[ConversationMessage]) -> anyhow::Result<()> {
+            let Some((_, phase)) = self.later_phases.iter().find(|(prompt, _)| {
+                messages
+                    .iter()
+                    .any(|message| message.content.contains(prompt.as_str()))
+            }) else {
+                return Ok(());
+            };
+            self.waiting.fetch_add(1, Ordering::SeqCst);
+            let deadline = Instant::now() + self.bound;
+            let ready = loop {
+                if self.ready(phase) {
+                    break true;
+                }
+                self.held.fetch_add(1, Ordering::SeqCst);
+                if Instant::now() >= deadline {
+                    break false;
+                }
+                std::thread::sleep(START_GATE_POLL);
+            };
+            self.waiting.fetch_sub(1, Ordering::SeqCst);
+            let mut report = self.report.lock().unwrap();
+            if ready {
+                report.released.push(phase.clone());
+                return Ok(());
+            }
+            let failure = format!(
+                "no {OTHER_THREAD_STARTS} for phase {phase} within {:?}",
+                self.bound
+            );
+            report.failed.push(failure.clone());
+            anyhow::bail!(failure)
+        }
+    }
+
+    /// The real planner behind a `StartGate`. Everything but the wait is the real client's.
+    struct StartGated {
+        inner: Box<dyn ChatClient>,
+        gate: Arc<StartGate>,
+    }
+
+    impl ChatClient for StartGated {
+        fn label(&self) -> &str {
+            self.inner.label()
+        }
+
+        fn boxed_clone(&self) -> Box<dyn ChatClient> {
+            Box::new(Self {
+                inner: self.inner.boxed_clone(),
+                gate: Arc::clone(&self.gate),
+            })
+        }
+
+        fn supports_native_tools(&self, model: &str) -> bool {
+            self.inner.supports_native_tools(model)
+        }
+
+        fn allows_xml_fallback(&self) -> bool {
+            self.inner.allows_xml_fallback()
+        }
+
+        fn parses_xml_tool_calls_before_host(&self) -> bool {
+            self.inner.parses_xml_tool_calls_before_host()
+        }
+
+        fn supports_ollama_think(&self) -> bool {
+            self.inner.supports_ollama_think()
+        }
+
+        fn profile_tool_schema_wire(&self) -> ProfileToolSchemaWire {
+            self.inner.profile_tool_schema_wire()
+        }
+
+        fn take_response_timing(&mut self) -> Option<ResponseTiming> {
+            self.inner.take_response_timing()
+        }
+
+        fn take_response_metadata(&mut self) -> Option<ProviderResponseMetadata> {
+            self.inner.take_response_metadata()
+        }
+
+        fn set_cancel_token(&mut self, token: CancelToken) {
+            self.inner.set_cancel_token(token);
+        }
+
+        fn provider_turn_carried_result(&mut self) {
+            self.inner.provider_turn_carried_result();
+        }
+
+        fn supports_streaming(&self) -> bool {
+            self.inner.supports_streaming()
+        }
+
+        fn supports_streaming_for_model(&self, model: &str) -> bool {
+            self.inner.supports_streaming_for_model(model)
+        }
+
+        fn chat_stream(
+            &mut self,
+            model: &str,
+            messages: &[ConversationMessage],
+            tools: &[ToolSpec],
+            native_tools_enabled: bool,
+            on_chunk: &mut dyn FnMut(&str) -> anyhow::Result<()>,
+        ) -> anyhow::Result<AssistantReply> {
+            self.gate.pass(messages)?;
+            self.inner
+                .chat_stream(model, messages, tools, native_tools_enabled, on_chunk)
+        }
+
+        fn chat(
+            &mut self,
+            model: &str,
+            messages: &[ConversationMessage],
+            tools: &[ToolSpec],
+            native_tools_enabled: bool,
+        ) -> anyhow::Result<AssistantReply> {
+            self.gate.pass(messages)?;
+            self.inner
+                .chat(model, messages, tools, native_tools_enabled)
+        }
+    }
+
+    fn speculating_row() -> &'static OffRow {
+        OFF_ROWS
+            .iter()
+            .find(|row| matches!(row.entry, Entry::UltraSpeculating))
+            .unwrap()
+    }
+
+    fn plan_of(row: &OffRow, intent: &str) -> UltraPlan {
+        UltraPlan {
+            goal: row.prompt.to_string(),
+            profile: row.profile.to_string(),
+            style: "default".to_string(),
+            intent: intent.to_string(),
+            phases: vec![
+                UltraPhase {
+                    id: "first".to_string(),
+                    prompt: "Phase-first: do the first part.".to_string(),
+                },
+                UltraPhase {
+                    id: "second".to_string(),
+                    prompt: "Phase-second: do the second part.".to_string(),
+                },
+            ],
+        }
+    }
+
+    fn outcome_of(
+        row: &OffRow,
+        config: &Config,
+        paths: &[(&Path, &str)],
+        url: &str,
+        gate: Option<&Arc<StartGate>>,
+    ) -> Value {
+        let mut client = client_from_config(config, false).unwrap();
+        let summary = |result: anyhow::Result<String>| match result {
+            Ok(summary) => json!({"summary": normalize_text(paths, url, &summary)}),
+            Err(error) => json!({"error": normalize_text(paths, url, &format!("{error:#}"))}),
+        };
+        match row.entry {
+            Entry::Session | Entry::TextSession => match run_session_with_outcome_with_ui(
+                client.as_mut(),
+                &mut SessionSnapshot::new(),
+                row.prompt,
+                &[],
+                config,
+                &NOOP_UI,
+            ) {
+                Ok(outcome) => json!({
+                    "stop_reason": format!("{:?}", outcome.stop_reason),
+                    "final_text": outcome.final_text,
+                    "iterations": outcome.iterations,
+                    "tool_calls": outcome.tool_calls,
+                    "changed_paths": outcome.changed_paths,
+                }),
+                Err(error) => json!({"error": normalize_text(paths, url, &format!("{error:#}"))}),
+            },
+            Entry::StepPlan => {
+                let plan = StepPlan {
+                    goal: row.prompt.to_string(),
+                    steps: vec![PlanStep {
+                        id: "step-write".to_string(),
+                        kind: "implement".to_string(),
+                        expected_result: "pass".to_string(),
+                        instruction: "Write notes.txt".to_string(),
+                        expected_paths: vec!["notes.txt".to_string()],
+                        verify: Vec::new(),
+                    }],
+                };
+                summary(run_step_plan(client.as_mut(), &plan, config))
+            }
+            Entry::Ultra | Entry::UltraSpeculating | Entry::Investigate | Entry::Fix => {
+                let intent = match row.entry {
+                    Entry::Investigate => "investigate",
+                    Entry::Fix => "fix",
+                    _ => "create",
+                };
+                let mut planner = client_from_config(config, true).unwrap();
+                if let Some(gate) = gate {
+                    planner = Box::new(StartGated {
+                        inner: planner,
+                        gate: Arc::clone(gate),
+                    });
+                }
+                summary(run_ultra_plan(
+                    planner.as_mut(),
+                    client.as_mut(),
+                    &plan_of(row, intent),
+                    config,
+                ))
+            }
+        }
+    }
+
+    fn deterministic_config(row: &OffRow, config: &mut Config) {
+        // An ultra plan on an explicit profile plans its next phase on another thread, whose
+        // provider events can land anywhere among this one's. A profile that may yet be promoted
+        // plans in line, so this row has one order, compared whole. `UltraSpeculating` is the
+        // other way, with `events_match`.
+        if matches!(row.entry, Entry::Ultra) {
+            config.profile_explicit = false;
+        }
+    }
+
+    fn record_off_row(row: &OffRow) -> Value {
+        record_off_row_released(row, Release::AtStart)
+    }
+
+    /// `release` says when the row that speculates lets its next phase's plan go; no other row
+    /// has a gate.
+    fn record_off_row_released(row: &OffRow, release: Release) -> Value {
+        let workspace = tempfile::tempdir().unwrap();
+        let evidence = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(workspace.path()).unwrap();
+        let evidence = std::fs::canonicalize(evidence.path()).unwrap();
+        std::fs::write(root.join("settings.json"), "{\"mode\":\"fast\"}").unwrap();
+        let http = FakeHttp::start((row.replies)(), plans_of(row));
+        let url = http.url.clone();
+        let mut config = base_config(&root, &evidence, row.profile, &url);
+        match row.entry {
+            Entry::TextSession => config.tool_protocol = Some(ToolProtocol::Text),
+            Entry::Investigate => config.intent_override = Some(IntentId::Investigate),
+            _ => {}
+        }
+        deterministic_config(row, &mut config);
+        let registry = flat_registry();
+        set_env(
+            REGISTRY_ENV,
+            (row.profile == FLAT_PROFILE).then(|| registry.path().to_str().unwrap()),
+        );
+        let mut catalog = SecretCatalog::new();
+        catalog
+            .register_credential("DUMMY_API_KEY", DUMMY_SECRET)
+            .unwrap();
+        install_scope(catalog, Some(&root), config.eval_events_path.as_deref());
+        let paths = [
+            (root.as_path(), "<ROOT>"),
+            (evidence.as_path(), "<EVIDENCE>"),
+        ];
+        let gate = matches!(row.entry, Entry::UltraSpeculating).then(|| {
+            StartGate::new(
+                evidence.join("events.jsonl"),
+                &plan_of(row, "create"),
+                release,
+                START_GATE_BOUND,
+            )
+        });
+        let outcome = outcome_of(row, &config, &paths, &url, gate.as_ref());
+        // Issue #1010: the next phase's plan was asked for once, after its start, and no wait ran
+        // out. A gate that let nothing through, or failed, fails the row here.
+        if let Some(gate) = &gate {
+            assert_eq!(
+                gate.report(),
+                GateReport {
+                    released: gate.later_phase_ids(),
+                    failed: Vec::new(),
+                },
+                "{}: the start gate",
+                row.id
+            );
+            assert_eq!(gate.waiting.load(Ordering::SeqCst), 0, "{}", row.id);
+        }
+        // T6: off makes no new sidecar, and nothing in the state directory is this feature's.
+        assert!(
+            !evidence.join("state/structured-stages").exists(),
+            "{}: a run with no stage left a record",
+            row.id
+        );
+        set_env(REGISTRY_ENV, None);
+        let heard = http.finish();
+        let normalized = |bodies: &[String]| {
+            bodies
+                .iter()
+                .map(|body| normalize_text(&paths, &url, body))
+                .collect::<Vec<_>>()
+        };
+        let requests = normalized(&heard.requests);
+        let plan_requests = normalized(&heard.plan_requests);
+        let unused = heard.unused;
+        // One value after another, not one per line: two threads can leave two values on a line.
+        let events = serde_json::Deserializer::from_str(
+            &std::fs::read_to_string(evidence.join("events.jsonl")).unwrap_or_default(),
+        )
+        .into_iter::<Value>()
+        .map(|value| normalize_value(&paths, &url, &value.unwrap()).to_string())
+        .collect::<Vec<_>>();
+        let mut recorded = json!({
+            "id": row.id,
+            "outcome": outcome,
+            "requests": requests,
+            "events": events,
+            "artifacts": artifacts(&root)
+                .into_iter()
+                .map(|(path, text)| (
+                    normalize_text(&paths, &url, &path),
+                    normalize_text(&paths, &url, &text),
+                ))
+                .collect::<BTreeMap<_, _>>(),
+            "unused_replies": unused,
+        });
+        // The requests that offered no tool, in their order, and only for a row that splits them.
+        if !plan_requests.is_empty() {
+            recorded["plan_requests"] = json!(plan_requests);
+        }
+        recorded
+    }
+
+    /// The two events a provider client writes itself. The thread that asks for the next phase's
+    /// plan (`pipeline.rs`) has no events path of its own, but the client it clones does, so these
+    /// two, and only these, come from that thread and land anywhere among the main thread's.
+    const EVENTS_OF_THE_OTHER_THREAD: [&str; 2] = ["provider_request", "provider_response"];
+    const OTHER_THREAD_STARTS: &str = "speculative_phase_plan_started";
+    const OTHER_THREAD_ENDS: &str = "speculative_phase_plan_adopted";
+
+    fn lines_of(events: &[Value]) -> Vec<&str> {
+        events.iter().map(|line| line.as_str().unwrap()).collect()
+    }
+
+    fn event_name(line: &str) -> String {
+        serde_json::from_str::<Value>(line)
+            .ok()
+            .and_then(|value| value["event"].as_str().map(str::to_string))
+            .unwrap_or_default()
+    }
+
+    fn position_of(events: &[&str], name: &str) -> Result<usize, String> {
+        events
+            .iter()
+            .position(|line| event_name(line) == name)
+            .ok_or_else(|| format!("no {name}"))
+    }
+
+    /// Byte for byte, in order, but for one thing: between the other thread's start and its
+    /// adoption, the events it can write may fall anywhere among the others. One thread writes
+    /// them, so they keep their order among themselves, and each line is compared whole. Nothing
+    /// is left out, and outside those two lines nothing is allowed to move.
+    fn events_match(new: &[&str], old: &[&str]) -> Result<(), String> {
+        let (new_start, new_end) = (
+            position_of(new, OTHER_THREAD_STARTS)?,
+            position_of(new, OTHER_THREAD_ENDS)?,
+        );
+        let (old_start, old_end) = (
+            position_of(old, OTHER_THREAD_STARTS)?,
+            position_of(old, OTHER_THREAD_ENDS)?,
+        );
+        if new[..new_start] != old[..old_start] {
+            let index = parting(&new[..new_start], &old[..old_start]);
+            return Err(format!(
+                "the events before the other thread's start differ; {}",
+                first_difference((new, index), (old, index))
+            ));
+        }
+        if new[new_end..] != old[old_end..] {
+            let index = parting(&new[new_end..], &old[old_end..]);
+            return Err(format!(
+                "the events from the adoption on differ; {}",
+                first_difference((new, new_end + index), (old, old_end + index))
+            ));
+        }
+        let parts = |range: &[&str]| {
+            let (mut movable, mut fixed): (Vec<String>, Vec<String>) = (Vec::new(), Vec::new());
+            for line in range {
+                if EVENTS_OF_THE_OTHER_THREAD.contains(&event_name(line).as_str()) {
+                    movable.push((*line).to_string());
+                } else {
+                    fixed.push((*line).to_string());
+                }
+            }
+            (movable, fixed)
+        };
+        let (new_movable, new_fixed) = parts(&new[new_start..new_end]);
+        let (old_movable, old_fixed) = parts(&old[old_start..old_end]);
+        if new_fixed != old_fixed {
+            let index = parting(&new_fixed, &old_fixed);
+            return Err(format!(
+                "the main thread's events between them differ or moved; among them, {}",
+                first_difference((&new_fixed, index), (&old_fixed, index))
+            ));
+        }
+        if new_movable != old_movable {
+            let index = parting(&new_movable, &old_movable);
+            return Err(format!(
+                "the provider events between them are not the same lines; among them, {}",
+                first_difference((&new_movable, index), (&old_movable, index))
+            ));
+        }
+        Ok(())
+    }
+
+    /// Where two lists first part: the first index that differs, or the end of the shorter.
+    fn parting(new: &[impl AsRef<str>], old: &[impl AsRef<str>]) -> usize {
+        new.iter()
+            .zip(old)
+            .position(|(new, old)| new.as_ref() != old.as_ref())
+            .unwrap_or_else(|| new.len().min(old.len()))
+    }
+
+    /// Issue #1010: a failed comparison names the first event that differs, so the next run that
+    /// fails says which event moved.
+    fn first_difference(
+        (new, new_index): (&[impl AsRef<str>], usize),
+        (old, old_index): (&[impl AsRef<str>], usize),
+    ) -> String {
+        format!(
+            "first at new[{new_index}] {} / old[{old_index}] {}",
+            line_at(new, new_index),
+            line_at(old, old_index)
+        )
+    }
+
+    fn line_at(lines: &[impl AsRef<str>], index: usize) -> &str {
+        lines.get(index).map_or("<none>", AsRef::as_ref)
+    }
+
+    /// What the comparison above lets through, and what it does not.
+    #[test]
+    fn only_the_other_threads_events_may_move_and_only_within_their_range() {
+        let line = |event: &str, note: &str| json!({"event": event, "note": note}).to_string();
+        let start = line(OTHER_THREAD_STARTS, "");
+        let end = line(OTHER_THREAD_ENDS, "");
+        let (before, a, b, after) = (
+            line("before", ""),
+            line("main_a", ""),
+            line("main_b", ""),
+            line("after", ""),
+        );
+        let (request, response) = (
+            line("provider_request", "p"),
+            line("provider_response", "p"),
+        );
+        let old = [
+            before.as_str(),
+            start.as_str(),
+            a.as_str(),
+            request.as_str(),
+            b.as_str(),
+            response.as_str(),
+            end.as_str(),
+            after.as_str(),
+        ];
+        assert_eq!(events_match(&old, &old), Ok(()));
+
+        // Its own events anywhere between the two lines.
+        let moved = [
+            before.as_str(),
+            start.as_str(),
+            request.as_str(),
+            response.as_str(),
+            a.as_str(),
+            b.as_str(),
+            end.as_str(),
+            after.as_str(),
+        ];
+        assert_eq!(events_match(&moved, &old), Ok(()));
+
+        // Any other event out of order.
+        let swapped = [
+            before.as_str(),
+            start.as_str(),
+            b.as_str(),
+            request.as_str(),
+            a.as_str(),
+            response.as_str(),
+            end.as_str(),
+            after.as_str(),
+        ];
+        assert!(
+            events_match(&swapped, &old).is_err(),
+            "the main thread's order"
+        );
+
+        // Another content in one of its events.
+        let changed_line = line("provider_request", "changed");
+        let changed = [
+            before.as_str(),
+            start.as_str(),
+            a.as_str(),
+            changed_line.as_str(),
+            b.as_str(),
+            response.as_str(),
+            end.as_str(),
+            after.as_str(),
+        ];
+        assert!(events_match(&changed, &old).is_err(), "its content");
+
+        // One missing: a count of lines is not all this looks at.
+        let missing = [
+            before.as_str(),
+            start.as_str(),
+            a.as_str(),
+            b.as_str(),
+            response.as_str(),
+            end.as_str(),
+            after.as_str(),
+        ];
+        assert!(events_match(&missing, &old).is_err(), "one fewer");
+
+        // Out of its range, on either side.
+        let early = [
+            before.as_str(),
+            request.as_str(),
+            start.as_str(),
+            a.as_str(),
+            b.as_str(),
+            response.as_str(),
+            end.as_str(),
+            after.as_str(),
+        ];
+        assert!(events_match(&early, &old).is_err(), "before the start");
+        // Issue #1010: the failure names the first line that differs, on both sides.
+        let early_error = events_match(&early, &old).unwrap_err();
+        assert!(
+            early_error.contains(&format!("first at new[1] {request} / old[1] {start}")),
+            "{early_error}"
+        );
+        let late = [
+            before.as_str(),
+            start.as_str(),
+            a.as_str(),
+            request.as_str(),
+            b.as_str(),
+            end.as_str(),
+            response.as_str(),
+            after.as_str(),
+        ];
+        assert!(events_match(&late, &old).is_err(), "after the adoption");
+
+        // Only the content changed, on either side of the range.
+        let (other_before, other_after) = (line("before", "x"), line("after", "x"));
+        let prefix_changed = [
+            other_before.as_str(),
+            start.as_str(),
+            a.as_str(),
+            request.as_str(),
+            b.as_str(),
+            response.as_str(),
+            end.as_str(),
+            after.as_str(),
+        ];
+        assert!(
+            events_match(&prefix_changed, &old).is_err(),
+            "before the range"
+        );
+        let suffix_changed = [
+            before.as_str(),
+            start.as_str(),
+            a.as_str(),
+            request.as_str(),
+            b.as_str(),
+            response.as_str(),
+            end.as_str(),
+            other_after.as_str(),
+        ];
+        assert!(
+            events_match(&suffix_changed, &old).is_err(),
+            "after the range"
+        );
+
+        // One thread writes them: a response ahead of its request is another run.
+        let response_first = [
+            before.as_str(),
+            start.as_str(),
+            a.as_str(),
+            response.as_str(),
+            b.as_str(),
+            request.as_str(),
+            end.as_str(),
+            after.as_str(),
+        ];
+        assert!(
+            events_match(&response_first, &old).is_err(),
+            "their own order"
+        );
+
+        // And only those two names move.
+        assert_eq!(
+            EVENTS_OF_THE_OTHER_THREAD,
+            ["provider_request", "provider_response"]
+        );
+    }
+
+    /// Acceptance 6: the requests, events, outcome, and artifacts of the base.
+    #[test]
+    fn off_wire_events_and_artifacts_match_the_base_recording_byte_for_byte() {
+        let _guard = lock();
+        register_off_extension();
+        for row in &OFF_ROWS {
+            assert_matches_golden(row, &record_off_row(row));
+        }
+    }
+
+    fn golden_row(id: &str) -> Value {
+        let golden: Value = serde_json::from_str(OFF_GOLDEN).unwrap();
+        golden["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|old| old["id"] == id)
+            .cloned()
+            .unwrap_or_else(|| panic!("no golden row {id}"))
+    }
+
+    fn assert_matches_golden(row: &OffRow, recorded: &Value) {
+        let old = golden_row(row.id);
+        for key in [
+            "outcome",
+            "requests",
+            "plan_requests",
+            "artifacts",
+            "unused_replies",
+        ] {
+            assert_eq!(recorded[key], old[key], "{}: {key}", row.id);
+        }
+        let (new, old) = (
+            recorded["events"].as_array().unwrap(),
+            old["events"].as_array().unwrap(),
+        );
+        if matches!(row.entry, Entry::UltraSpeculating) {
+            // Whether the order really moved this time, for a count over many runs.
+            eprintln!("off-order: {}", if new == old { "same" } else { "moved" });
+            assert_eq!(
+                events_match(&lines_of(new), &lines_of(old)),
+                Ok(()),
+                "{}",
+                row.id
+            );
+            return;
+        }
+        for (index, (new, old)) in new.iter().zip(old).enumerate() {
+            assert_eq!(new, old, "{}: event {index}", row.id);
+        }
+        assert_eq!(new.len(), old.len(), "{}: event count", row.id);
+    }
+
+    /// The main thread's last line before it joins the next phase's plan, in the base recording.
+    const LATE_RELEASE_LINE: &str = "ultra_phase_context_attached";
+
+    fn owned_lines(events: &Value) -> Vec<String> {
+        events
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|line| line.as_str().unwrap().to_string())
+            .collect()
+    }
+
+    fn file_lines(events: &Path) -> Vec<String> {
+        serde_json::Deserializer::from_str(&std::fs::read_to_string(events).unwrap_or_default())
+            .into_iter::<Value>()
+            .map(|value| value.unwrap().to_string())
+            .collect()
+    }
+
+    /// Issue #1010, acceptance 2: the gate holds a later phase's plan until that phase's start is
+    /// written, fails when it is not, and holds nothing else.
+    #[test]
+    fn the_start_gate_holds_a_later_phases_plan_until_its_start_and_fails_without_it() {
+        let _guard = lock();
+        let evidence = tempfile::tempdir().unwrap();
+        let events = evidence.path().join("events.jsonl");
+        let row = speculating_row();
+        let plan = plan_of(row, "create");
+        let http = FakeHttp::start(Vec::new(), plans_of(row));
+        let config = base_config(evidence.path(), evidence.path(), row.profile, &http.url);
+        let bound = Duration::from_millis(200);
+        let gate = StartGate::new(events.clone(), &plan, Release::AtStart, bound);
+        let mut planner = StartGated {
+            inner: client_from_config(&config, true).unwrap(),
+            gate: Arc::clone(&gate),
+        };
+        let mut ask = |phase: usize| {
+            planner.chat(
+                "m",
+                &[ConversationMessage::user(plan.phases[phase].prompt.clone())],
+                &[],
+                false,
+            )
+        };
+        let start_of = |next: &str| {
+            commandagent::eval_events::emit(
+                Some(&events),
+                json!({
+                    "event": OTHER_THREAD_STARTS,
+                    "current_phase_id": "first",
+                    "next_phase_id": next,
+                    "reason": "verification_overlap",
+                }),
+            );
+        };
+
+        // Another phase's start is not this one's.
+        start_of("another");
+        let asked = Instant::now();
+        let error = ask(1).unwrap_err();
+        assert!(asked.elapsed() >= bound, "it waited the bound out");
+        assert!(
+            format!("{error:#}").contains("no speculative_phase_plan_started for phase second"),
+            "{error:#}"
+        );
+        assert_eq!(gate.report().failed.len(), 1);
+        assert!(gate.report().released.is_empty());
+
+        // The first phase's plan goes on at once.
+        assert!(ask(0).is_ok());
+
+        // Once its start is written, the same call goes through.
+        start_of("second");
+        assert!(ask(1).is_ok());
+        assert_eq!(gate.report().released, ["second"]);
+        assert_eq!(gate.report().failed.len(), 1);
+        assert_eq!(gate.waiting.load(Ordering::SeqCst), 0);
+
+        // The call that failed never reached the real client.
+        let heard = http.finish();
+        assert_eq!(heard.plan_requests.len(), 2);
+        assert!(heard.plan_requests[0].contains(&plan.phases[0].prompt));
+        assert!(heard.plan_requests[1].contains(&plan.phases[1].prompt));
+        let requests = file_lines(&events)
+            .iter()
+            .filter(|line| event_name(line) == "provider_request")
+            .count();
+        assert_eq!(requests, 2);
+    }
+
+    /// Issue #1010, acceptance 2: a release later than the start, within the bound, gives the
+    /// same comparison the same answer.
+    #[test]
+    fn a_later_release_within_the_bound_matches_the_same_recording() {
+        let _guard = lock();
+        register_off_extension();
+        let row = speculating_row();
+        let recorded = record_off_row_released(row, Release::AfterMainLine(LATE_RELEASE_LINE));
+        assert_matches_golden(row, &recorded);
+        // The release did come later: the next phase's request follows that line.
+        let events = lines_of(recorded["events"].as_array().unwrap());
+        let start = position_of(&events, OTHER_THREAD_STARTS).unwrap();
+        let line = events
+            .iter()
+            .position(|line| {
+                let value: Value = serde_json::from_str(line).unwrap();
+                value["event"] == LATE_RELEASE_LINE && value["phase_id"] == "second"
+            })
+            .unwrap();
+        let request = start
+            + events[start..]
+                .iter()
+                .position(|line| event_name(line) == "provider_request")
+                .unwrap();
+        assert!(
+            line < request,
+            "the request at {request}, the line at {line}"
+        );
+    }
+
+    /// The order of `pipeline.rs`, with the start written late on purpose: a clone of `planner`
+    /// asks for the next phase's plan on another thread, and the start is written only once that
+    /// thread's request is in the file or the gate has looked for the start and held that thread
+    /// back. Then the result of
+    /// `events_match` against the order the product promises: the start, that thread's lines in
+    /// their order, the adoption.
+    fn forced_early_request(gated: bool) -> Result<(), String> {
+        let evidence = tempfile::tempdir().unwrap();
+        let events = evidence.path().join("events.jsonl");
+        let row = speculating_row();
+        let plan = plan_of(row, "create");
+        let http = FakeHttp::start(
+            Vec::new(),
+            vec![step_plan_reply("Write the notes again", "step-second")],
+        );
+        let config = base_config(evidence.path(), evidence.path(), row.profile, &http.url);
+        let gate = StartGate::new(events.clone(), &plan, Release::AtStart, START_GATE_BOUND);
+        let real = client_from_config(&config, true).unwrap();
+        // Ungated, the planner this setup built before Issue #1010.
+        let planner: Box<dyn ChatClient> = if gated {
+            Box::new(StartGated {
+                inner: real,
+                gate: Arc::clone(&gate),
+            })
+        } else {
+            real
+        };
+        let mut worker = planner.boxed_clone();
+        let messages = vec![ConversationMessage::user(plan.phases[1].prompt.clone())];
+        let handle = std::thread::spawn(move || worker.chat("m", &messages, &[], false));
+        let deadline = Instant::now() + START_GATE_BOUND;
+        loop {
+            let requested = file_lines(&events)
+                .iter()
+                .any(|line| event_name(line) == "provider_request");
+            if requested || gate.held.load(Ordering::SeqCst) > 0 {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "neither a request nor a call held back at the gate"
+            );
+            std::thread::sleep(START_GATE_POLL);
+        }
+        let write = |event: &str| {
+            commandagent::eval_events::emit(
+                Some(&events),
+                json!({
+                    "event": event,
+                    "current_phase_id": plan.phases[0].id,
+                    "next_phase_id": plan.phases[1].id,
+                    "reason": "verification_overlap",
+                }),
+            );
+        };
+        write(OTHER_THREAD_STARTS);
+        let reply = handle.join().unwrap();
+        assert!(reply.is_ok(), "{reply:?}");
+        write(OTHER_THREAD_ENDS);
+        assert_eq!(http.finish().plan_requests.len(), 1);
+        assert_eq!(
+            gate.report().released,
+            if gated {
+                vec!["second".to_string()]
+            } else {
+                Vec::new()
+            }
+        );
+
+        let new = file_lines(&events);
+        let names = new.iter().map(|line| event_name(line)).collect::<Vec<_>>();
+        let mut sorted = names.clone();
+        sorted.sort();
+        assert_eq!(
+            sorted,
+            [
+                "provider_request",
+                "provider_response",
+                OTHER_THREAD_ENDS,
+                OTHER_THREAD_STARTS,
+            ],
+            "{names:?}"
+        );
+        let theirs = new
+            .iter()
+            .filter(|line| EVENTS_OF_THE_OTHER_THREAD.contains(&event_name(line).as_str()));
+        let start = new
+            .iter()
+            .find(|line| event_name(line) == OTHER_THREAD_STARTS);
+        let end = new
+            .iter()
+            .find(|line| event_name(line) == OTHER_THREAD_ENDS);
+        let promised = start
+            .into_iter()
+            .chain(theirs)
+            .chain(end)
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        events_match(
+            &new.iter().map(String::as_str).collect::<Vec<_>>(),
+            &promised,
+        )
+    }
+
+    /// Issue #1010, acceptance 3: the request of the next phase's plan written before its start
+    /// is the CI failure without the gate, and cannot happen with it.
+    #[test]
+    fn a_plan_request_forced_ahead_of_its_start_fails_ungated_and_waits_gated() {
+        let _guard = lock();
+        let error = forced_early_request(false).unwrap_err();
+        assert!(
+            error.starts_with("the events before the other thread's start differ"),
+            "{error}"
+        );
+        assert!(
+            error.contains("first at new[0] {\"") && error.contains("provider_request"),
+            "{error}"
+        );
+        assert_eq!(forced_early_request(true), Ok(()));
+    }
+
+    /// Issue #1010, acceptance 4: on a real recording through the gate, a provider event dropped,
+    /// changed, or moved, or a main thread's event changed, still fails the comparison.
+    #[test]
+    fn a_gated_recording_still_fails_with_an_event_dropped_changed_or_moved() {
+        let _guard = lock();
+        register_off_extension();
+        let row = speculating_row();
+        let new = owned_lines(&record_off_row(row)["events"]);
+        let golden = golden_row(row.id);
+        let old = lines_of(golden["events"].as_array().unwrap());
+        let check = |lines: &[String]| {
+            events_match(&lines.iter().map(String::as_str).collect::<Vec<_>>(), &old)
+        };
+        assert_eq!(check(&new), Ok(()));
+
+        let names = new.iter().map(|line| event_name(line)).collect::<Vec<_>>();
+        let position = |name: &str| names.iter().position(|each| each == name).unwrap();
+        let (start, end) = (position(OTHER_THREAD_STARTS), position(OTHER_THREAD_ENDS));
+        let theirs = (start..end)
+            .filter(|&index| EVENTS_OF_THE_OTHER_THREAD.contains(&names[index].as_str()))
+            .collect::<Vec<_>>();
+        assert_eq!(theirs.len(), 2, "{names:?}");
+        let (request, response) = (theirs[0], theirs[1]);
+        assert_eq!(names[request], "provider_request");
+        assert_eq!(names[response], "provider_response");
+        let with_field = |line: &str, field: &str| {
+            let mut value: Value = serde_json::from_str(line).unwrap();
+            value[field] = json!("changed");
+            value.to_string()
+        };
+
+        let mut dropped = new.clone();
+        dropped.remove(request);
+        assert!(check(&dropped).is_err(), "dropped");
+
+        let mut changed = new.clone();
+        changed[request] = with_field(&new[request], "model");
+        assert!(check(&changed).is_err(), "changed");
+
+        let mut swapped = new.clone();
+        swapped.swap(request, response);
+        assert!(check(&swapped).is_err(), "their own order");
+
+        let mut early = new.clone();
+        let line = early.remove(request);
+        early.insert(start, line);
+        let error = check(&early).unwrap_err();
+        assert!(
+            error.starts_with("the events before the other thread's start differ"),
+            "{error}"
+        );
+        assert!(
+            error.contains(&format!("new[{start}] {}", new[request])),
+            "{error}"
+        );
+
+        let mut late = new.clone();
+        let line = late.remove(response);
+        late.insert(end, line);
+        assert!(check(&late).is_err(), "after the adoption");
+
+        let main = (start + 1..end)
+            .find(|index| !theirs.contains(index))
+            .unwrap();
+        let mut main_changed = new.clone();
+        main_changed[main] = with_field(&new[main], "event_note");
+        assert!(check(&main_changed).is_err(), "a main thread's event");
+    }
+
+    #[test]
+    fn the_corpus_manifest_pins_its_fixtures() {
+        let manifest: Value = serde_json::from_str(MANIFEST).unwrap();
+        assert_eq!(
+            manifest["fixture_sha256"]["cases.json"],
+            sha256(CASES.as_bytes())
+        );
+        assert_eq!(
+            manifest["fixture_sha256"]["off-golden.json"],
+            sha256(OFF_GOLDEN.as_bytes())
+        );
+        assert_eq!(manifest["base_sha"], BASE_SHA);
+        assert_eq!(
+            manifest["fixture_sha256"]["attempts-replay-golden.json"],
+            sha256(ATTEMPTS_REPLAY_GOLDEN.as_bytes())
+        );
+        assert_eq!(
+            manifest["attempts_replay_base_sha"],
+            ATTEMPTS_REPLAY_BASE_SHA
+        );
+        let golden: Value = serde_json::from_str(ATTEMPTS_REPLAY_GOLDEN).unwrap();
+        assert!(ATTEMPTS_REPLAY_BASE_SHA.starts_with(golden["source"].as_str().unwrap()));
+    }
+
+    /// The corpus says which tests stand for each acceptance row. A renamed test fails here.
+    #[test]
+    fn the_corpus_names_what_runs() {
+        let cases: Value = serde_json::from_str(CASES).unwrap();
+        let golden: Value = serde_json::from_str(OFF_GOLDEN).unwrap();
+        let ids = |rows: &Value| {
+            rows.as_array()
+                .unwrap()
+                .iter()
+                .map(|row| row["id"].as_str().unwrap().to_string())
+                .collect::<Vec<_>>()
+        };
+        let off = OFF_ROWS
+            .iter()
+            .map(|row| row.id.to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(ids(&golden["rows"]), off);
+        assert_eq!(ids(&cases["off"]), off);
+
+        let sources = [
+            include_str!("structured_stage_receipts.rs"),
+            include_str!("../src/tools/profile_tools/effects.rs"),
+            include_str!("../src/planner/structured_stages/ledger.rs"),
+            include_str!("../src/planner/structured_stages/state.rs"),
+            include_str!("../src/planner/structured_stages/invalidation.rs"),
+            include_str!("../src/planner/structured_stages/resume.rs"),
+            include_str!("../src/planner/structured_stages/contract.rs"),
+            include_str!("../src/planner/structured_stages/mod.rs"),
+            include_str!(
+                "../src/minimal_loop/loop_run/implementation_completion/structured_stage_completion.rs"
+            ),
+            include_str!("../src/tools/profile_tools/pre_run.rs"),
+            include_str!("../src/tools/profile_tools/schema/binding.rs"),
+            include_str!("../src/tools/profile_tools/stage_attempts.rs"),
+            include_str!("../src/state/tool_history/stage.rs"),
+            include_str!("../src/tools/profile_tools/schema/invocation.rs"),
+        ];
+        let rows = cases["acceptance"].as_array().unwrap();
+        assert_eq!(rows.len(), 7);
+        for row in rows {
+            let tests = row["tests"].as_array().unwrap();
+            assert!(!tests.is_empty(), "{row}");
+            for test in tests {
+                let name = format!("fn {}(", test.as_str().unwrap());
+                assert!(
+                    sources.iter().any(|source| source.contains(&name)),
+                    "{name} names nothing that runs"
+                );
+            }
+        }
+    }
+
+    /// Issue #998: the corpus names the event and the end a call the schema refuses can reach,
+    /// and they are what the code writes.
+    #[test]
+    fn the_corpus_names_the_schema_refusal_limit_as_the_code_writes_it() {
+        let cases: Value = serde_json::from_str(CASES).unwrap();
+        let has = |list: &str, key: &str, value: &str, code: (&str, &str)| {
+            let found = cases[list]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|row| row[key] == value && row[code.0] == code.1);
+            assert!(found, "{list}: no row {key}={value} {}={}", code.0, code.1);
+        };
+        has(
+            "events",
+            "event",
+            "stage_schema_refusal_limit",
+            ("code", "schema_refusal_limit"),
+        );
+        has(
+            "refusals",
+            "refusal",
+            "stage_run_ended",
+            ("kind", "schema_refusal_limit"),
+        );
+        let leaf = include_str!("../src/planner/structured_stages/schema_refusals.rs");
+        assert!(leaf.contains("\"event\": \"stage_schema_refusal_limit\""));
+        assert!(leaf.contains("SCHEMA_REFUSAL_LIMIT: &str = \"schema_refusal_limit\""));
+        for field in ["stage", "target", "refusals", "limit", "scope"] {
+            assert!(leaf.contains(&format!("\"{field}\":")), "{field}");
+        }
+    }
+}
+
+/// On Linux the test-only `COMMANDAGENT_TEST_LINUX_STRICT` says whether the strict backend must
+/// work there (Issue #982); unset, this fails. With `available`, the same stage set is admitted
+/// instead, through the real probe.
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn where_the_strict_isolation_does_not_exist_a_stage_tool_is_unavailable() {
+    let _guard = lock();
+    let env = Env::new();
+    env.write_walk_tools(Some(floor()));
+    if cfg!(target_os = "linux") {
+        let expected = std::env::var("COMMANDAGENT_TEST_LINUX_STRICT");
+        match expected.as_deref() {
+            Ok("available") => {
+                let admitted = admit_selected(&env.root, WALK_PROFILE, None)
+                    .map(|admitted| admitted.is_some())
+                    .map_err(|refusal| refusal.to_string());
+                assert_eq!(admitted, Ok(true));
+                return;
+            }
+            Ok("unavailable") => {}
+            other => panic!(
+                "set COMMANDAGENT_TEST_LINUX_STRICT=available or =unavailable (it is {other:?})"
+            ),
+        }
+    }
+    let error = env.admission_error(WALK_PROFILE);
+    assert!(
+        error.starts_with("profile_tool_refused: unavailable:"),
+        "{error}"
+    );
+    assert!(env.workspace().join(FIXED_INPUT).exists());
+    assert!(!env.evidence.join("state").exists());
+}
+
+#[cfg(target_os = "macos")]
+mod with_the_strict_isolation {
+    use std::collections::VecDeque;
+    use std::io::{Read as _, Write as _};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    use commandagent::config::{
+        Action, Config, ConfigFieldSources, NarrationMode, OllamaThink, OpenAiApi, PlanPreset,
+        PromptLayout, Provider,
+    };
+    use commandagent::minimal_loop::loop_run::run_session_with_outcome_with_ui;
+    use commandagent::planner::adjudication::contract::IntentId;
+    use commandagent::planner::adjudication::investigate::InvestigationBindingEvidence;
+    use commandagent::planner::runner::{run_step_plan, run_ultra_plan};
+    use commandagent::planner::step_plan::{PlanStep, StepPlan};
+    use commandagent::planner::ultra_plan::{UltraPhase, UltraPlan};
+    use commandagent::providers::client_from_config;
+    use commandagent::state::SessionSnapshot;
+    use commandagent::tools::os_sandbox::{
+        SandboxAvailability, SandboxMode, SandboxPolicy, install_for_test, reset_for_test,
+    };
+    use commandagent::tools::profile_tools::admit_selected;
+    use commandagent::tui::NOOP_UI;
+    use commandagent::tui::slash::handle_command;
+    use serde_json::{Value, json};
+
+    use super::{
+        BARE_TOOL_ID, CANDIDATE, ENTRY_PROFILE, Env, FIXED_INPUT, LOWER_OUTPUT, LOWER_TOOL,
+        MARKER_NAME_PROFILE, NO_ARGUMENT_PROFILE, UPPER_OUTPUT, UPPER_TOOL, WALK_PROFILE, floor,
+        lock,
+    };
+
+    type Responder = Arc<dyn Fn(usize, &Value) -> String + Send + Sync>;
+
+    struct FakeHttp {
+        url: String,
+        requests: Arc<Mutex<Vec<Value>>>,
+        stop: Arc<AtomicBool>,
+        thread: Option<std::thread::JoinHandle<()>>,
+    }
+
+    impl FakeHttp {
+        fn start(responder: Responder) -> Self {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let url = format!("http://{}", listener.local_addr().unwrap());
+            let requests: Arc<Mutex<Vec<Value>>> = Arc::default();
+            let stop = Arc::new(AtomicBool::new(false));
+            let thread = {
+                let (requests, stop) = (requests.clone(), stop.clone());
+                std::thread::spawn(move || {
+                    while !stop.load(Ordering::SeqCst) {
+                        match listener.accept() {
+                            Ok((stream, _)) => serve(stream, &requests, &responder),
+                            Err(_) => std::thread::sleep(std::time::Duration::from_millis(2)),
+                        }
+                    }
+                })
+            };
+            Self {
+                url,
+                requests,
+                stop,
+                thread: Some(thread),
+            }
+        }
+
+        fn finish(mut self) -> Vec<Value> {
+            self.stop.store(true, Ordering::SeqCst);
+            self.thread.take().unwrap().join().unwrap();
+            self.requests.lock().unwrap().clone()
+        }
+    }
+
+    fn serve(mut stream: std::net::TcpStream, requests: &Mutex<Vec<Value>>, responder: &Responder) {
+        stream.set_nonblocking(false).unwrap();
+        let mut bytes = Vec::new();
+        let mut chunk = [0u8; 8192];
+        let body_start = loop {
+            let read = stream.read(&mut chunk).unwrap_or(0);
+            if read == 0 {
+                return;
+            }
+            bytes.extend_from_slice(&chunk[..read]);
+            if let Some(position) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
+                break position + 4;
+            }
+        };
+        let head = String::from_utf8_lossy(&bytes[..body_start]).to_ascii_lowercase();
+        let length = head
+            .lines()
+            .find_map(|line| line.strip_prefix("content-length:"))
+            .and_then(|value| value.trim().parse::<usize>().ok())
+            .unwrap_or(0);
+        while bytes.len() < body_start + length {
+            let read = stream.read(&mut chunk).unwrap_or(0);
+            if read == 0 {
+                break;
+            }
+            bytes.extend_from_slice(&chunk[..read]);
+        }
+        let body: Value = serde_json::from_slice(&bytes[body_start..]).unwrap_or(Value::Null);
+        let index = {
+            let mut requests = requests.lock().unwrap();
+            requests.push(body.clone());
+            requests.len()
+        };
+        let reply = responder(index, &body);
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{reply}",
+            reply.len()
+        );
+        let _ = stream.write_all(response.as_bytes());
+    }
+
+    fn text_reply(content: &str) -> String {
+        json!({"choices": [{"message": {"role": "assistant", "content": content}}]}).to_string()
+    }
+
+    fn tool_reply(name: &str, mode: &str, revision: &str) -> String {
+        let arguments = json!({"mode": mode, "expected_revision": revision}).to_string();
+        json!({"choices": [{"message": {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{
+                "id": "call-0",
+                "type": "function",
+                "function": {"name": name, "arguments": arguments},
+            }],
+        }}]})
+        .to_string()
+    }
+
+    fn read_reply(path: &str) -> String {
+        json!({"choices": [{"message": {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{
+                "id": "call-1",
+                "type": "function",
+                "function": {
+                    "name": "Read",
+                    "arguments": json!({"path": path}).to_string(),
+                },
+            }],
+        }}]})
+        .to_string()
+    }
+
+    fn has_tool_answer(body: &Value) -> bool {
+        body["messages"]
+            .as_array()
+            .is_some_and(|messages| messages.iter().any(|message| message["role"] == "tool"))
+    }
+
+    /// What the host answered to the last call, as the model reads it.
+    fn last_tool_answer(body: &Value) -> Value {
+        let text = body["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .rev()
+            .find(|message| message["role"] == "tool")
+            .and_then(|message| message["content"].as_str())
+            .unwrap_or_else(|| panic!("no tool answer: {body}"));
+        serde_json::from_str(text).unwrap_or_else(|_| panic!("not data: {text}"))
+    }
+
+    fn config(env: &Env, profile: &str, url: &str) -> Config {
+        Config {
+            workspace_root: env.root.clone(),
+            state_dir: env.evidence.join("state"),
+            eval_events_path: Some(env.evidence.join("events.jsonl")),
+            completion_contract_path: None,
+            yes: true,
+            offline: false,
+            context_budget: 100_000,
+            model: "m".to_string(),
+            provider: Provider::LmStudio,
+            tool_protocol: None,
+            openai_api: OpenAiApi::ChatCompletions,
+            prompt_layout: PromptLayout::Stable,
+            plan_preset: PlanPreset::None,
+            intent_override: None,
+            planner_model: "m".to_string(),
+            planner_provider: Provider::LmStudio,
+            planner_think: Some(OllamaThink::False),
+            classifier_model: "m".to_string(),
+            classifier_provider: Provider::LmStudio,
+            openai_compatible: None,
+            ollama_host: "http://localhost:11434".to_string(),
+            ollama_think: None,
+            lm_studio_host: url.to_string(),
+            num_predict: 100,
+            max_iterations: 8,
+            recovery_plan_auto_runs: 0,
+            chat_timeout_secs: 30,
+            chat_timeout_source: "override:test".to_string(),
+            field_sources: ConfigFieldSources::default(),
+            chat_retries: 1,
+            stream: false,
+            resume: None,
+            fresh_session: false,
+            no_footer: false,
+            narration: NarrationMode::Normal,
+            profile: profile.to_string(),
+            profile_explicit: true,
+            profile_inference: None,
+            style: "default".to_string(),
+            action: Action::Repl,
+        }
+    }
+
+    fn install_sandbox(env: &Env) {
+        let tmp = env.evidence.join("sandbox/run");
+        std::fs::create_dir_all(&tmp).unwrap();
+        install_for_test(
+            SandboxMode::Auto,
+            SandboxPolicy::new(&env.root, &tmp),
+            SandboxAvailability::Available,
+        );
+    }
+
+    fn run(env: &Env, profile: &str, responder: Responder) -> (Vec<Value>, Result<(), String>) {
+        let http = FakeHttp::start(responder);
+        let config = config(env, profile, &http.url);
+        let mut client = client_from_config(&config, false).unwrap();
+        let result = run_session_with_outcome_with_ui(
+            client.as_mut(),
+            &mut SessionSnapshot::new(),
+            "Submit both stages.",
+            &[],
+            &config,
+            &NOOP_UI,
+        )
+        .map(|_| ())
+        .map_err(|error| format!("{error:#}"));
+        (http.finish(), result)
+    }
+
+    /// A failed check answered, a seal, and the stage below going through on the revision the
+    /// seal's answer named. The input it reads did not exist when the tools were admitted.
+    #[test]
+    fn two_stages_go_through_real_tool_calls_and_the_lower_reads_what_the_upper_committed() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        install_sandbox(&env);
+        let upper_seen = Arc::new(Mutex::new(VecDeque::new()));
+        let seen = upper_seen.clone();
+        let responder: Responder = Arc::new(move |index, body| match index {
+            1 => tool_reply(UPPER_TOOL, "bad", "initial"),
+            2 => {
+                seen.lock().unwrap().push_back(last_tool_answer(body));
+                tool_reply(UPPER_TOOL, "good", "initial")
+            }
+            3 => {
+                let answer = last_tool_answer(body);
+                let revision = answer["stage"]["downstream"][0]["revision"]
+                    .as_str()
+                    .unwrap_or_else(|| panic!("no revision below: {answer}"))
+                    .to_string();
+                seen.lock().unwrap().push_back(answer);
+                tool_reply(LOWER_TOOL, "good", &revision)
+            }
+            _ => {
+                seen.lock().unwrap().push_back(last_tool_answer(body));
+                text_reply("done")
+            }
+        });
+        let (requests, result) = run(&env, WALK_PROFILE, responder);
+        reset_for_test();
+        result.unwrap();
+        assert_eq!(requests.len(), 4);
+
+        let seen = upper_seen.lock().unwrap();
+        assert_eq!(seen[0]["status"], "resubmit", "{}", seen[0]);
+        assert_eq!(seen[0]["code"], "check_failed");
+        assert_eq!(seen[0]["diagnostics"][0]["message"], "the shape is off");
+        assert_eq!(seen[1]["stage"]["status"], "sealed", "{}", seen[1]);
+        assert_eq!(seen[2]["stage"]["status"], "sealed", "{}", seen[2]);
+
+        assert_eq!(
+            std::fs::read(env.root.join(UPPER_OUTPUT)).unwrap(),
+            CANDIDATE
+        );
+        assert_eq!(
+            std::fs::read(env.root.join(LOWER_OUTPUT)).unwrap(),
+            CANDIDATE
+        );
+        assert!(env.workspace().join(FIXED_INPUT).exists());
+        assert!(
+            env.evidence.join("state/structured-stages").is_dir(),
+            "the record is outside the workspace"
+        );
+        assert!(!env.root.join("structured-stages").exists());
+    }
+
+    fn assert_not_a_success(result: &Result<(), String>, label: &str) {
+        let error = result
+            .as_ref()
+            .err()
+            .unwrap_or_else(|| panic!("{label}: the run reported a success"));
+        assert!(error.contains("stage_incomplete"), "{label}: {error}");
+    }
+
+    const CLAIM: &str = "All stages are sealed and every check passed.";
+
+    /// What a model says about a stage is not what the host decides on.
+    #[test]
+    fn a_failed_upper_stage_is_no_success_whatever_the_model_says() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        install_sandbox(&env);
+        let responder: Responder = Arc::new(|index, _| match index {
+            1 => tool_reply(UPPER_TOOL, "bad", "initial"),
+            _ => text_reply(CLAIM),
+        });
+        let (requests, result) = run(&env, WALK_PROFILE, responder);
+        reset_for_test();
+        assert_not_a_success(&result, "upper failed");
+        assert!(
+            requests.len() >= 3,
+            "the claim was answered: {}",
+            requests.len()
+        );
+        assert!(!env.root.join(UPPER_OUTPUT).exists());
+    }
+
+    #[test]
+    fn a_lower_stage_never_submitted_is_no_success_whatever_the_model_says() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        install_sandbox(&env);
+        let responder: Responder = Arc::new(|index, _| match index {
+            1 => tool_reply(UPPER_TOOL, "good", "initial"),
+            _ => text_reply(CLAIM),
+        });
+        let (_, result) = run(&env, WALK_PROFILE, responder);
+        reset_for_test();
+        assert_not_a_success(&result, "lower missing");
+        assert_eq!(
+            std::fs::read(env.root.join(UPPER_OUTPUT)).unwrap(),
+            CANDIDATE
+        );
+        assert!(!env.root.join(LOWER_OUTPUT).exists());
+    }
+
+    /// The commit's answer reaches the model in its fixed form here, without the name below. The
+    /// host's decision does not go through that text.
+    #[test]
+    fn a_name_the_history_redacts_changes_nothing_the_host_decides() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        install_sandbox(&env);
+        let seen: Arc<Mutex<Vec<Value>>> = Arc::default();
+        let kept = seen.clone();
+        let responder: Responder = Arc::new(move |index, body| {
+            if index == 1 {
+                return tool_reply(UPPER_TOOL, "good", "initial");
+            }
+            if index == 2 {
+                kept.lock().unwrap().push(last_tool_answer(body));
+            }
+            text_reply(CLAIM)
+        });
+        let (_, result) = run(&env, MARKER_NAME_PROFILE, responder);
+        reset_for_test();
+        assert_not_a_success(&result, "marker name");
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen[0]["stage"]["status"], "sealed", "{}", seen[0]);
+        assert_eq!(seen[0]["truncated"], true, "{}", seen[0]);
+    }
+
+    fn setup_step(instruction: &str) -> PlanStep {
+        PlanStep {
+            id: "step-setup".to_string(),
+            kind: "setup".to_string(),
+            expected_result: "pass".to_string(),
+            instruction: instruction.to_string(),
+            expected_paths: Vec::new(),
+            verify: Vec::new(),
+        }
+    }
+
+    /// T-A (B1): a plain step plan has no final acceptance. A step answers for what it called, so
+    /// the plan's end is what answers for the rest.
+    #[test]
+    fn a_plan_that_never_calls_the_lower_stage_is_no_success() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        install_sandbox(&env);
+        let responder: Responder = Arc::new(|index, _| match index {
+            1 => tool_reply(UPPER_TOOL, "good", "initial"),
+            _ => text_reply("done"),
+        });
+        let http = FakeHttp::start(responder);
+        let config = config(&env, WALK_PROFILE, &http.url);
+        let mut client = client_from_config(&config, false).unwrap();
+        let plan = StepPlan {
+            goal: "Submit the upper stage.".to_string(),
+            steps: vec![setup_step("Submit the upper stage")],
+        };
+        let result = run_step_plan(client.as_mut(), &plan, &config);
+        http.finish();
+        reset_for_test();
+        let error = result.expect_err("the lower stage was never submitted");
+        assert!(error.to_string().contains("stage_incomplete"), "{error:#}");
+        assert!(error.to_string().contains("lower/main"), "{error:#}");
+    }
+
+    /// The control for T-A: a plan that sealed everything is a success.
+    #[test]
+    fn a_plan_that_seals_every_stage_succeeds() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        install_sandbox(&env);
+        // The second step's first call is written before it knows the revision below, and the
+        // answer tells it.
+        let responder: Responder = Arc::new(|index, body| match index {
+            1 => tool_reply(UPPER_TOOL, "good", "initial"),
+            2 => tool_reply(LOWER_TOOL, "good", "initial"),
+            _ => {
+                let answer = last_tool_answer(body);
+                match answer["revision"].as_str() {
+                    Some(revision) if answer["status"] == "stale" => {
+                        tool_reply(LOWER_TOOL, "good", revision)
+                    }
+                    _ => text_reply("done"),
+                }
+            }
+        });
+        let http = FakeHttp::start(responder);
+        let config = config(&env, WALK_PROFILE, &http.url);
+        let mut client = client_from_config(&config, false).unwrap();
+        let mut second = setup_step("Submit the lower stage");
+        second.id = "step-setup-lower".to_string();
+        let plan = StepPlan {
+            goal: "Submit both stages.".to_string(),
+            steps: vec![setup_step("Submit the upper stage"), second],
+        };
+        let result = run_step_plan(client.as_mut(), &plan, &config);
+        http.finish();
+        reset_for_test();
+        result.unwrap();
+        assert_eq!(
+            std::fs::read(env.root.join(LOWER_OUTPUT)).unwrap(),
+            CANDIDATE
+        );
+    }
+
+    /// With no step there is no session, so no stage was ever bound. Declared stages are still
+    /// declared: nothing vouched for them.
+    #[test]
+    fn a_plan_with_no_session_answers_for_no_stage_and_is_no_success() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        install_sandbox(&env);
+        let http = FakeHttp::start(Arc::new(|_, _| text_reply("nobody asked")));
+        let config = config(&env, WALK_PROFILE, &http.url);
+        let mut client = client_from_config(&config, false).unwrap();
+        let plan = StepPlan {
+            goal: "Do nothing.".to_string(),
+            steps: Vec::new(),
+        };
+        let result = run_step_plan(client.as_mut(), &plan, &config);
+        http.finish();
+        reset_for_test();
+        let error = result.expect_err("no stage was ever bound");
+        assert!(
+            error
+                .to_string()
+                .contains("stage_incomplete: no_session_bound_the_declared_stages"),
+            "{error:#}"
+        );
+    }
+
+    fn two_phase_plan(intent: &str, first: &str, second: &str) -> UltraPlan {
+        UltraPlan {
+            goal: "Submit the stages".to_string(),
+            profile: WALK_PROFILE.to_string(),
+            style: "default".to_string(),
+            intent: intent.to_string(),
+            phases: vec![
+                UltraPhase {
+                    id: "first".to_string(),
+                    prompt: format!("Phase-first: {first}"),
+                },
+                UltraPhase {
+                    id: "second".to_string(),
+                    prompt: format!("Phase-second: {second}"),
+                },
+            ],
+        }
+    }
+
+    fn one_step_plan(goal: &str) -> Value {
+        json!({"goal": goal, "steps": [{
+            "id": "step-setup",
+            "kind": "setup",
+            "expected_result": "pass",
+            "instruction": goal,
+            "expected_paths": [],
+            "verify": [],
+        }]})
+    }
+
+    /// Phases that hand out their plans by what they are asked, and a model that submits what its
+    /// step says. The first answer that is stale gives the revision to go on with.
+    fn ultra_responder(submit_lower: bool) -> Responder {
+        Arc::new(move |_, body| {
+            let text = body.to_string();
+            if !body["tools"].to_string().contains(UPPER_TOOL) {
+                let goal = if text.contains("Phase-second") {
+                    "Submit the lower stage"
+                } else {
+                    "Submit the upper stage"
+                };
+                return text_reply(&one_step_plan(goal).to_string());
+            }
+            let wants_lower = text.contains("Submit the lower stage");
+            if !wants_lower {
+                return if has_tool_answer(body) {
+                    text_reply("done")
+                } else {
+                    tool_reply(UPPER_TOOL, "good", "initial")
+                };
+            }
+            if !submit_lower {
+                // Something for the step to have done, that is no stage call.
+                let answered = body["messages"]
+                    .as_array()
+                    .and_then(|messages| messages.last())
+                    .is_some_and(|message| message["role"] == "tool");
+                return if answered {
+                    text_reply("done")
+                } else {
+                    read_reply(FIXED_INPUT)
+                };
+            }
+            let answer = has_tool_answer(body).then(|| last_tool_answer(body));
+            match answer {
+                Some(answer) if answer["status"] == "stale" => {
+                    tool_reply(LOWER_TOOL, "good", answer["revision"].as_str().unwrap())
+                }
+                Some(answer) if answer["stage"]["status"] == "sealed" => {
+                    if answer["path"] == LOWER_OUTPUT {
+                        text_reply("done")
+                    } else {
+                        tool_reply(LOWER_TOOL, "good", "initial")
+                    }
+                }
+                _ => tool_reply(LOWER_TOOL, "good", "initial"),
+            }
+        })
+    }
+
+    fn run_two_phases(env: &Env, responder: Responder) -> (Vec<Value>, anyhow::Result<String>) {
+        std::fs::write(env.root.join("notes.txt"), "the notes\n").unwrap();
+        let http = FakeHttp::start(responder);
+        let config = config(env, WALK_PROFILE, &http.url);
+        let mut planner = client_from_config(&config, true).unwrap();
+        let mut execution = client_from_config(&config, false).unwrap();
+        let plan = two_phase_plan(
+            "create",
+            "submit the upper stage.",
+            "submit the lower stage.",
+        );
+        let result = run_ultra_plan(planner.as_mut(), execution.as_mut(), &plan, &config);
+        (http.finish(), result)
+    }
+
+    /// The control for final acceptance: it must not refuse a run that met every obligation. A
+    /// session that did not leave its set for the gate to find would fail here.
+    #[test]
+    fn an_ultra_plan_that_seals_every_stage_succeeds() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        install_sandbox(&env);
+        let (_, result) = run_two_phases(&env, ultra_responder(true));
+        reset_for_test();
+        let summary = result.unwrap_or_else(|error| panic!("{error:#}"));
+        assert!(summary.contains("complete"), "{summary}");
+        assert_eq!(
+            std::fs::read(env.root.join(LOWER_OUTPUT)).unwrap(),
+            CANDIDATE
+        );
+    }
+
+    /// Each step answers only for what it called, so only the final gate can see the stage nobody
+    /// called. Its failure is in what acceptance reports.
+    #[test]
+    fn an_ultra_plan_that_leaves_a_stage_open_fails_at_final_acceptance() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        install_sandbox(&env);
+        let (_, result) = run_two_phases(&env, ultra_responder(false));
+        reset_for_test();
+        result.expect_err("the lower stage was never submitted");
+        let events = std::fs::read_to_string(env.evidence.join("events.jsonl")).unwrap();
+        let failed = events
+            .lines()
+            .find(|line| line.contains("\"event\":\"ultra_final_acceptance_failed\""))
+            .expect("the steps passed and acceptance is what refused");
+        assert!(failed.contains("stage_incomplete"), "{failed}");
+        assert!(failed.contains("lower/main"), "{failed}");
+        assert!(events.contains("structured_stage_incomplete"), "{events}");
+    }
+
+    /// `post_write_read_confirmation_completed` ends a run at the second Read after a commit. With
+    /// a stage open, that end would give the model no chance to go on: it is held back and asked
+    /// again. `two_reads_after_every_stage_is_sealed_end_the_session` is the control.
+    #[test]
+    fn a_read_after_a_commit_does_not_end_a_run_with_a_stage_open() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        install_sandbox(&env);
+        let responder: Responder = Arc::new(move |index, _| match index {
+            1 => tool_reply(UPPER_TOOL, "good", "initial"),
+            2 | 3 => read_reply(UPPER_OUTPUT),
+            _ => text_reply("stopping"),
+        });
+        let (requests, result) = run(&env, WALK_PROFILE, responder);
+        reset_for_test();
+        assert_not_a_success(&result, "the lower stage is open");
+        assert!(
+            requests.len() > 3,
+            "ended at the second Read: {}",
+            requests.len()
+        );
+        let events = std::fs::read_to_string(env.evidence.join("events.jsonl")).unwrap();
+        assert!(
+            !events.contains("post_write_read_confirmation_completed"),
+            "{events}"
+        );
+    }
+
+    /// An implement step counts what starts no process as reading (S8), and a seal as a move. The
+    /// loop's own stagnation notice is what tells the two apart.
+    fn stagnation_notices(replies: Vec<&'static str>) -> (usize, String) {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        install_sandbox(&env);
+        let responder: Responder = Arc::new(move |index, _| match replies.get(index - 1) {
+            Some(&"seal") => tool_reply(UPPER_TOOL, "good", "initial"),
+            Some(&"check") => tool_reply(UPPER_TOOL, "bad", "initial"),
+            Some(&"stale") => tool_reply(UPPER_TOOL, "bad", "not-a-revision"),
+            _ => text_reply("stopping"),
+        });
+        let http = FakeHttp::start(responder);
+        let config = config(&env, WALK_PROFILE, &http.url);
+        let mut client = client_from_config(&config, false).unwrap();
+        let mut step = setup_step("Submit the upper stage");
+        step.kind = "implement".to_string();
+        // Never written, so no call here reduces what is missing: only the stage's note can.
+        step.expected_paths = vec!["notes.txt".to_string()];
+        let plan = StepPlan {
+            goal: "Submit the upper stage.".to_string(),
+            steps: vec![step],
+        };
+        let _ = run_step_plan(client.as_mut(), &plan, &config);
+        http.finish();
+        reset_for_test();
+        let events = std::fs::read_to_string(env.evidence.join("events.jsonl")).unwrap();
+        let notices = events
+            .lines()
+            .filter(|line| line.contains("\"event\":\"read_only_stagnation_feedback\""))
+            .count();
+        (notices, events)
+    }
+
+    /// `is_stage_tool`: a call that starts nothing counts as reading.
+    #[test]
+    fn repeated_calls_that_start_nothing_read_as_stagnation_to_the_loop() {
+        let (notices, events) = stagnation_notices(vec!["stale", "stale", "stale", "stale"]);
+        assert!(notices >= 1, "{events}");
+    }
+
+    /// `batch_all_read_only_tools = false`: a seal is a move, so the count starts over at it.
+    #[test]
+    fn a_seal_between_them_starts_the_count_over() {
+        let (notices, events) =
+            stagnation_notices(vec!["stale", "stale", "seal", "stale", "stale"]);
+        assert_eq!(notices, 0, "{events}");
+    }
+
+    /// A plan of the given intent: a reproducer that fails first, the upper stage, and the lower
+    /// stage if asked for. Everything its own adjudication asks for is in place, so what is left
+    /// to say no is the stages. The controls with every stage sealed show that.
+    fn run_intent(
+        env: &Env,
+        intent: &str,
+        reproducer: &'static str,
+        seal_lower: bool,
+    ) -> anyhow::Result<String> {
+        std::fs::write(env.root.join("notes.txt"), "the notes\n").unwrap();
+        let responder: Responder = Arc::new(move |_, body| {
+            let text = body.to_string();
+            if !body["tools"].to_string().contains(UPPER_TOOL) {
+                if text.contains("Phase-reproduce") {
+                    return text_reply(
+                        &json!({"goal": "reproduce", "steps": [{
+                            "id": "step-reproduce",
+                            "kind": "verify",
+                            "expected_result": "fail",
+                            "instruction": "Reproduce the failure",
+                            "expected_paths": [],
+                            "verify": [reproducer],
+                        }]})
+                        .to_string(),
+                    );
+                }
+                let goal = if text.contains("Phase-lower") {
+                    "Submit the lower stage"
+                } else {
+                    "Submit the upper stage"
+                };
+                return text_reply(&one_step_plan(goal).to_string());
+            }
+            if !text.contains("Submit the lower stage") {
+                return if has_tool_answer(body) {
+                    text_reply("done")
+                } else {
+                    tool_reply(UPPER_TOOL, "good", "initial")
+                };
+            }
+            let answer = last_tool_answer(body);
+            if answer["status"] == "stale" {
+                tool_reply(LOWER_TOOL, "good", answer["revision"].as_str().unwrap())
+            } else if answer["path"] == LOWER_OUTPUT {
+                text_reply("done")
+            } else {
+                tool_reply(LOWER_TOOL, "good", "initial")
+            }
+        });
+        let http = FakeHttp::start(responder);
+        let mut config = config(env, WALK_PROFILE, &http.url);
+        if intent == "investigate" {
+            config.intent_override = Some(IntentId::Investigate);
+        }
+        let mut planner = client_from_config(&config, true).unwrap();
+        let mut execution = client_from_config(&config, false).unwrap();
+        let phase = |id: &str, prompt: &str| UltraPhase {
+            id: id.to_string(),
+            prompt: prompt.to_string(),
+        };
+        let mut phases = vec![
+            phase("reproduce", "Phase-reproduce: reproduce the failure."),
+            phase("upper", "Phase-upper: submit the upper stage."),
+        ];
+        if seal_lower {
+            phases.push(phase("lower", "Phase-lower: submit the lower stage."));
+        }
+        let plan = UltraPlan {
+            goal: "Find out why it fails".to_string(),
+            profile: WALK_PROFILE.to_string(),
+            style: "default".to_string(),
+            intent: intent.to_string(),
+            phases,
+        };
+        let result = run_ultra_plan(planner.as_mut(), execution.as_mut(), &plan, &config);
+        http.finish();
+        result
+    }
+
+    /// What an investigation's own adjudication takes as enough: a report and a binding with no
+    /// claim in it, which it calls partial and lets through.
+    fn write_investigation_evidence(env: &Env) {
+        std::fs::create_dir_all(env.root.join("output")).unwrap();
+        std::fs::write(env.root.join("output/diagnosis.md"), "# Diagnosis\n").unwrap();
+        std::fs::create_dir_all(env.root.join("evidence")).unwrap();
+        std::fs::write(
+            env.root.join("evidence/investigation-binding.json"),
+            serde_json::to_vec(&InvestigationBindingEvidence::new(Vec::new())).unwrap(),
+        )
+        .unwrap();
+    }
+
+    fn intent_env() -> Env {
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        install_sandbox(&env);
+        env
+    }
+
+    /// T-B (B2): an investigation ends at its own adjudication and has no final acceptance.
+    #[test]
+    fn an_investigation_that_leaves_a_stage_open_is_no_success() {
+        let _guard = lock();
+        let env = intent_env();
+        write_investigation_evidence(&env);
+        let result = run_intent(&env, "investigate", "test -f no-such-marker", false);
+        reset_for_test();
+        let error = result.expect_err("the lower stage was never submitted");
+        assert!(
+            error.to_string().contains("stage_incomplete"),
+            "another reason would say nothing about the stages: {error:#}"
+        );
+        assert!(error.to_string().contains("lower/main"), "{error:#}");
+    }
+
+    #[test]
+    fn an_investigation_that_seals_every_stage_succeeds() {
+        let _guard = lock();
+        let env = intent_env();
+        write_investigation_evidence(&env);
+        let result = run_intent(&env, "investigate", "test -f no-such-marker", true);
+        reset_for_test();
+        let summary = result.unwrap_or_else(|error| panic!("{error:#}"));
+        assert!(summary.contains("complete"), "{summary}");
+    }
+
+    /// T-B (B2): a fix ends at its own adjudication too. The reproducer asks for the upper stage's
+    /// output, so sealing that stage is what passes it.
+    #[test]
+    fn a_fix_that_leaves_a_stage_open_is_no_success() {
+        let _guard = lock();
+        let env = intent_env();
+        let result = run_intent(&env, "fix", "test -f out/upper.json", false);
+        reset_for_test();
+        let error = result.expect_err("the lower stage was never submitted");
+        assert!(
+            error.to_string().contains("stage_incomplete"),
+            "another reason would say nothing about the stages: {error:#}"
+        );
+        assert!(error.to_string().contains("lower/main"), "{error:#}");
+    }
+
+    #[test]
+    fn a_fix_that_seals_every_stage_succeeds() {
+        let _guard = lock();
+        let env = intent_env();
+        let result = run_intent(&env, "fix", "test -f out/upper.json", true);
+        reset_for_test();
+        let summary = result.unwrap_or_else(|error| panic!("{error:#}"));
+        assert!(summary.contains("complete"), "{summary}");
+    }
+
+    /// T1: a fix's own commands run after the steps. A reproducer that rewrites what a stage
+    /// sealed leaves bytes the seal does not stand for.
+    #[test]
+    fn a_fix_whose_reproducer_rewrites_a_sealed_output_is_no_success() {
+        let _guard = lock();
+        let env = intent_env();
+        std::fs::write(
+            env.root.join("rewrite.sh"),
+            "test -f out/upper.json || exit 1\n[ ! -f out/lower.json ] || printf x >> out/lower.json\n",
+        )
+        .unwrap();
+        let result = run_intent(&env, "fix", "sh rewrite.sh", true);
+        reset_for_test();
+        let error = result.expect_err("the seal no longer stands for the bytes");
+        assert!(error.to_string().contains("stage_incomplete"), "{error:#}");
+        assert!(error.to_string().contains("lower/main"), "{error:#}");
+    }
+
+    /// T7: `--plan-run` with a plan of two steps seals both.
+    #[test]
+    fn the_binary_on_plan_run_succeeds_with_every_stage_sealed() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        let step = |id: &str, what: &str| {
+            json!({"id": id, "kind": "setup", "expected_result": "pass", "instruction": what,
+                   "expected_paths": [], "verify": []})
+        };
+        let plan = json!({"goal": "Submit the stages", "steps": [
+            step("step-upper", "Submit the upper stage"),
+            step("step-lower", "Submit the lower stage"),
+        ]});
+        let http = FakeHttp::start(Arc::new(move |index, body| match index {
+            1 => text_reply(&plan.to_string()),
+            2 => tool_reply(UPPER_TOOL, "good", "initial"),
+            3 => tool_reply(LOWER_TOOL, "good", "initial"),
+            _ => {
+                let answer = last_tool_answer(body);
+                match answer["revision"].as_str() {
+                    Some(revision) if answer["status"] == "stale" => {
+                        tool_reply(LOWER_TOOL, "good", revision)
+                    }
+                    _ => text_reply("done"),
+                }
+            }
+        }));
+        let output = binary(&env, &http.url, &["--plan-run", "Submit the stages"]);
+        http.finish();
+        assert_entry("--plan-run", true, &output, &env);
+    }
+
+    /// T8: what a stage set with automatic recovery spends before it is refused: the phase's plan,
+    /// as the known limit says, and no treatment and no second try.
+    #[test]
+    fn a_generated_plan_that_may_recover_by_itself_makes_no_treatment() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        std::fs::write(env.root.join("notes.txt"), "the notes\n").unwrap();
+        let http = FakeHttp::start(entry_responder(true));
+        let output = binary(
+            &env,
+            &http.url,
+            &[
+                "--recovery-plan-auto-runs",
+                "1",
+                "--ultra-plan-run",
+                "Submit the stages",
+            ],
+        );
+        let requests = http.finish();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(!output.status.success(), "{stderr}");
+        assert!(stderr.contains("RecoversByItself"), "{stderr}");
+        assert!(!env.root.join(".commandagent/recovery-treatments").exists());
+        assert_eq!(requests.len(), 1, "spent: {}", requests.len());
+    }
+
+    /// The child takes only what is named here, and `output` waits for it.
+    fn binary(env: &Env, url: &str, arguments: &[&str]) -> std::process::Output {
+        let home = tempfile::tempdir().unwrap();
+        std::process::Command::new(env!("CARGO_BIN_EXE_commandagent"))
+            .arg("--extension-root")
+            .arg(super::extension_root())
+            .args(["--model", "m", "--chat-retries", "0"])
+            .args(["--provider", "lm-studio", "--lm-studio-host", url, "--yes"])
+            .args(["--max-iterations", "8"])
+            .arg("--state-dir")
+            .arg(env.evidence.join("state"))
+            .args(["--profile", ENTRY_PROFILE])
+            .args(arguments)
+            .current_dir(&env.root)
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin")
+            .env("HOME", home.path())
+            .env(super::REGISTRY_ENV, &env.registry)
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap()
+    }
+
+    /// An entry's plan and a model that submits what its step says. `seal_lower` false leaves
+    /// the lower stage to nobody. The request for the plan is the one that offers no tool.
+    fn entry_responder(seal_lower: bool) -> Responder {
+        Arc::new(move |_, body| {
+            let text = body.to_string();
+            if !body["tools"].to_string().contains(UPPER_TOOL) {
+                let goal = if text.contains("Phase-second") {
+                    "Submit the lower stage"
+                } else {
+                    "Submit the upper stage"
+                };
+                return text_reply(&one_step_plan(goal).to_string());
+            }
+            ultra_submission(seal_lower, &text, body)
+        })
+    }
+
+    fn ultra_submission(seal_lower: bool, text: &str, body: &Value) -> String {
+        if !text.contains("Submit the lower stage") {
+            return if has_tool_answer(body) {
+                text_reply("done")
+            } else {
+                tool_reply(UPPER_TOOL, "good", "initial")
+            };
+        }
+        if !seal_lower {
+            let answered = body["messages"]
+                .as_array()
+                .and_then(|messages| messages.last())
+                .is_some_and(|message| message["role"] == "tool");
+            return if answered {
+                text_reply("done")
+            } else {
+                read_reply(FIXED_INPUT)
+            };
+        }
+        let answer = last_tool_answer(body);
+        if answer["status"] == "stale" {
+            tool_reply(LOWER_TOOL, "good", answer["revision"].as_str().unwrap())
+        } else if answer["path"] == LOWER_OUTPUT {
+            text_reply("done")
+        } else {
+            tool_reply(LOWER_TOOL, "good", "initial")
+        }
+    }
+
+    /// `--prompt` on the binary: the model submits both stages, or stops after the first.
+    #[test]
+    fn the_binary_on_prompt_succeeds_only_with_every_stage_sealed() {
+        let _guard = lock();
+        for seal_lower in [true, false] {
+            let env = Env::new();
+            env.write_walk_tools(Some(floor()));
+            let http = FakeHttp::start(Arc::new(move |index, body| match index {
+                1 => tool_reply(UPPER_TOOL, "good", "initial"),
+                2 if seal_lower => {
+                    let answer = last_tool_answer(body);
+                    let revision = answer["stage"]["downstream"][0]["revision"]
+                        .as_str()
+                        .unwrap()
+                        .to_string();
+                    tool_reply(LOWER_TOOL, "good", &revision)
+                }
+                _ => text_reply("All stages are sealed and every check passed."),
+            }));
+            let output = binary(&env, &http.url, &["--prompt", "Submit both stages."]);
+            http.finish();
+            assert_entry("--prompt", seal_lower, &output, &env);
+        }
+    }
+
+    fn assert_entry(entry: &str, sealed: bool, output: &std::process::Output, env: &Env) {
+        let said = format!(
+            "{entry} sealed={sealed}: {}\n--- stdout\n{}\n--- stderr\n{}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+        assert_eq!(output.status.success(), sealed, "{said}");
+        if !sealed {
+            assert!(
+                String::from_utf8_lossy(&output.stderr).contains("stage_incomplete")
+                    || String::from_utf8_lossy(&output.stdout).contains("stage_incomplete"),
+                "another reason would say nothing about the stages: {said}"
+            );
+        }
+        assert!(env.root.join(UPPER_OUTPUT).exists(), "{said}");
+        assert_eq!(env.root.join(LOWER_OUTPUT).exists(), sealed, "{said}");
+    }
+
+    /// `--ultra-plan-run` on the binary.
+    #[test]
+    fn the_binary_on_generated_plans_succeeds_only_with_every_stage_sealed() {
+        let _guard = lock();
+        for seal_lower in [true, false] {
+            let env = Env::new();
+            env.write_walk_tools(Some(floor()));
+            std::fs::write(env.root.join("notes.txt"), "the notes\n").unwrap();
+            let http = FakeHttp::start(entry_responder(seal_lower));
+            let output = binary(&env, &http.url, &["--ultra-plan-run", "Submit the stages"]);
+            http.finish();
+            assert_entry("--ultra-plan-run", seal_lower, &output, &env);
+        }
+    }
+
+    /// `--plan-run` generates one plan, so its one step seals what it can. The stage below it stays
+    /// open, and the plan's end says so: its control with both sealed is `/run-plan` below.
+    #[test]
+    fn the_binary_on_plan_run_refuses_a_stage_left_open() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        let http = FakeHttp::start(entry_responder(false));
+        let output = binary(&env, &http.url, &["--plan-run", "Submit the upper stage"]);
+        http.finish();
+        assert_entry("--plan-run", false, &output, &env);
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("stage_incomplete"),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    /// `--run-plan` on the binary, and `/run-plan` through the slash command it shares.
+    #[test]
+    fn a_plan_file_succeeds_only_with_every_stage_sealed() {
+        let _guard = lock();
+        let two_steps: Responder = Arc::new(|index, body| match index {
+            1 => tool_reply(UPPER_TOOL, "good", "initial"),
+            2 => tool_reply(LOWER_TOOL, "good", "initial"),
+            _ => {
+                let answer = last_tool_answer(body);
+                match answer["revision"].as_str() {
+                    Some(revision) if answer["status"] == "stale" => {
+                        tool_reply(LOWER_TOOL, "good", revision)
+                    }
+                    _ => text_reply("done"),
+                }
+            }
+        });
+        let one_step: Responder = Arc::new(|index, _| match index {
+            1 => tool_reply(UPPER_TOOL, "good", "initial"),
+            _ => text_reply("done"),
+        });
+        let step_yaml = |id: &str, what: &str| {
+            format!(
+                "  - id: \"{id}\"\n    kind: \"setup\"\n    expected_result: \"pass\"\n    instruction: \"{what}\"\n    expected_paths: []\n    verify: []\n"
+            )
+        };
+        let upper = step_yaml("step-upper", "Submit the upper stage");
+        let lower = step_yaml("step-lower", "Submit the lower stage");
+        for (sealed, responder, steps) in [
+            (true, two_steps, format!("{upper}{lower}")),
+            (false, one_step, upper.clone()),
+        ] {
+            // The binary.
+            let env = Env::new();
+            env.write_walk_tools(Some(floor()));
+            let plan = format!("goal: \"Submit the stages\"\nsteps:\n{steps}");
+            std::fs::write(env.root.join("steps.yaml"), &plan).unwrap();
+            let http = FakeHttp::start(responder.clone());
+            let output = binary(&env, &http.url, &["--run-plan", "steps.yaml"]);
+            http.finish();
+            assert_entry("--run-plan", sealed, &output, &env);
+
+            // The slash command.
+            let env = Env::new();
+            env.write_walk_tools(Some(floor()));
+            install_sandbox(&env);
+            std::fs::write(env.root.join("steps.yaml"), &plan).unwrap();
+            let http = FakeHttp::start(responder);
+            let config = config(&env, WALK_PROFILE, &http.url);
+            let mut planner = client_from_config(&config, true).unwrap();
+            let mut execution = client_from_config(&config, false).unwrap();
+            let result = handle_command(
+                "/run-plan steps.yaml",
+                &config,
+                planner.as_mut(),
+                execution.as_mut(),
+                &NOOP_UI,
+            );
+            http.finish();
+            reset_for_test();
+            assert_eq!(result.is_ok(), sealed, "/run-plan: {result:?}");
+            assert_eq!(env.root.join(LOWER_OUTPUT).exists(), sealed, "/run-plan");
+        }
+    }
+
+    /// `/ultra-plan-run` is the command a REPL's `/confirm` dispatches once Gate 1 is through.
+    #[test]
+    fn the_command_a_confirmation_dispatches_succeeds_only_with_every_stage_sealed() {
+        let _guard = lock();
+        for seal_lower in [true, false] {
+            let env = Env::new();
+            env.write_walk_tools(Some(floor()));
+            install_sandbox(&env);
+            std::fs::write(env.root.join("notes.txt"), "the notes\n").unwrap();
+            let http = FakeHttp::start(entry_responder(seal_lower));
+            let mut config = config(&env, ENTRY_PROFILE, &http.url);
+            config.plan_preset = PlanPreset::Profile;
+            let mut planner = client_from_config(&config, true).unwrap();
+            let mut execution = client_from_config(&config, false).unwrap();
+            let command = format!("/ultra-plan-run --profile {ENTRY_PROFILE} Submit the stages");
+            let result = handle_command(
+                &command,
+                &config,
+                planner.as_mut(),
+                execution.as_mut(),
+                &NOOP_UI,
+            );
+            http.finish();
+            reset_for_test();
+            assert_eq!(result.is_ok(), seal_lower, "{result:?}");
+        }
+    }
+
+    /// B4: a treatment runs in a workspace of its own. The run is refused before any call.
+    #[test]
+    fn a_session_that_may_recover_by_itself_gets_no_stages_and_no_provider_call() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        install_sandbox(&env);
+        let http = FakeHttp::start(Arc::new(|_, _| text_reply("a reply nobody asked for")));
+        let mut config = config(&env, WALK_PROFILE, &http.url);
+        config.recovery_plan_auto_runs = 1;
+        let mut client = client_from_config(&config, false).unwrap();
+        let result = run_session_with_outcome_with_ui(
+            client.as_mut(),
+            &mut SessionSnapshot::new(),
+            "Submit both stages.",
+            &[],
+            &config,
+            &NOOP_UI,
+        )
+        .map(|_| ())
+        .map_err(|error| format!("{error:#}"));
+        let requests = http.finish();
+        reset_for_test();
+        let error = result.unwrap_err();
+        assert!(error.contains("stage_contract_refused"), "{error}");
+        assert!(error.contains("RecoversByItself"), "{error}");
+        assert!(requests.is_empty());
+        assert!(!env.evidence.join("state/structured-stages").exists());
+    }
+
+    /// F5: a plan's setup step ends at a tool result. A failed check must not end it unread.
+    #[test]
+    fn a_failed_check_in_a_setup_step_goes_back_to_the_model() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        install_sandbox(&env);
+        let responder: Responder = Arc::new(|index, body| match index {
+            1 => tool_reply(UPPER_TOOL, "bad", "initial"),
+            2 => {
+                let answer = last_tool_answer(body);
+                assert_eq!(answer["status"], "resubmit", "{answer}");
+                tool_reply(UPPER_TOOL, "good", "initial")
+            }
+            _ => text_reply("done"),
+        });
+        let http = FakeHttp::start(responder);
+        let config = config(&env, WALK_PROFILE, &http.url);
+        let mut client = client_from_config(&config, false).unwrap();
+        let plan = StepPlan {
+            goal: "Submit the upper stage.".to_string(),
+            steps: vec![PlanStep {
+                id: "step-setup".to_string(),
+                kind: "setup".to_string(),
+                expected_result: "pass".to_string(),
+                instruction: "Submit the upper stage".to_string(),
+                expected_paths: Vec::new(),
+                verify: Vec::new(),
+            }],
+        };
+        let result = run_step_plan(client.as_mut(), &plan, &config);
+        let requests = http.finish();
+        reset_for_test();
+        assert!(requests.len() >= 2, "no second request: {result:?}");
+        assert_eq!(
+            std::fs::read(env.root.join(UPPER_OUTPUT)).unwrap(),
+            CANDIDATE,
+            "{result:?}"
+        );
+        let events = std::fs::read_to_string(env.evidence.join("events.jsonl")).unwrap();
+        let held = events
+            .lines()
+            .position(|line| line.contains("\"reason\":\"step_tool_observation_completed\""));
+        let second = events
+            .lines()
+            .filter(|line| line.contains("\"event\":\"tool_execute\""))
+            .count();
+        assert_eq!(second, 2, "both calls ran");
+        assert!(
+            held.is_some(),
+            "the step ends once the stage it touched is sealed: {result:?}"
+        );
+    }
+
+    const PREVIOUS_ROOT: &str = "STAGE_RESUME_PREVIOUS_ROOT";
+    const PREVIOUS_EVIDENCE: &str = "STAGE_RESUME_PREVIOUS_EVIDENCE";
+
+    /// Not a test by itself: the parent below starts this in a process of its own, so that the
+    /// ledger it leaves is another process's and its lock is gone when it ends.
+    #[test]
+    fn previous_process_of_the_resume_test() {
+        let (Some(root), Some(evidence)) = (
+            std::env::var_os(PREVIOUS_ROOT),
+            std::env::var_os(PREVIOUS_EVIDENCE),
+        ) else {
+            return;
+        };
+        let _guard = lock();
+        let env = Env::over(root.into(), evidence.into());
+        install_sandbox(&env);
+        let responder: Responder = Arc::new(|index, _| match index {
+            1 => tool_reply(UPPER_TOOL, "good", "initial"),
+            _ => text_reply("that is all for now"),
+        });
+        let (_, result) = run(&env, WALK_PROFILE, responder);
+        reset_for_test();
+        assert_not_a_success(&result, "the previous process left the lower stage open");
+    }
+
+    fn saved_attempts(env: &Env) -> u64 {
+        let leaf = env.evidence.join("state/structured-stages");
+        let directory = std::fs::read_dir(leaf)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let saved: Value =
+            serde_json::from_slice(&std::fs::read(directory.join("ledger.json")).unwrap()).unwrap();
+        saved["body"]["attempts_used"].as_u64().unwrap()
+    }
+
+    /// `/resume` in a new REPL goes on with the run: the revision the first process started from
+    /// is old now, where a new start would have taken it as current and run the tool.
+    #[test]
+    fn resume_in_a_new_process_goes_on_with_the_run_and_gives_no_attempt_back() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        let mut previous = std::process::Command::new(std::env::current_exe().unwrap());
+        previous
+            .args([
+                "--exact",
+                "with_the_strict_isolation::previous_process_of_the_resume_test",
+                "--test-threads=1",
+            ])
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin")
+            .env("HOME", &env.evidence)
+            .env(super::REGISTRY_ENV, &env.registry)
+            .env(PREVIOUS_ROOT, &env.root)
+            .env(PREVIOUS_EVIDENCE, &env.evidence);
+        // `status` waits for it, so nothing of it is left to stop.
+        assert!(previous.status().unwrap().success());
+        assert_eq!(saved_attempts(&env), 1);
+
+        install_sandbox(&env);
+        let plans = env.root.join(".anvil/plans");
+        std::fs::create_dir_all(&plans).unwrap();
+        std::fs::write(
+            plans.join("recovery.yaml"),
+            format!(
+                "goal: \"finish\"\nprofile: \"{WALK_PROFILE}\"\nphases:\n  - id: \"finish\"\n    prompt: \"Submit the upper stage.\"\n  - id: \"after\"\n    prompt: \"Submit the lower stage.\"\n"
+            ),
+        )
+        .unwrap();
+        let phase_plan = json!({"goal": "finish", "steps": [{
+            "id": "step-setup",
+            "kind": "setup",
+            "expected_result": "pass",
+            "instruction": "Submit the upper stage",
+            "expected_paths": [],
+            "verify": [],
+        }]});
+        let responder: Responder = Arc::new(move |_, body| {
+            if !body["tools"].to_string().contains(UPPER_TOOL) {
+                // A phase asks for its plan first, and that request offers no tool.
+                return text_reply(&phase_plan.to_string());
+            }
+            if !has_tool_answer(body) {
+                return tool_reply(UPPER_TOOL, "good", "initial");
+            }
+            text_reply("stopping here")
+        });
+        let http = FakeHttp::start(responder);
+        let config = config(&env, WALK_PROFILE, &http.url);
+        let mut planner = client_from_config(&config, true).unwrap();
+        let mut execution = client_from_config(&config, false).unwrap();
+        let result = handle_command(
+            "/resume .anvil/plans/recovery.yaml",
+            &config,
+            planner.as_mut(),
+            execution.as_mut(),
+            &NOOP_UI,
+        );
+        let requests = http.finish();
+        reset_for_test();
+
+        let first = requests
+            .iter()
+            .find(|body| has_tool_answer(body))
+            .map(last_tool_answer)
+            .unwrap_or_else(|| panic!("no tool answer: {result:?}"));
+        assert_eq!(first["status"], "stale", "{first}");
+        assert_ne!(first["revision"], "initial", "{first}");
+        assert_eq!(
+            saved_attempts(&env),
+            1,
+            "no attempt came back and none was spent"
+        );
+        assert!(
+            result.is_err(),
+            "the obligations are still open: {result:?}"
+        );
+    }
+
+    #[test]
+    fn a_session_with_no_os_boundary_gets_no_stages_and_no_provider_call() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        reset_for_test();
+        let (requests, result) = run(
+            &env,
+            WALK_PROFILE,
+            Arc::new(|_, _| text_reply("a reply nobody asked for")),
+        );
+        let error = result.unwrap_err();
+        assert!(error.contains("stage_contract_refused"), "{error}");
+        assert!(error.contains("OsSandboxNotEnforced"), "{error}");
+        assert!(requests.is_empty());
+        assert!(!env.evidence.join("state/structured-stages").exists());
+    }
+
+    /// Admitting opens nothing: a preflight takes no lock and leaves no file.
+    #[test]
+    fn admitting_a_stage_set_touches_no_ledger() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        assert!(
+            admit_selected(&env.root, WALK_PROFILE, None)
+                .unwrap()
+                .is_some()
+        );
+        assert!(!env.evidence.join("state").exists());
+        assert!(!env.root.join(UPPER_OUTPUT).exists());
+    }
+
+    #[test]
+    fn a_stage_tool_must_take_the_revision_argument() {
+        let _guard = lock();
+        let env = Env::new();
+        let schema = json!({
+            "protocol": "profile-tool.schema/v1",
+            "root": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["mode"],
+                "properties": {"mode": {"type": "string"}},
+            },
+        });
+        env.write_tool(
+            (BARE_TOOL_ID, "ProposeBare", UPPER_OUTPUT),
+            &schema,
+            Some(floor()),
+        );
+        let error = env.admission_error(NO_ARGUMENT_PROFILE);
+        assert!(error.contains("stage_contract_refused"), "{error}");
+        assert!(error.contains("expected_revision"), "{error}");
+    }
+
+    /// Issue #998: the operator's floor with the given limits.
+    fn floor_with(attempts_per_target: u32, attempts_per_run: u32) -> Value {
+        let mut floor = floor();
+        floor["attempts_per_target"] = json!(attempts_per_target);
+        floor["attempts_per_run"] = json!(attempts_per_run);
+        floor
+    }
+
+    /// Calls the schema refuses, each a little differently from the one before, as a model's are.
+    /// The same refusal again and again is ended by the loop's repeat guard first.
+    fn refused_shape(index: usize) -> Value {
+        let shapes = [
+            json!({"mode": "ugly", "expected_revision": "initial"}),
+            json!({"mode": 5, "expected_revision": "initial"}),
+            json!({"expected_revision": "initial"}),
+        ];
+        shapes[index % shapes.len()].clone()
+    }
+
+    fn call_with(name: &str, arguments: &Value) -> String {
+        json!({"choices": [{"message": {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{
+                "id": "call-0",
+                "type": "function",
+                "function": {"name": name, "arguments": arguments.to_string()},
+            }],
+        }}]})
+        .to_string()
+    }
+
+    fn limit_events(env: &Env) -> Vec<Value> {
+        std::fs::read_to_string(env.evidence.join("events.jsonl"))
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+            .filter(|event| event["event"] == "stage_schema_refusal_limit")
+            .collect()
+    }
+
+    /// G4's records. A call G2 refuses never reaches G4, so it leaves none.
+    fn ledger_files(env: &Env) -> usize {
+        std::fs::read_dir(env.evidence.join("state/structured-stages")).map_or(0, |entries| {
+            entries
+                .flatten()
+                .filter(|entry| entry.path().join("ledger.json").exists())
+                .count()
+        })
+    }
+
+    fn assert_limit(event: &Value, stage: &str, counts: (u64, u64), scope: &str) {
+        assert_eq!(event["stage"], stage, "{event}");
+        assert_eq!(event["target"], "main", "{event}");
+        assert_eq!(event["refusals"], counts.0, "{event}");
+        assert_eq!(event["limit"], counts.1, "{event}");
+        assert_eq!(event["scope"], scope, "{event}");
+    }
+
+    /// Issue #998: refusals that differ each time get past the loop's repeat guard. The third
+    /// reaches the target's limit and ends the run: nothing is sent after it, and G4 recorded
+    /// nothing.
+    #[test]
+    fn varied_schema_refusals_end_the_run_at_the_targets_limit_with_nothing_sent_after() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor_with(3, 16)));
+        install_sandbox(&env);
+        let responder: Responder =
+            Arc::new(|index, _| call_with(UPPER_TOOL, &refused_shape(index - 1)));
+        let (requests, result) = run(&env, WALK_PROFILE, responder);
+        reset_for_test();
+        let error = result.expect_err("the limit ends the run");
+        assert!(error.contains("stage_run_ended"), "{error}");
+        assert!(error.contains("schema_refusal_limit"), "{error}");
+        assert_eq!(requests.len(), 3, "nothing is sent after the third refusal");
+        let limits = limit_events(&env);
+        assert_eq!(limits.len(), 1, "{limits:?}");
+        assert_limit(&limits[0], "upper", (3, 3), "target");
+        assert_eq!(ledger_files(&env), 0, "G4 recorded nothing");
+        assert!(!env.root.join(UPPER_OUTPUT).exists());
+    }
+
+    /// The control: the same refused call again and again is still ended by the loop's repeat
+    /// guard, at the third, before the target's limit of four.
+    #[test]
+    fn the_same_schema_refusal_again_and_again_is_still_ended_by_the_repeat_guard() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        install_sandbox(&env);
+        let responder: Responder = Arc::new(|_, _| call_with(UPPER_TOOL, &refused_shape(0)));
+        let (requests, result) = run(&env, WALK_PROFILE, responder);
+        reset_for_test();
+        let error = result.expect_err("the repeat guard ends the run");
+        assert!(error.contains("recoverable tool error repeated"), "{error}");
+        assert!(!error.contains("schema_refusal_limit"), "{error}");
+        assert_eq!(requests.len(), 3);
+        assert!(limit_events(&env).is_empty());
+        assert_eq!(ledger_files(&env), 0);
+    }
+
+    /// Issue #998: fewer refusals than the limit take nothing from what follows. A valid call
+    /// then goes to G4 as it did: it proceeds, spends attempt one, and commits.
+    #[test]
+    fn fewer_schema_refusals_than_the_limit_then_a_valid_call_goes_through_g4() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor_with(3, 16)));
+        install_sandbox(&env);
+        let seen: Arc<Mutex<Vec<Value>>> = Arc::default();
+        let kept = seen.clone();
+        let responder: Responder = Arc::new(move |index, body| match index {
+            1 | 2 => call_with(UPPER_TOOL, &refused_shape(index - 1)),
+            3 => tool_reply(UPPER_TOOL, "good", "initial"),
+            4 => {
+                kept.lock().unwrap().push(last_tool_answer(body));
+                text_reply(CLAIM)
+            }
+            _ => text_reply(CLAIM),
+        });
+        let (requests, result) = run(&env, WALK_PROFILE, responder);
+        reset_for_test();
+        assert_not_a_success(&result, "the lower stage is open");
+        assert!(requests.len() >= 4, "{}", requests.len());
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen[0]["stage"]["status"], "sealed", "{}", seen[0]);
+        assert_eq!(saved_attempts(&env), 1, "the valid call spent attempt one");
+        assert!(limit_events(&env).is_empty());
+        assert_eq!(
+            std::fs::read(env.root.join(UPPER_OUTPUT)).unwrap(),
+            CANDIDATE
+        );
+    }
+
+    /// Issue #998: refusals spread over two targets, none at its own limit, end the run at the
+    /// run's.
+    #[test]
+    fn schema_refusals_spread_over_targets_end_the_run_at_the_runs_limit() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor_with(3, 4)));
+        install_sandbox(&env);
+        let responder: Responder = Arc::new(|index, _| {
+            let tool = if index % 2 == 1 {
+                UPPER_TOOL
+            } else {
+                LOWER_TOOL
+            };
+            call_with(tool, &refused_shape(index - 1))
+        });
+        let (requests, result) = run(&env, WALK_PROFILE, responder);
+        reset_for_test();
+        let error = result.expect_err("the run's limit ends the run");
+        assert!(error.contains("schema_refusal_limit"), "{error}");
+        assert_eq!(
+            requests.len(),
+            4,
+            "nothing is sent after the fourth refusal"
+        );
+        let limits = limit_events(&env);
+        assert_eq!(limits.len(), 1, "{limits:?}");
+        assert_limit(&limits[0], "lower", (4, 4), "run");
+        assert_eq!(ledger_files(&env), 0);
+    }
+
+    /// Issue #998: with one attempt per target, the first refusal is the one at the limit.
+    #[test]
+    fn one_attempt_per_target_ends_the_run_at_the_first_schema_refusal() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor_with(1, 16)));
+        install_sandbox(&env);
+        let responder: Responder =
+            Arc::new(|index, _| call_with(UPPER_TOOL, &refused_shape(index - 1)));
+        let (requests, result) = run(&env, WALK_PROFILE, responder);
+        reset_for_test();
+        let error = result.expect_err("the first refusal ends the run");
+        assert!(error.contains("schema_refusal_limit"), "{error}");
+        assert_eq!(requests.len(), 1);
+        let limits = limit_events(&env);
+        assert_eq!(limits.len(), 1, "{limits:?}");
+        assert_limit(&limits[0], "upper", (1, 1), "target");
+        assert_eq!(ledger_files(&env), 0);
+    }
+
+    /// Issue #1004: the attempts replay. Two paths of calls over the synthetic two-stage profile
+    /// (`upper` -> `lower`), each to where G4's attempt limits end the run, and what the host did
+    /// on the way. Recorded on the base (028d63d1) and compared on the Issue's branch with this same
+    /// code: the paths, the responder, the observation, and the placeholders are all here.
+    mod attempts_replay {
+        use std::path::{Path, PathBuf};
+        use std::sync::{Arc, Mutex};
+
+        use regex::Regex;
+        use serde_json::{Value, json};
+
+        use super::super::{
+            Env, FIXED_INPUT, LOWER_OUTPUT, LOWER_TOOL, LOWER_TOOL_ID, UPPER_OUTPUT, UPPER_TOOL,
+            UPPER_TOOL_ID, WALK_PROFILE, directory_pin, encode_base64, extension_root, sha256,
+        };
+        use super::{
+            FakeHttp, NOOP_UI, Responder, SessionSnapshot, client_from_config, floor_with,
+            has_tool_answer, install_sandbox, lock, reset_for_test,
+            run_session_with_outcome_with_ui, text_reply, tool_reply,
+        };
+
+        /// What the process proposes: the first version, and the one a new upper submission
+        /// brings. Different bytes, so the second is a new revision and not `no_change`.
+        const VERSION_ONE: &[u8] = b"{\"stage\":\"one\"}\n";
+        const VERSION_TWO: &[u8] = b"{\"stage\":\"two\"}\n";
+        /// Written to stderr by every process, so a launch shows in the rejection's tail.
+        const LAUNCH_MARK: &str = "process-started";
+        const OUT_ENV: &str = "ATTEMPTS_REPLAY_OUT";
+
+        /// Only these are replaced, and nothing else.
+        const PLACEHOLDERS: [(&str, &str); 9] = [
+            (
+                "<REVISION-n>",
+                "a revision (16 hex digits), numbered by first appearance within a path",
+            ),
+            ("<NONCE>", "the value of run_nonce or process_nonce"),
+            ("<UUID>", "a UUID"),
+            ("<ROOT>", "the temporary workspace root"),
+            ("<EVIDENCE>", "the temporary evidence root"),
+            (
+                "<OPERATOR>",
+                "the temporary operator root (registry and tools)",
+            ),
+            ("<EXTENSION>", "the temporary extension profile root"),
+            ("<URL>", "the fake provider's loopback URL"),
+            (
+                "<N>",
+                "a time or duration: epoch, occurred_at_epoch_ms, duration_ms, elapsed_ms",
+            ),
+        ];
+        const TIME_FIELDS: [&str; 4] =
+            ["epoch", "occurred_at_epoch_ms", "duration_ms", "elapsed_ms"];
+        const NONCE_FIELDS: [&str; 2] = ["run_nonce", "process_nonce"];
+
+        #[derive(Clone, Copy)]
+        enum Revision {
+            /// The literal `initial`, before any answer named one.
+            Initial,
+            /// The latest revision the answers so far named for this stage.
+            Of(&'static str),
+        }
+
+        #[derive(Clone, Copy)]
+        struct Call {
+            tool: &'static str,
+            mode: &'static str,
+            revision: Revision,
+        }
+
+        const fn call(tool: &'static str, mode: &'static str, revision: Revision) -> Call {
+            Call {
+                tool,
+                mode,
+                revision,
+            }
+        }
+
+        struct ReplayPath {
+            id: &'static str,
+            attempts_per_target: u32,
+            attempts_per_run: u32,
+            calls: Vec<Call>,
+        }
+
+        /// `good` proposes the first version, `again` the second, and `bad` and `worse` fail the
+        /// `shape` check with a short diagnostic each. Two failing modes so that no two calls in a
+        /// row are the same.
+        fn paths() -> Vec<ReplayPath> {
+            use Revision::{Initial, Of};
+            vec![
+                // Back upstream, then the lower target's limit: upper sealed, lower resubmitted
+                // twice, a new upper version reopens lower, lower resubmitted once more, and the
+                // next lower call is past its target's limit of three.
+                ReplayPath {
+                    id: "back-upstream-then-target-limit",
+                    attempts_per_target: 3,
+                    attempts_per_run: 16,
+                    calls: vec![
+                        call(UPPER_TOOL, "good", Initial),
+                        call(LOWER_TOOL, "bad", Of("lower")),
+                        call(LOWER_TOOL, "worse", Of("lower")),
+                        call(UPPER_TOOL, "again", Of("upper")),
+                        call(LOWER_TOOL, "bad", Of("lower")),
+                        call(LOWER_TOOL, "worse", Of("lower")),
+                    ],
+                },
+                // The run's limit: five attempts over both targets, none at its own limit of
+                // four, and the sixth call is past the run's.
+                ReplayPath {
+                    id: "run-limit",
+                    attempts_per_target: 4,
+                    attempts_per_run: 5,
+                    calls: vec![
+                        call(UPPER_TOOL, "bad", Initial),
+                        call(UPPER_TOOL, "good", Initial),
+                        call(LOWER_TOOL, "bad", Of("lower")),
+                        call(LOWER_TOOL, "worse", Of("lower")),
+                        call(UPPER_TOOL, "again", Of("upper")),
+                        call(LOWER_TOOL, "bad", Of("lower")),
+                    ],
+                },
+            ]
+        }
+
+        fn stage_of(tool: &str) -> &'static str {
+            match tool {
+                UPPER_TOOL => "upper",
+                LOWER_TOOL => "lower",
+                _ => "unknown",
+            }
+        }
+
+        fn output_for(bytes: &[u8]) -> String {
+            format!(
+                r#"[{{"id":"artifact","sha256":"{}","bytes_base64":"{}"}}]"#,
+                sha256(bytes),
+                encode_base64(bytes)
+            )
+        }
+
+        /// The fixed script of both tools. Builtins only, as the strict isolation allows no fork.
+        fn replay_script() -> String {
+            format!(
+                r#"IFS= read -r request
+take() {{ local pattern="\"$1\":\"([^\"]+)\""; [[ $request =~ $pattern ]] && printf -v "$2" '%s' "${{BASH_REMATCH[1]}}"; }}
+take request_id rid; take tool_id tid; take runtime_sha256 run; take input_revision rev; take schema_sha256 sch
+printf '%s\n' '{mark}' >&2
+status=passed; said='[]'; out='{one}'
+if [[ $request == *'"mode":"bad"'* ]]; then status=failed; said='[{{"code":"shape","message":"the shape is off"}}]'; fi
+if [[ $request == *'"mode":"worse"'* ]]; then status=failed; said='[{{"code":"shape","message":"the shape is still off"}}]'; fi
+if [[ $request == *'"mode":"again"'* ]]; then out='{two}'; fi
+printf '%s' "{{\"protocol\":\"profile-tool.result/v1\",\"request_id\":\"$rid\",\"tool_id\":\"$tid\",\"runtime_sha256\":\"$run\",\"input_revision\":\"$rev\",\"schema_sha256\":\"$sch\",\"checks\":[{{\"id\":\"shape\",\"status\":\"$status\"}}],\"outputs\":$out,\"diagnostics\":$said}}"
+"#,
+                mark = LAUNCH_MARK,
+                one = output_for(VERSION_ONE),
+                two = output_for(VERSION_TWO),
+            )
+        }
+
+        fn replay_schema(inputs: &[&str]) -> Value {
+            json!({
+                "protocol": "profile-tool.schema/v1",
+                "root": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["mode", "expected_revision"],
+                    "properties": {
+                        "mode": {"type": "string", "enum": ["good", "again", "bad", "worse"]},
+                        "expected_revision": {"type": "string"},
+                    },
+                },
+                "inputs": inputs,
+            })
+        }
+
+        /// As `Env::write_tool`, with the replay's script and schema.
+        fn write_replay_tool(env: &Env, tool: (&str, &str, &str), inputs: &[&str], floor: &Value) {
+            let (tool_id, name, output) = tool;
+            let directory = env.tools.join(tool_id);
+            std::fs::create_dir_all(&directory).unwrap();
+            let script = directory.join("tool.sh");
+            std::fs::write(&script, replay_script()).unwrap();
+            let shell = std::fs::canonicalize("/bin/bash").unwrap();
+            let schema = replay_schema(inputs);
+            let descriptor = json!({
+                "protocol": "profile-tool.descriptor/v1",
+                "tool_id": tool_id,
+                "name": name,
+                "version": "1.0.0",
+                "description": "Propose one artifact for a synthetic fixture.",
+                "effect": "propose-artifacts",
+                "parameters": [],
+                "schema_sha256": sha256(serde_json::to_string(&schema).unwrap().as_bytes()),
+                "schema": schema,
+                "runtime": {"kind": "pinned_process", "id": "fixed-script"},
+                "limits": {"max_input_bytes": 1 << 20, "max_output_bytes": 64 * 1024},
+                "process": {
+                    "protocol": "profile-tool.process/v1",
+                    "executable": {
+                        "path": shell,
+                        "sha256": sha256(&std::fs::read(&shell).unwrap()),
+                    },
+                    "dependency_directories": [{
+                        "path": directory,
+                        "sha256": directory_pin(&directory).unwrap(),
+                    }],
+                    "argv": [script],
+                    "cwd": directory,
+                    "env": {"TOOL_MODE": "fixture"},
+                    "limits": {"timeout_ms": 10_000, "max_result_bytes": 64 * 1024},
+                    "outputs": [{"id": "artifact", "path": output}],
+                },
+                "stage": floor,
+            });
+            std::fs::write(
+                env.registry.join(format!("profile-tools/{tool_id}.json")),
+                descriptor.to_string(),
+            )
+            .unwrap();
+        }
+
+        fn write_replay_tools(env: &Env, floor: &Value) {
+            write_replay_tool(
+                env,
+                (UPPER_TOOL_ID, UPPER_TOOL, UPPER_OUTPUT),
+                &[FIXED_INPUT],
+                floor,
+            );
+            write_replay_tool(
+                env,
+                (LOWER_TOOL_ID, LOWER_TOOL, LOWER_OUTPUT),
+                &[UPPER_OUTPUT, FIXED_INPUT],
+                floor,
+            );
+        }
+
+        fn parse_answer(text: &str) -> Value {
+            serde_json::from_str(text).unwrap_or_else(|_| Value::String(text.to_string()))
+        }
+
+        /// The latest revision the tool answers in this request named for `stage`: a seal's or a
+        /// stale answer's own, or one in a `downstream` list. Nothing is written in by hand.
+        fn revision_in_answers(body: &Value, stage: &str) -> Option<String> {
+            let mut called = String::new();
+            let mut found = None;
+            for message in body["messages"].as_array()? {
+                if let Some(name) = message["tool_calls"][0]["function"]["name"].as_str() {
+                    called = name.to_string();
+                }
+                if message["role"] != "tool" {
+                    continue;
+                }
+                let answer = parse_answer(message["content"].as_str().unwrap_or_default());
+                if stage_of(&called) == stage
+                    && let Some(revision) = answer["stage"]["revision"]
+                        .as_str()
+                        .or_else(|| answer["revision"].as_str())
+                {
+                    found = Some(revision.to_string());
+                }
+                for entry in answer["stage"]["downstream"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                {
+                    if entry["stage"] == stage
+                        && let Some(revision) = entry["revision"].as_str()
+                    {
+                        found = Some(revision.to_string());
+                    }
+                }
+            }
+            found
+        }
+
+        /// Request `n` gets the path's call `n`; past the path, a plain text.
+        fn responder(calls: Vec<Call>, replies: Arc<Mutex<Vec<Value>>>) -> Responder {
+            Arc::new(move |index, body| {
+                let Some(call) = calls.get(index - 1) else {
+                    replies.lock().unwrap().push(json!({"text": "done"}));
+                    return text_reply("done");
+                };
+                let revision = match call.revision {
+                    Revision::Initial => Some("initial".to_string()),
+                    Revision::Of(stage) => revision_in_answers(body, stage),
+                };
+                let Some(revision) = revision else {
+                    replies
+                        .lock()
+                        .unwrap()
+                        .push(json!({"text": "no revision", "wanted": call.revision_stage()}));
+                    return text_reply("no revision");
+                };
+                replies.lock().unwrap().push(json!({
+                    "tool": call.tool,
+                    "mode": call.mode,
+                    "expected_revision": revision,
+                }));
+                tool_reply(call.tool, call.mode, &revision)
+            })
+        }
+
+        impl Call {
+            fn revision_stage(&self) -> &'static str {
+                match self.revision {
+                    Revision::Initial => "initial",
+                    Revision::Of(stage) => stage,
+                }
+            }
+        }
+
+        fn events_of(env: &Env) -> Vec<Value> {
+            std::fs::read_to_string(env.evidence.join("events.jsonl"))
+                .unwrap_or_default()
+                .lines()
+                .map(|line| serde_json::from_str(line).unwrap_or(Value::Null))
+                .collect()
+        }
+
+        /// The saved ledgers, each as its run's count and its targets' counts.
+        fn ledgers(env: &Env) -> Vec<Value> {
+            let leaf = env.evidence.join("state/structured-stages");
+            let mut files = std::fs::read_dir(leaf).map_or_else(
+                |_| Vec::new(),
+                |entries| {
+                    entries
+                        .flatten()
+                        .map(|entry| entry.path().join("ledger.json"))
+                        .filter(|file| file.exists())
+                        .collect::<Vec<_>>()
+                },
+            );
+            files.sort();
+            files
+                .iter()
+                .map(|file| {
+                    let saved: Value =
+                        serde_json::from_slice(&std::fs::read(file).unwrap()).unwrap();
+                    let targets = saved["body"]["targets"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .map(|record| {
+                            let key = format!(
+                                "{}/{}",
+                                record["key"]["stage"].as_str().unwrap_or_default(),
+                                record["key"]["target"].as_str().unwrap_or_default()
+                            );
+                            (key, record["attempts_used"].clone())
+                        })
+                        .collect::<serde_json::Map<_, _>>();
+                    json!({"run": saved["body"]["attempts_used"], "targets": targets})
+                })
+                .collect()
+        }
+
+        /// A launch is a rejection whose stderr tail has the script's mark, or a commit.
+        fn processes(events: &[Value]) -> usize {
+            events
+                .iter()
+                .filter(|event| {
+                    (event["event"] == "profile_tool_effect_rejected"
+                        && event["stderr_tail"]
+                            .as_str()
+                            .is_some_and(|tail| tail.contains(LAUNCH_MARK)))
+                        || event["event"] == "profile_tool_commit"
+                })
+                .count()
+        }
+
+        /// Where the run stopped and why, from the last rejection the host wrote: the tool's
+        /// stage, its target as the ledger names it, and the rejection's kind and code.
+        fn stopped(events: &[Value], ledgers: &[Value]) -> (Value, Value) {
+            let Some(last) = events
+                .iter()
+                .rev()
+                .find(|event| event["event"] == "profile_tool_effect_rejected")
+            else {
+                return (Value::Null, Value::Null);
+            };
+            let stage = stage_of(last["name"].as_str().unwrap_or_default());
+            let target = ledgers
+                .iter()
+                .flat_map(|ledger| {
+                    ledger["targets"]
+                        .as_object()
+                        .into_iter()
+                        .flatten()
+                        .map(|(key, _)| key.clone())
+                })
+                .find_map(|key| {
+                    key.strip_prefix(&format!("{stage}/"))
+                        .map(ToString::to_string)
+                });
+            (
+                json!({"stage": stage, "target": target}),
+                json!({"kind": last["kind"], "code": last["reason"]}),
+            )
+        }
+
+        fn root_paths(env: &Env) -> Vec<(PathBuf, &'static str)> {
+            let operator = env.registry.parent().unwrap().to_path_buf();
+            let mut paths = vec![
+                (env.root.clone(), "<ROOT>"),
+                (env.evidence.clone(), "<EVIDENCE>"),
+                (operator, "<OPERATOR>"),
+                (extension_root().to_path_buf(), "<EXTENSION>"),
+            ];
+            // The same roots as a caller may spell them, before `/private` is resolved.
+            let unresolved = paths
+                .iter()
+                .filter_map(|(path, marker)| {
+                    path.strip_prefix("/private")
+                        .ok()
+                        .map(|rest| (Path::new("/").join(rest), *marker))
+                })
+                .collect::<Vec<_>>();
+            paths.extend(unresolved);
+            paths
+        }
+
+        fn normalize_text(paths: &[(PathBuf, &str)], url: &str, text: &str) -> String {
+            let mut text = text.replace(url, "<URL>");
+            for (path, marker) in paths {
+                text = text.replace(&path.display().to_string(), marker);
+            }
+            for (pattern, replacement) in [
+                (
+                    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+                    "<UUID>",
+                ),
+                (r"elapsed_ms: [0-9]+", "elapsed_ms: <N>"),
+                (r"duration_ms=[0-9]+", "duration_ms=<N>"),
+                (r#""epoch": ?[0-9]+"#, r#""epoch":"<N>""#),
+                (
+                    r#""occurred_at_epoch_ms": ?[0-9]+"#,
+                    r#""occurred_at_epoch_ms":"<N>""#,
+                ),
+            ] {
+                text = Regex::new(pattern)
+                    .unwrap()
+                    .replace_all(&text, replacement)
+                    .into_owned();
+            }
+            text
+        }
+
+        fn normalize_value(paths: &[(PathBuf, &str)], url: &str, value: &Value) -> Value {
+            match value {
+                Value::Object(object) => Value::Object(
+                    object
+                        .iter()
+                        .map(|(key, value)| {
+                            let value = if TIME_FIELDS.contains(&key.as_str()) && value.is_number()
+                            {
+                                json!("<N>")
+                            } else if NONCE_FIELDS.contains(&key.as_str()) && value.is_string() {
+                                json!("<NONCE>")
+                            } else {
+                                normalize_value(paths, url, value)
+                            };
+                            (key.clone(), value)
+                        })
+                        .collect(),
+                ),
+                Value::Array(items) => Value::Array(
+                    items
+                        .iter()
+                        .map(|item| normalize_value(paths, url, item))
+                        .collect(),
+                ),
+                Value::String(text) => Value::String(normalize_text(paths, url, text)),
+                other => other.clone(),
+            }
+        }
+
+        /// Revisions are numbered by where they first appear in the path's observation, so the
+        /// same revision keeps one name and a new one gets the next.
+        fn number_revisions(value: &Value) -> Value {
+            let text = serde_json::to_string(value).unwrap();
+            let pattern = Regex::new(r"\b[0-9a-f]{16}\b").unwrap();
+            let mut seen: Vec<String> = Vec::new();
+            let numbered = pattern.replace_all(&text, |found: &regex::Captures<'_>| {
+                let revision = found[0].to_string();
+                let index = seen
+                    .iter()
+                    .position(|known| *known == revision)
+                    .unwrap_or_else(|| {
+                        seen.push(revision);
+                        seen.len() - 1
+                    });
+                format!("<REVISION-{}>", index + 1)
+            });
+            serde_json::from_str(&numbered).unwrap()
+        }
+
+        /// One path, run and observed, with only the placeholders replaced.
+        fn observe(path: &ReplayPath) -> Value {
+            let env = Env::new();
+            write_replay_tools(
+                &env,
+                &floor_with(path.attempts_per_target, path.attempts_per_run),
+            );
+            install_sandbox(&env);
+            let replies: Arc<Mutex<Vec<Value>>> = Arc::default();
+            let http = FakeHttp::start(responder(path.calls.clone(), replies.clone()));
+            let url = http.url.clone();
+            let config = super::config(&env, WALK_PROFILE, &url);
+            let mut client = client_from_config(&config, false).unwrap();
+            let result = run_session_with_outcome_with_ui(
+                client.as_mut(),
+                &mut SessionSnapshot::new(),
+                "Submit both stages.",
+                &[],
+                &config,
+                &NOOP_UI,
+            )
+            .map(|_| ())
+            .map_err(|error| format!("{error:#}"));
+            let requests = http.finish();
+            reset_for_test();
+
+            let events = events_of(&env);
+            let ledgers = ledgers(&env);
+            let (stopped, refusal) = stopped(&events, &ledgers);
+            let answers = requests
+                .iter()
+                .map(|body| {
+                    if !has_tool_answer(body) {
+                        return Value::Null;
+                    }
+                    let text = body["messages"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .rev()
+                        .find(|message| message["role"] == "tool")
+                        .and_then(|message| message["content"].as_str())
+                        .unwrap_or_default();
+                    parse_answer(text)
+                })
+                .collect::<Vec<_>>();
+            let replies = replies.lock().unwrap().clone();
+            let observation = json!({
+                "stopped": stopped,
+                "refusal": refusal,
+                "error": result.err(),
+                "requests": requests.len(),
+                "processes": processes(&events),
+                "attempts_used": ledgers,
+                "events": events
+                    .iter()
+                    .map(|event| event["event"].clone())
+                    .collect::<Vec<_>>(),
+                "replies": replies,
+                "answers": answers,
+            });
+            let paths = root_paths(&env);
+            number_revisions(&normalize_value(&paths, &url, &observation))
+        }
+
+        /// The whole golden: every path with its floor and its observation.
+        fn golden() -> Value {
+            json!({
+                "issue": "#1004",
+                "kind": "attempts-replay",
+                "source": "028d63d1",
+                "placeholders": PLACEHOLDERS
+                    .iter()
+                    .map(|(marker, replaces)| json!({"placeholder": marker, "replaces": replaces}))
+                    .collect::<Vec<_>>(),
+                "paths": paths()
+                    .iter()
+                    .map(|path| {
+                        json!({
+                            "id": path.id,
+                            "floor": floor_with(path.attempts_per_target, path.attempts_per_run),
+                            "observation": observe(path),
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+            })
+        }
+
+        /// Writes the golden where `ATTEMPTS_REPLAY_OUT` says; without it, does nothing.
+        #[test]
+        fn records_the_attempts_replay_golden() {
+            let Some(out) = std::env::var_os(OUT_ENV) else {
+                return;
+            };
+            let _guard = lock();
+            let mut text = serde_json::to_string_pretty(&golden()).unwrap();
+            text.push('\n');
+            std::fs::write(out, text).unwrap();
+        }
+
+        const GOLDEN: &str = include_str!(
+            "corpus/apps/structured-stage-receipts/fixtures/attempts-replay-golden.json"
+        );
+
+        /// Takes the top-level `attempts` out of every answer of every path, and returns what
+        /// each path's answers held there (`Null` for none).
+        fn take_attempts(document: &mut Value) -> Vec<Vec<Value>> {
+            document["paths"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .map(|path| {
+                    path["observation"]["answers"]
+                        .as_array_mut()
+                        .unwrap()
+                        .iter_mut()
+                        .map(|answer| {
+                            answer
+                                .as_object_mut()
+                                .and_then(|fields| fields.remove("attempts"))
+                                .unwrap_or(Value::Null)
+                        })
+                        .collect()
+                })
+                .collect()
+        }
+
+        /// Issue #1015 records what a failed attempt's checks returned as one more event,
+        /// `structured_stage_checks`, which the base did not have. This takes each one out of
+        /// every path's event names, after checking it sits where the failure is decided:
+        /// between that call's `profile_tool_effect_call` and its `profile_tool_effect_rejected`.
+        /// It returns how many each path had, for the caller to hold to the failed checks.
+        fn take_check_records(document: &mut Value) -> Vec<usize> {
+            document["paths"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .map(|path| {
+                    let events = path["observation"]["events"].as_array_mut().unwrap();
+                    let mut found = 0;
+                    let mut index = 0;
+                    while index < events.len() {
+                        if events[index] == "structured_stage_checks" {
+                            assert_eq!(events[index - 1], "profile_tool_effect_call", "{index}");
+                            assert_eq!(
+                                events[index + 1],
+                                "profile_tool_effect_rejected",
+                                "{index}"
+                            );
+                            events.remove(index);
+                            found += 1;
+                        } else {
+                            index += 1;
+                        }
+                    }
+                    found
+                })
+                .collect()
+        }
+
+        /// How many answers of each path are a failed check's `resubmit`.
+        fn failed_check_answers(document: &Value) -> Vec<usize> {
+            document["paths"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|path| {
+                    path["observation"]["answers"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .filter(|answer| {
+                            answer["status"] == "resubmit"
+                                && answer["code"]
+                                    .as_str()
+                                    .is_some_and(|code| code.starts_with("check_"))
+                        })
+                        .count()
+                })
+                .collect()
+        }
+
+        /// The same two paths, recorded on the base, stop where they stopped there: the same
+        /// stage, refusal, error, requests, processes, ledger counts, events, calls, and every
+        /// answer once its top-level `attempts` is taken out. The base's answers had none.
+        #[test]
+        fn the_attempts_replay_stops_where_the_base_did() {
+            let _guard = lock();
+            let mut recorded: Value = serde_json::from_str(GOLDEN).unwrap();
+            let none = take_attempts(&mut recorded);
+            assert!(
+                none.iter().flatten().all(Value::is_null),
+                "the base's answers have no attempts: {none:?}"
+            );
+            assert!(!GOLDEN.contains("\"attempts\""));
+
+            let mut now = golden();
+            let attempts = take_attempts(&mut now);
+            // One check record per failed check, and none anywhere else (Issue #1015).
+            let checks = take_check_records(&mut now);
+            assert_eq!(checks, failed_check_answers(&now));
+            assert!(checks.iter().all(|count| *count > 0), "{checks:?}");
+            assert_eq!(now, recorded);
+
+            // What the answers now say on top is G4's count, against the path's floor.
+            for ((path, said), observed) in paths()
+                .iter()
+                .zip(&attempts)
+                .zip(now["paths"].as_array().unwrap())
+            {
+                let answers = observed["observation"]["answers"].as_array().unwrap();
+                for (answer, attempts) in answers.iter().zip(said) {
+                    if answer.is_null() {
+                        assert!(attempts.is_null(), "{}", path.id);
+                        continue;
+                    }
+                    assert_eq!(
+                        attempts["target"]["limit"], path.attempts_per_target,
+                        "{}",
+                        path.id
+                    );
+                    assert_eq!(
+                        attempts["run"]["limit"], path.attempts_per_run,
+                        "{}",
+                        path.id
+                    );
+                }
+                let last = said.last().unwrap();
+                assert_eq!(
+                    last["run"]["used"], observed["observation"]["attempts_used"][0]["run"],
+                    "{}: the last answer's run count is the ledger's",
+                    path.id
+                );
+            }
+        }
+
+        /// Issue #1005: the stage tools on the Responses API, against Chat Completions. The paths,
+        /// the responder, the observation, and the placeholders are the ones above. Only the wire
+        /// is converted: a Responses request is read as the Chat Completions messages it stands
+        /// for, and the responder's reply goes out in the Responses shape with a new call ID per
+        /// call. The control is the golden recorded on Chat Completions on the base, or the same
+        /// calls on Chat Completions in the same test.
+        mod on_responses {
+            use std::sync::{Arc, Mutex};
+
+            use serde_json::{Value, json};
+
+            use super::super::super::responses_schema_fixture::{
+                APIS, Api, as_chat_body, chat_reply_as_responses, responses_reply,
+            };
+            use super::super::super::{
+                Env, FIXED_INPUT, LOWER_OUTPUT, LOWER_TOOL, LOWER_TOOL_ID, UPPER_TOOL,
+                UPPER_TOOL_ID, WALK_PROFILE, directory_pin, encode_base64, floor, sha256,
+                stage_schema,
+            };
+            use super::super::{
+                FakeHttp, NOOP_UI, Responder, SessionSnapshot, client_from_config, floor_with,
+                has_tool_answer, install_sandbox, limit_events, lock, reset_for_test,
+                run_session_with_outcome_with_ui, saved_attempts, text_reply,
+            };
+            use super::{
+                Call, GOLDEN, ReplayPath, Revision, events_of, ledgers, normalize_value,
+                number_revisions, parse_answer, paths, processes, responder, revision_in_answers,
+                root_paths, stopped, take_attempts, write_replay_tools,
+            };
+
+            /// The responder on the session's API: on Responses, the request is read as Chat
+            /// Completions messages and the reply is sent in the Responses shape.
+            fn on_api(api: Api, chat: Responder) -> Responder {
+                match api {
+                    Api::Chat => chat,
+                    Api::Responses => Arc::new(move |index, body| {
+                        chat_reply_as_responses(&chat(index, &as_chat_body(body)), index)
+                    }),
+                }
+            }
+
+            fn as_chat(api: Api, body: &Value) -> Value {
+                match api {
+                    Api::Chat => body.clone(),
+                    Api::Responses => as_chat_body(body),
+                }
+            }
+
+            /// The tool answers of a request's last turn: every tool message after the last
+            /// assistant message, in order.
+            fn turn_answers(body: &Value) -> Vec<Value> {
+                let messages = body["messages"].as_array().unwrap();
+                let start = messages
+                    .iter()
+                    .rposition(|message| message["role"] == "assistant")
+                    .map_or(0, |index| index + 1);
+                messages[start..]
+                    .iter()
+                    .filter(|message| message["role"] == "tool")
+                    .map(|message| parse_answer(message["content"].as_str().unwrap_or_default()))
+                    .collect()
+            }
+
+            /// `observe`, on either API, with the tools and the floor the caller gives. Each
+            /// request is read on the Chat Completions view; `turn_answers` adds every answer of
+            /// each request's last turn, for replies with more than one call.
+            fn observe_on(
+                api: Api,
+                floor: &Value,
+                chat: Responder,
+                replies: &Mutex<Vec<Value>>,
+            ) -> Value {
+                let env = Env::new();
+                write_replay_tools(&env, floor);
+                install_sandbox(&env);
+                let http = FakeHttp::start(on_api(api, chat));
+                let url = http.url.clone();
+                let mut config = super::super::config(&env, WALK_PROFILE, &url);
+                config.openai_api = api.openai_api();
+                let mut client = client_from_config(&config, false).unwrap();
+                let result = run_session_with_outcome_with_ui(
+                    client.as_mut(),
+                    &mut SessionSnapshot::new(),
+                    "Submit both stages.",
+                    &[],
+                    &config,
+                    &NOOP_UI,
+                )
+                .map(|_| ())
+                .map_err(|error| format!("{error:#}"));
+                let requests = http
+                    .finish()
+                    .iter()
+                    .map(|body| as_chat(api, body))
+                    .collect::<Vec<_>>();
+                reset_for_test();
+
+                let events = events_of(&env);
+                let ledgers = ledgers(&env);
+                let (stopped, refusal) = stopped(&events, &ledgers);
+                let answers = requests
+                    .iter()
+                    .map(|body| {
+                        if !has_tool_answer(body) {
+                            return Value::Null;
+                        }
+                        let text = body["messages"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .rev()
+                            .find(|message| message["role"] == "tool")
+                            .and_then(|message| message["content"].as_str())
+                            .unwrap_or_default();
+                        parse_answer(text)
+                    })
+                    .collect::<Vec<_>>();
+                let replies = replies.lock().unwrap().clone();
+                let observation = json!({
+                    "stopped": stopped,
+                    "refusal": refusal,
+                    "error": result.err(),
+                    "requests": requests.len(),
+                    "processes": processes(&events),
+                    "attempts_used": ledgers,
+                    "events": events
+                        .iter()
+                        .map(|event| event["event"].clone())
+                        .collect::<Vec<_>>(),
+                    "replies": replies,
+                    "answers": answers,
+                    "turn_answers": requests.iter().map(turn_answers).collect::<Vec<_>>(),
+                });
+                let paths = root_paths(&env);
+                number_revisions(&normalize_value(&paths, &url, &observation))
+            }
+
+            /// The golden's document, observed on `api`, with `turn_answers` taken out.
+            fn replay_on(api: Api) -> Value {
+                json!({
+                    "issue": "#1004",
+                    "kind": "attempts-replay",
+                    "source": "028d63d1",
+                    "placeholders": super::PLACEHOLDERS
+                        .iter()
+                        .map(|(marker, replaces)| json!({"placeholder": marker, "replaces": replaces}))
+                        .collect::<Vec<_>>(),
+                    "paths": paths()
+                        .iter()
+                        .map(|path: &ReplayPath| {
+                            let floor = floor_with(path.attempts_per_target, path.attempts_per_run);
+                            let replies: Arc<Mutex<Vec<Value>>> = Arc::default();
+                            let mut observation = observe_on(
+                                api,
+                                &floor,
+                                responder(path.calls.clone(), replies.clone()),
+                                &replies,
+                            );
+                            observation.as_object_mut().unwrap().remove("turn_answers");
+                            json!({"id": path.id, "floor": floor, "observation": observation})
+                        })
+                        .collect::<Vec<_>>(),
+                })
+            }
+
+            /// The attempts replay recorded on Chat Completions on the base: on Responses the
+            /// paths stop at the same stage and refusal, with the same error, requests, processes,
+            /// ledger counts, events, calls, and answers, and the answers' `attempts` are the
+            /// ones Chat Completions gives now.
+            #[test]
+            fn the_attempts_replay_on_responses_stops_where_the_base_did_on_chat() {
+                let _guard = lock();
+                let mut recorded: Value = serde_json::from_str(GOLDEN).unwrap();
+                take_attempts(&mut recorded);
+                let mut responses = replay_on(Api::Responses);
+                let responses_attempts = take_attempts(&mut responses);
+                let responses_checks = super::take_check_records(&mut responses);
+                assert_eq!(responses_checks, super::failed_check_answers(&responses));
+                assert_eq!(responses, recorded);
+                let mut chat = replay_on(Api::Chat);
+                let chat_attempts = take_attempts(&mut chat);
+                let chat_checks = super::take_check_records(&mut chat);
+                assert_eq!(chat_checks, super::failed_check_answers(&chat));
+                assert_eq!(chat, recorded);
+                assert_eq!(responses_checks, chat_checks);
+                assert_eq!(responses_attempts, chat_attempts);
+            }
+
+            /// A reply of several calls, each `(tool, mode, revision)`; past the replies, "done".
+            fn several(replies: Vec<Vec<Call>>, log: Arc<Mutex<Vec<Value>>>) -> Responder {
+                Arc::new(move |index, body| {
+                    let Some(calls) = replies.get(index - 1) else {
+                        log.lock().unwrap().push(json!({"text": "done"}));
+                        return text_reply("done");
+                    };
+                    let mut tool_calls = Vec::new();
+                    for (number, call) in calls.iter().enumerate() {
+                        let revision = match call.revision {
+                            Revision::Initial => "initial".to_string(),
+                            Revision::Of(stage) => revision_in_answers(body, stage)
+                                .unwrap_or_else(|| "initial".to_string()),
+                        };
+                        log.lock().unwrap().push(json!({
+                            "tool": call.tool,
+                            "mode": call.mode,
+                            "expected_revision": revision,
+                        }));
+                        tool_calls.push(json!({
+                            "id": format!("call-{index}-{number}"),
+                            "type": "function",
+                            "function": {
+                                "name": call.tool,
+                                "arguments": json!({"mode": call.mode, "expected_revision": revision}).to_string(),
+                            },
+                        }));
+                    }
+                    json!({"choices": [{"message": {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": tool_calls,
+                    }}]})
+                    .to_string()
+                })
+            }
+
+            fn call(tool: &'static str, mode: &'static str, revision: Revision) -> Call {
+                super::call(tool, mode, revision)
+            }
+
+            /// `(label, attempts per target, attempts per run, replies)`.
+            fn several_call_paths() -> Vec<(&'static str, u32, u32, Vec<Vec<Call>>)> {
+                use Revision::{Initial, Of};
+                vec![
+                    (
+                        "a failed and a good call of one tool in one reply",
+                        4,
+                        16,
+                        vec![vec![
+                            call(UPPER_TOOL, "bad", Initial),
+                            call(UPPER_TOOL, "good", Initial),
+                        ]],
+                    ),
+                    (
+                        "the same two calls the other way round: the second is stale after the seal",
+                        4,
+                        16,
+                        vec![vec![
+                            call(UPPER_TOOL, "good", Initial),
+                            call(UPPER_TOOL, "bad", Initial),
+                        ]],
+                    ),
+                    (
+                        "two tools in one reply, the lower not ready, then each again",
+                        4,
+                        16,
+                        vec![
+                            vec![
+                                call(LOWER_TOOL, "good", Initial),
+                                call(UPPER_TOOL, "good", Initial),
+                            ],
+                            vec![
+                                call(UPPER_TOOL, "good", Of("upper")),
+                                call(LOWER_TOOL, "good", Of("lower")),
+                            ],
+                        ],
+                    ),
+                    (
+                        "an upstream resubmission reopens the lower stage within one reply",
+                        4,
+                        16,
+                        vec![
+                            vec![call(UPPER_TOOL, "good", Initial)],
+                            vec![
+                                call(LOWER_TOOL, "good", Of("lower")),
+                                call(UPPER_TOOL, "again", Of("upper")),
+                                call(LOWER_TOOL, "good", Of("lower")),
+                            ],
+                            vec![call(LOWER_TOOL, "good", Of("lower"))],
+                        ],
+                    ),
+                    (
+                        "a call the schema refuses, then a valid one of the same tool",
+                        4,
+                        16,
+                        vec![vec![
+                            call(UPPER_TOOL, "ugly", Initial),
+                            call(UPPER_TOOL, "good", Initial),
+                        ]],
+                    ),
+                    (
+                        "a valid call, then one the schema refuses, of the same tool",
+                        4,
+                        16,
+                        vec![vec![
+                            call(UPPER_TOOL, "good", Initial),
+                            call(UPPER_TOOL, "ugly", Initial),
+                        ]],
+                    ),
+                    (
+                        "the schema refusals reach the target's limit within one reply",
+                        2,
+                        16,
+                        vec![vec![
+                            call(UPPER_TOOL, "ugly", Initial),
+                            call(UPPER_TOOL, "uglier", Initial),
+                            call(UPPER_TOOL, "good", Initial),
+                        ]],
+                    ),
+                    (
+                        "the same version again in one reply: no change",
+                        4,
+                        16,
+                        vec![
+                            vec![call(UPPER_TOOL, "good", Initial)],
+                            vec![
+                                call(UPPER_TOOL, "good", Of("upper")),
+                                call(UPPER_TOOL, "good", Of("upper")),
+                            ],
+                        ],
+                    ),
+                    (
+                        "the target's limit within one reply: no process after it",
+                        2,
+                        16,
+                        vec![vec![
+                            call(UPPER_TOOL, "bad", Initial),
+                            call(UPPER_TOOL, "worse", Initial),
+                            call(UPPER_TOOL, "good", Initial),
+                        ]],
+                    ),
+                ]
+            }
+
+            /// Several calls in one reply, of one tool and of two: on Responses each call is
+            /// checked and run in the reply's order, takes no other call's receipt, and the
+            /// processes, ledgers, attempts, answers, invalidation, and the stop at a limit are
+            /// the same as on Chat Completions.
+            #[test]
+            fn several_calls_in_one_reply_count_and_answer_as_on_chat() {
+                let _guard = lock();
+                let mut statuses = std::collections::BTreeSet::new();
+                let mut schema_refused = false;
+                for (label, per_target, per_run, replies) in several_call_paths() {
+                    let floor = floor_with(per_target, per_run);
+                    let mut seen = Vec::new();
+                    for api in APIS {
+                        let log: Arc<Mutex<Vec<Value>>> = Arc::default();
+                        let observation =
+                            observe_on(api, &floor, several(replies.clone(), log.clone()), &log);
+                        seen.push(observation);
+                    }
+                    assert_eq!(seen[1], seen[0], "{label}");
+                    let calls = replies.iter().map(Vec::len).sum::<usize>();
+                    assert!(
+                        seen[0]["processes"].as_u64().unwrap() <= calls as u64,
+                        "{label}"
+                    );
+                    for turn in seen[1]["turn_answers"].as_array().unwrap() {
+                        for answer in turn.as_array().unwrap() {
+                            schema_refused |= answer.to_string().contains("schema_violation");
+                            let status = answer["stage"]["status"]
+                                .as_str()
+                                .or_else(|| answer["status"].as_str())
+                                .unwrap_or("other");
+                            statuses.insert(status.to_string());
+                        }
+                    }
+                }
+                // The paths reach each of these answers, on both wires alike, and a call the
+                // schema refuses answers as data too.
+                for status in ["sealed", "resubmit", "stale", "not_ready", "no_change"] {
+                    assert!(statuses.contains(status), "{status}: {statuses:?}");
+                }
+                assert!(schema_refused, "no answer was a schema refusal");
+            }
+
+            fn upper_call(revision: &str, mode: &str) -> String {
+                let arguments = json!({"mode": mode, "expected_revision": revision}).to_string();
+                json!({"choices": [{"message": {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [{
+                        "id": "call-upper",
+                        "type": "function",
+                        "function": {"name": UPPER_TOOL, "arguments": arguments},
+                    }],
+                }}]})
+                .to_string()
+            }
+
+            /// A Responses reply with the same call and no call ID.
+            fn without_call_id(mode: &str) -> String {
+                responses_reply(vec![json!({
+                    "type": "function_call",
+                    "id": "fc_bad",
+                    "name": UPPER_TOOL,
+                    "arguments": json!({"mode": mode, "expected_revision": "initial"}).to_string(),
+                    "status": "completed",
+                })])
+            }
+
+            /// A reply with a bad call ID spends no attempt, adds no schema refusal, and submits
+            /// nothing: with it in front, the run's counts are those of the same calls without
+            /// it on Chat Completions.
+            #[test]
+            fn a_reply_with_a_bad_call_id_spends_no_attempt_and_adds_no_schema_refusal() {
+                let _guard = lock();
+                // A valid submission: one process, attempt one.
+                let mut counts = Vec::new();
+                for api in APIS {
+                    let env = Env::new();
+                    write_replay_tools(&env, &floor_with(4, 16));
+                    install_sandbox(&env);
+                    let chat: Responder = Arc::new(|index, _| match index {
+                        1 => upper_call("initial", "good"),
+                        _ => text_reply("done"),
+                    });
+                    let wire: Responder = match api {
+                        Api::Chat => chat,
+                        Api::Responses => Arc::new(move |index, body| match index {
+                            1 => without_call_id("good"),
+                            _ => chat_reply_as_responses(
+                                &chat(index - 1, &as_chat_body(body)),
+                                index,
+                            ),
+                        }),
+                    };
+                    let http = FakeHttp::start(wire);
+                    let mut config = super::super::config(&env, WALK_PROFILE, &http.url);
+                    config.openai_api = api.openai_api();
+                    let mut client = client_from_config(&config, false).unwrap();
+                    let _ = run_session_with_outcome_with_ui(
+                        client.as_mut(),
+                        &mut SessionSnapshot::new(),
+                        "Submit both stages.",
+                        &[],
+                        &config,
+                        &NOOP_UI,
+                    );
+                    let requests = http.finish();
+                    reset_for_test();
+                    let events = events_of(&env);
+                    let retries = events
+                        .iter()
+                        .filter(|event| event["event"] == "native_tool_parse_retry_feedback")
+                        .count();
+                    counts.push((saved_attempts(&env), processes(&events), ledgers(&env)));
+                    assert_eq!(retries, usize::from(api == Api::Responses), "{api:?}");
+                    assert!(!requests.is_empty());
+                }
+                assert_eq!(counts[0].0, 1);
+                assert_eq!(counts[1], counts[0]);
+
+                // A call the schema refuses, with one attempt per target: the first refusal is
+                // the one at the limit. The bad reply in front of it is not counted.
+                let mut ends = Vec::new();
+                for api in APIS {
+                    let env = Env::new();
+                    write_replay_tools(&env, &floor_with(1, 16));
+                    install_sandbox(&env);
+                    let refused = upper_call("initial", "ugly");
+                    let wire: Responder = match api {
+                        Api::Chat => Arc::new(move |_, _| refused.clone()),
+                        Api::Responses => Arc::new(move |index, _| match index {
+                            1 => without_call_id("ugly"),
+                            _ => chat_reply_as_responses(&refused, index),
+                        }),
+                    };
+                    let http = FakeHttp::start(wire);
+                    let mut config = super::super::config(&env, WALK_PROFILE, &http.url);
+                    config.openai_api = api.openai_api();
+                    let mut client = client_from_config(&config, false).unwrap();
+                    let result = run_session_with_outcome_with_ui(
+                        client.as_mut(),
+                        &mut SessionSnapshot::new(),
+                        "Submit both stages.",
+                        &[],
+                        &config,
+                        &NOOP_UI,
+                    )
+                    .map(|_| ())
+                    .map_err(|error| format!("{error:#}"));
+                    let requests = http.finish();
+                    reset_for_test();
+                    let error = result.expect_err("the limit ends the run");
+                    assert!(error.contains("schema_refusal_limit"), "{api:?}: {error}");
+                    let limits = limit_events(&env);
+                    assert_eq!(limits.len(), 1, "{api:?}");
+                    let limit = ["stage", "target", "refusals", "limit", "scope"]
+                        .map(|field| limits[0][field].clone());
+                    ends.push((requests.len(), limit, ledgers(&env)));
+                }
+                assert_eq!(ends[0].0, 1);
+                assert_eq!(ends[1].0, 2, "the bad reply, then the refusal at the limit");
+                assert_eq!(ends[1].1, ends[0].1);
+                assert_eq!(ends[1].2, ends[0].2);
+            }
+
+            /// A failed check with the protocol's most diagnostics, each at its longest: the
+            /// answer goes back on Responses as the same string as on Chat Completions, past 500
+            /// characters, within the stage budget, and as data with its status, code, and counts.
+            #[test]
+            fn a_long_stage_answer_goes_back_on_responses_as_on_chat() {
+                let _guard = lock();
+                let mut seen = Vec::new();
+                for api in APIS {
+                    let env = Env::new();
+                    write_long_tools(&env, &floor_with(4, 16));
+                    install_sandbox(&env);
+                    let chat: Responder = Arc::new(|index, _| match index {
+                        1 => upper_call("initial", "bad"),
+                        _ => text_reply("done"),
+                    });
+                    let http = FakeHttp::start(on_api(api, chat));
+                    let mut config = super::super::config(&env, WALK_PROFILE, &http.url);
+                    config.openai_api = api.openai_api();
+                    let mut client = client_from_config(&config, false).unwrap();
+                    let _ = run_session_with_outcome_with_ui(
+                        client.as_mut(),
+                        &mut SessionSnapshot::new(),
+                        "Submit both stages.",
+                        &[],
+                        &config,
+                        &NOOP_UI,
+                    );
+                    let requests = http.finish();
+                    reset_for_test();
+                    let second = as_chat(api, &requests[1]);
+                    let answer = second["messages"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .rev()
+                        .find(|message| message["role"] == "tool")
+                        .and_then(|message| message["content"].as_str())
+                        .unwrap()
+                        .to_string();
+                    seen.push(answer);
+                }
+                assert_eq!(seen[1], seen[0]);
+                let answer = &seen[1];
+                assert!(answer.chars().count() > 500, "{answer}");
+                assert!(answer.len() <= 5_120, "{}", answer.len());
+                let data: Value = serde_json::from_str(answer).unwrap();
+                assert_eq!(data["status"], "resubmit", "{data}");
+                assert_eq!(data["code"], "check_failed", "{data}");
+                assert_eq!(data["attempts"]["target"], json!({"used": 1, "limit": 4}));
+                assert_eq!(data["attempts"]["run"], json!({"used": 1, "limit": 16}));
+                assert!(
+                    data["diagnostics"]
+                        .as_array()
+                        .is_some_and(|list| !list.is_empty())
+                );
+            }
+
+            /// What the host must keep of an answer, as `fit_for_model` checks it.
+            const ANSWER_POINTERS: [&str; 7] = [
+                "/status",
+                "/code",
+                "/revision",
+                "/truncated",
+                "/stage/status",
+                "/stage/revision",
+                "/attempts",
+            ];
+
+            /// A long commit answer made to fall to its fixed form: the sealed output's path is
+            /// past 500 bytes and holds a word the history takes for a credential, which turns
+            /// the whole text into a marker, and no shorter list can take it out. The tool
+            /// message the host keeps and the output the next request carries, decoded, are the
+            /// same fixed data on both wires, with `truncated` set and the seven fields the
+            /// fitting keeps.
+            #[test]
+            fn a_long_answer_in_its_fixed_form_is_kept_and_sent_as_the_same_data() {
+                let _guard = lock();
+                let output = format!(
+                    "out/api_key_notes/{}upper.json",
+                    "a-long-directory-name-0000000000/".repeat(18)
+                );
+                assert!(output.len() > 500);
+                let mut seen = Vec::new();
+                for api in APIS {
+                    let env = Env::new();
+                    env.write_tool(
+                        (UPPER_TOOL_ID, UPPER_TOOL, &output),
+                        &stage_schema(&[FIXED_INPUT]),
+                        Some(floor()),
+                    );
+                    env.write_tool(
+                        (LOWER_TOOL_ID, LOWER_TOOL, LOWER_OUTPUT),
+                        &stage_schema(&[&output, FIXED_INPUT]),
+                        Some(floor()),
+                    );
+                    install_sandbox(&env);
+                    let chat: Responder = Arc::new(|index, _| match index {
+                        1 => upper_call("initial", "good"),
+                        _ => text_reply("done"),
+                    });
+                    let http = FakeHttp::start(on_api(api, chat));
+                    let mut config = super::super::config(&env, WALK_PROFILE, &http.url);
+                    config.openai_api = api.openai_api();
+                    let mut client = client_from_config(&config, false).unwrap();
+                    let mut snapshot = SessionSnapshot::new();
+                    let result = run_session_with_outcome_with_ui(
+                        client.as_mut(),
+                        &mut snapshot,
+                        "Submit both stages.",
+                        &[],
+                        &config,
+                        &NOOP_UI,
+                    )
+                    .map(|_| ())
+                    .map_err(|error| format!("{error:#}"));
+                    let requests = http.finish();
+                    reset_for_test();
+                    let kept = snapshot
+                        .messages
+                        .iter()
+                        .find(|message| {
+                            message.role == "tool" && message.name.as_deref() == Some(UPPER_TOOL)
+                        })
+                        .map(|message| message.content.clone())
+                        .unwrap_or_else(|| panic!("{api:?}: no answer kept: {result:?}"));
+                    let second = as_chat(api, &requests[1]);
+                    let sent = second["messages"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .rev()
+                        .find(|message| message["role"] == "tool")
+                        .and_then(|message| message["content"].as_str())
+                        .unwrap()
+                        .to_string();
+                    let kept_data = parse_answer(&kept);
+                    let sent_data = parse_answer(&sent);
+                    for pointer in ANSWER_POINTERS {
+                        assert_eq!(
+                            kept_data.pointer(pointer),
+                            sent_data.pointer(pointer),
+                            "{api:?} {pointer}"
+                        );
+                    }
+                    assert_eq!(sent_data, kept_data, "{api:?}");
+                    assert_eq!(sent_data["truncated"], true, "{api:?}: {sent}");
+                    // The fixed form: no path, digest, or list an operator or a process chose.
+                    let mut fields = sent_data
+                        .as_object()
+                        .unwrap()
+                        .keys()
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    fields.sort();
+                    assert_eq!(
+                        fields,
+                        ["attempts", "committed", "stage", "truncated"],
+                        "{api:?}: {sent}"
+                    );
+                    assert_eq!(sent_data["stage"]["status"], "sealed", "{api:?}: {sent}");
+                    assert!(
+                        sent_data["stage"]["revision"].is_string(),
+                        "{api:?}: {sent}"
+                    );
+                    assert!(sent_data["attempts"].is_object(), "{api:?}: {sent}");
+                    assert!(env.root.join(&output).exists(), "{api:?}: not committed");
+                    // Each workspace has a revision of its own; everything else is the same.
+                    let mut compared = sent_data;
+                    compared["stage"]["revision"] = json!("<revision>");
+                    seen.push(compared);
+                }
+                assert_eq!(seen[1], seen[0]);
+            }
+
+            /// The replay's script, with a failed check's diagnostics at the protocol's limits.
+            fn long_script() -> String {
+                let diagnostics = (0..8)
+                    .map(|index| {
+                        format!(
+                            r#"{{"code":"{}","message":"{index}{}"}}"#,
+                            "c".repeat(64),
+                            " m".repeat(255)
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(",");
+                format!(
+                    r#"IFS= read -r request
+take() {{ local pattern="\"$1\":\"([^\"]+)\""; [[ $request =~ $pattern ]] && printf -v "$2" '%s' "${{BASH_REMATCH[1]}}"; }}
+take request_id rid; take tool_id tid; take runtime_sha256 run; take input_revision rev; take schema_sha256 sch
+status=passed; said='[]'
+if [[ $request == *'"mode":"bad"'* ]]; then status=failed; said='[{diagnostics}]'; fi
+printf '%s' "{{\"protocol\":\"profile-tool.result/v1\",\"request_id\":\"$rid\",\"tool_id\":\"$tid\",\"runtime_sha256\":\"$run\",\"input_revision\":\"$rev\",\"schema_sha256\":\"$sch\",\"checks\":[{{\"id\":\"shape\",\"status\":\"$status\"}}],\"outputs\":[{{\"id\":\"artifact\",\"sha256\":\"{digest}\",\"bytes_base64\":\"{encoded}\"}}],\"diagnostics\":$said}}"
+"#,
+                    digest = sha256(b"{\"stage\":\"one\"}\n"),
+                    encoded = encode_base64(b"{\"stage\":\"one\"}\n"),
+                )
+            }
+
+            /// The replay's tools with the long script.
+            fn write_long_tools(env: &Env, floor: &Value) {
+                write_replay_tools(env, floor);
+                for tool_id in [UPPER_TOOL_ID, LOWER_TOOL_ID] {
+                    let directory = env.tools.join(tool_id);
+                    std::fs::write(directory.join("tool.sh"), long_script()).unwrap();
+                    let path = env.registry.join(format!("profile-tools/{tool_id}.json"));
+                    let mut descriptor: Value =
+                        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+                    descriptor["process"]["dependency_directories"][0]["sha256"] =
+                        json!(directory_pin(&directory).unwrap());
+                    std::fs::write(&path, descriptor.to_string()).unwrap();
+                }
+            }
+        }
+    }
+}
+
+/// Issue #1005: the wire shapes of the same calls on Chat Completions and on Responses.
+#[path = "support/responses_schema_fixture.rs"]
+mod responses_schema_fixture;
+
+/// Everything the Responses off recording needs, in one place: the paths, the fake and its
+/// replies, the observation, and the normalization.
+mod responses_off {
+    use std::collections::{BTreeMap, VecDeque};
+    use std::io::{Read as _, Write as _};
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    use commandagent::config::{
+        Action, Config, ConfigFieldSources, NarrationMode, OllamaThink, OpenAiApi, PlanPreset,
+        PromptLayout, Provider,
+    };
+    use commandagent::minimal_loop::loop_run::run_session_with_outcome_with_ui;
+    use commandagent::providers::client_from_config;
+    use commandagent::sensitive_data::{SecretCatalog, install_scope};
+    use commandagent::state::SessionSnapshot;
+    use commandagent::tools::profile_tools::{
+        ProfileToolReadExecutor, ReadToolOutput, register_read_executor,
+    };
+    use commandagent::tui::NOOP_UI;
+    use serde_json::{Value, json};
+
+    use super::{REGISTRY_ENV, lock, sha256};
+
+    // -----------------------------------------------------------------------------------------
+    // The corpus's own synthetic inputs (structured-stage-receipts: the off rows with no stage).
+    // -----------------------------------------------------------------------------------------
+
+    pub(super) const SOURCE: &str = "9b4197a5cf624d4f2470eecdd6407643c78d31ab";
+    const DUMMY_SECRET: &str = "fake-dummy-credential-975-not-a-real-key";
+    const FLAT_PROFILE: &str = "stage-off-flat";
+    const FLAT_TOOL: &str = "stage-off-flat-read";
+    const FLAT_RUNTIME: &str = "stage-off-flat-runtime";
+    const FLAT_NAME: &str = "ReadFlatConfig";
+    const FLAT_PARAMETERS: &str = r#"[{"name":"path","kind":"workspace_path","required":true,"description":"Workspace-relative file."}]"#;
+    const FLAT_ARGUMENTS: &str = r#"{"path":"settings.json"}"#;
+    const FLAT_PROMPT: &str = "Read the settings.";
+    const WRITE_PROMPT: &str = "Write notes.txt and read it.";
+
+    /// The manifest of the off rows' flat profile, as the corpus's tests write it.
+    fn flat_manifest() -> String {
+        format!(
+            "[metadata]\nid = \"{FLAT_PROFILE}\"\ndisplay_name = \"Stage off\"\nschema_version = \"v2\"\ntask_family = \"generic\"\n[plan]\nintent = \"create\"\nphases = [\n  {{ id = \"implementation\", prompt = \"Write the notes for {{goal}}.\" }},\n]\n[artifacts]\nrequired = [\"notes.txt\"]\n[guidance.variants.contract]\ntriggers = [{{ condition = \"always\" }}]\nmessages = {{ instruction = \"Write notes.txt.\" }}\n[[checks.final]]\nid = \"scaffold_files_present\"\nparams = {{ files = [\"notes.txt\"] }}\n[profile_tools]\nschema_version = \"profile-tool.declaration/v1\"\nbuiltin_tools = [\"Read\", \"Write\"]\ntools = [\n  {{ id = \"{FLAT_TOOL}\", effect = \"read\" }},\n]\n"
+        )
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // The dummy values the replies carry. None is a real secret.
+    // -----------------------------------------------------------------------------------------
+
+    const SUMMARY: &str =
+        "dummy-summary-SECRET-sk-test-0000 fake-dummy-credential-975-not-a-real-key";
+    const ENCRYPTED: &str = "opaque-dummy-encrypted-content-0000";
+    const PREAMBLE: &str = "Reading the settings first. fake-dummy-credential-975-not-a-real-key";
+    const UNKNOWN_VALUE: &str =
+        "dummy-unknown-SECRET-0000 fake-dummy-credential-975-not-a-real-key";
+    const SAME_TEXT: &str = "Reading the settings.";
+
+    fn response(id: &str, output: Vec<Value>) -> Value {
+        json!({
+            "id": id,
+            "object": "response",
+            "model": "m",
+            "status": "completed",
+            "output": output,
+            "usage": {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15},
+        })
+    }
+
+    fn message(id: &str, text: &str) -> Value {
+        json!({
+            "type": "message",
+            "id": id,
+            "role": "assistant",
+            "status": "completed",
+            "content": [{"type": "output_text", "text": text, "annotations": []}],
+        })
+    }
+
+    fn function_call(item_id: &str, call_id: &str, name: &str, arguments: &str) -> Value {
+        json!({
+            "type": "function_call",
+            "id": item_id,
+            "call_id": call_id,
+            "name": name,
+            "arguments": arguments,
+            "status": "completed",
+        })
+    }
+
+    fn reasoning(id: &str) -> Value {
+        json!({
+            "type": "reasoning",
+            "id": id,
+            "summary": [{"type": "summary_text", "text": SUMMARY}],
+            "encrypted_content": ENCRYPTED,
+        })
+    }
+
+    fn unknown(id: &str) -> Value {
+        json!({
+            "type": "dummy_unknown_item",
+            "id": id,
+            "dummy_field": UNKNOWN_VALUE,
+            "dummy_object": {"dummy_nested": "dummy-unknown-nested-0000"},
+        })
+    }
+
+    fn done(id: &str) -> Value {
+        response(id, vec![message("msg_done", "done")])
+    }
+
+    fn flat_call(item_id: &str, call_id: &str) -> Value {
+        function_call(item_id, call_id, FLAT_NAME, FLAT_ARGUMENTS)
+    }
+
+    struct ResponsesPath {
+        id: &'static str,
+        profile: &'static str,
+        prompt: &'static str,
+        replies: fn() -> Vec<Value>,
+    }
+
+    /// Each path's item.id and call_id differ (`fc_item_N` / `call_N`).
+    const PATHS: [ResponsesPath; 6] = [
+        // The off row `chat-native-write-and-read`, on Responses.
+        ResponsesPath {
+            id: "round-trip",
+            profile: "generic",
+            prompt: WRITE_PROMPT,
+            replies: || {
+                vec![
+                    response(
+                        "resp_1",
+                        vec![function_call(
+                            "fc_item_1",
+                            "call_1",
+                            "Write",
+                            r#"{"path":"notes.txt","content":"the notes\n"}"#,
+                        )],
+                    ),
+                    response(
+                        "resp_2",
+                        vec![function_call(
+                            "fc_item_2",
+                            "call_2",
+                            "Read",
+                            r#"{"path":"notes.txt"}"#,
+                        )],
+                    ),
+                    done("resp_3"),
+                ]
+            },
+        },
+        ResponsesPath {
+            id: "text-and-call",
+            profile: FLAT_PROFILE,
+            prompt: FLAT_PROMPT,
+            replies: || {
+                vec![
+                    response(
+                        "resp_1",
+                        vec![message("msg_1", PREAMBLE), flat_call("fc_item_1", "call_1")],
+                    ),
+                    done("resp_2"),
+                ]
+            },
+        },
+        ResponsesPath {
+            id: "reasoning-item",
+            profile: FLAT_PROFILE,
+            prompt: FLAT_PROMPT,
+            replies: || {
+                vec![
+                    response(
+                        "resp_1",
+                        vec![reasoning("rs_1"), flat_call("fc_item_1", "call_1")],
+                    ),
+                    done("resp_2"),
+                ]
+            },
+        },
+        ResponsesPath {
+            id: "unknown-item",
+            profile: FLAT_PROFILE,
+            prompt: FLAT_PROMPT,
+            replies: || {
+                vec![
+                    response(
+                        "resp_1",
+                        vec![unknown("unk_1"), flat_call("fc_item_1", "call_1")],
+                    ),
+                    done("resp_2"),
+                ]
+            },
+        },
+        ResponsesPath {
+            id: "all-items-in-one-response",
+            profile: FLAT_PROFILE,
+            prompt: FLAT_PROMPT,
+            replies: || {
+                vec![
+                    response(
+                        "resp_1",
+                        vec![
+                            reasoning("rs_1"),
+                            message("msg_1", PREAMBLE),
+                            unknown("unk_1"),
+                            flat_call("fc_item_1", "call_1"),
+                        ],
+                    ),
+                    done("resp_2"),
+                ]
+            },
+        },
+        ResponsesPath {
+            id: "same-text-two-call-ids",
+            profile: FLAT_PROFILE,
+            prompt: FLAT_PROMPT,
+            replies: || {
+                vec![
+                    response(
+                        "resp_1",
+                        vec![
+                            reasoning("rs_1"),
+                            message("msg_1", SAME_TEXT),
+                            flat_call("fc_item_1", "call_1"),
+                        ],
+                    ),
+                    response(
+                        "resp_2",
+                        vec![
+                            reasoning("rs_2"),
+                            message("msg_2", SAME_TEXT),
+                            flat_call("fc_item_2", "call_2"),
+                        ],
+                    ),
+                    done("resp_3"),
+                ]
+            },
+        },
+    ];
+
+    // -----------------------------------------------------------------------------------------
+    // The operator side: the flat executor, its descriptor, and the extension root.
+    // -----------------------------------------------------------------------------------------
+
+    struct FlatReader;
+
+    impl std::fmt::Debug for FlatReader {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("FlatReader")
+        }
+    }
+
+    impl ProfileToolReadExecutor for FlatReader {
+        fn read(&self, _root: &Path, arguments: &Value) -> anyhow::Result<ReadToolOutput> {
+            Ok(ReadToolOutput {
+                text: format!("flat read of {arguments}"),
+                usage: None,
+            })
+        }
+    }
+
+    fn register_extension(root: &Path) {
+        let directory = root.join(format!("profiles/{FLAT_PROFILE}"));
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(directory.join("manifest.toml"), flat_manifest()).unwrap();
+        register_read_executor(FLAT_RUNTIME, Arc::new(FlatReader));
+        commandagent::planner::extension_profiles::register(root).unwrap();
+    }
+
+    fn write_flat_registry(registry: &Path) {
+        let directory = registry.join("profile-tools");
+        std::fs::create_dir_all(&directory).unwrap();
+        let descriptor = json!({
+            "protocol": "profile-tool.descriptor/v1",
+            "tool_id": FLAT_TOOL,
+            "name": FLAT_NAME,
+            "version": "1.0.0",
+            "description": "Read one configuration object.",
+            "effect": "read",
+            "parameters": serde_json::from_str::<Value>(FLAT_PARAMETERS).unwrap(),
+            "schema_sha256": sha256(FLAT_PARAMETERS.as_bytes()),
+            "runtime": {"kind": "in_process", "id": FLAT_RUNTIME},
+            "limits": {"max_input_bytes": 1024, "max_output_bytes": 4096},
+        });
+        std::fs::write(
+            directory.join(format!("{FLAT_TOOL}.json")),
+            descriptor.to_string(),
+        )
+        .unwrap();
+    }
+
+    fn set_env(name: &str, value: Option<&std::ffi::OsStr>) {
+        // SAFETY: every env mutation in this binary holds `LOCK`.
+        unsafe {
+            match value {
+                Some(value) => std::env::set_var(name, value),
+                None => std::env::remove_var(name),
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // The fake provider: 127.0.0.1, one scripted Responses reply per request, bodies kept.
+    // -----------------------------------------------------------------------------------------
+
+    struct FakeHttp {
+        url: String,
+        requests: Arc<Mutex<Vec<String>>>,
+        replies: Arc<Mutex<VecDeque<String>>>,
+        stop: Arc<AtomicBool>,
+        thread: Option<std::thread::JoinHandle<()>>,
+    }
+
+    impl FakeHttp {
+        fn start(replies: Vec<String>) -> Self {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let url = format!("http://{}", listener.local_addr().unwrap());
+            let requests: Arc<Mutex<Vec<String>>> = Arc::default();
+            let replies = Arc::new(Mutex::new(VecDeque::from(replies)));
+            let stop = Arc::new(AtomicBool::new(false));
+            let thread = {
+                let (requests, replies, stop) = (requests.clone(), replies.clone(), stop.clone());
+                std::thread::spawn(move || {
+                    while !stop.load(Ordering::SeqCst) {
+                        match listener.accept() {
+                            Ok((stream, _)) => serve(stream, &requests, &replies),
+                            Err(_) => std::thread::sleep(std::time::Duration::from_millis(2)),
+                        }
+                    }
+                })
+            };
+            Self {
+                url,
+                requests,
+                replies,
+                stop,
+                thread: Some(thread),
+            }
+        }
+
+        fn finish(mut self) -> (Vec<String>, usize) {
+            self.stop.store(true, Ordering::SeqCst);
+            self.thread.take().unwrap().join().unwrap();
+            let requests = self.requests.lock().unwrap().clone();
+            let unused = self.replies.lock().unwrap().len();
+            (requests, unused)
+        }
+    }
+
+    fn serve(
+        mut stream: std::net::TcpStream,
+        requests: &Mutex<Vec<String>>,
+        replies: &Mutex<VecDeque<String>>,
+    ) {
+        stream.set_nonblocking(false).unwrap();
+        let mut bytes = Vec::new();
+        let mut chunk = [0u8; 8192];
+        let body_start = loop {
+            let read = stream.read(&mut chunk).unwrap_or(0);
+            if read == 0 {
+                return;
+            }
+            bytes.extend_from_slice(&chunk[..read]);
+            if let Some(position) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
+                break position + 4;
+            }
+        };
+        let head = String::from_utf8_lossy(&bytes[..body_start]).to_ascii_lowercase();
+        let length = head
+            .lines()
+            .find_map(|line| line.strip_prefix("content-length:"))
+            .and_then(|value| value.trim().parse::<usize>().ok())
+            .unwrap_or(0);
+        while bytes.len() < body_start + length {
+            let read = stream.read(&mut chunk).unwrap_or(0);
+            if read == 0 {
+                break;
+            }
+            bytes.extend_from_slice(&chunk[..read]);
+        }
+        // Only the body is kept; no header (Authorization among them) is recorded.
+        let body = String::from_utf8_lossy(&bytes[body_start..]).to_string();
+        requests.lock().unwrap().push(body);
+        let reply = replies.lock().unwrap().pop_front().unwrap_or_else(|| {
+            response(
+                "resp_exhausted",
+                vec![message("msg_exhausted", "script exhausted")],
+            )
+            .to_string()
+        });
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{reply}",
+            reply.len()
+        );
+        let _ = stream.write_all(response.as_bytes());
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // The configuration: the off rows' fields, with the executor on the OpenAI-compatible
+    // Responses entry pointed at the fake.
+    // -----------------------------------------------------------------------------------------
+
+    fn base_config(root: &Path, evidence: &Path, profile: &str, url: &str) -> Config {
+        Config {
+            workspace_root: root.to_path_buf(),
+            state_dir: evidence.join("state"),
+            eval_events_path: Some(evidence.join("events.jsonl")),
+            completion_contract_path: None,
+            yes: true,
+            offline: false,
+            context_budget: 100_000,
+            model: "m".to_string(),
+            provider: Provider::LmStudio,
+            tool_protocol: None,
+            openai_api: OpenAiApi::ChatCompletions,
+            prompt_layout: PromptLayout::Stable,
+            plan_preset: PlanPreset::None,
+            intent_override: None,
+            planner_model: "m".to_string(),
+            planner_provider: Provider::LmStudio,
+            planner_think: Some(OllamaThink::False),
+            classifier_model: "m".to_string(),
+            classifier_provider: Provider::LmStudio,
+            openai_compatible: None,
+            ollama_host: "http://localhost:11434".to_string(),
+            ollama_think: None,
+            lm_studio_host: url.to_string(),
+            num_predict: 100,
+            max_iterations: 8,
+            recovery_plan_auto_runs: 0,
+            chat_timeout_secs: 30,
+            chat_timeout_source: "override:test".to_string(),
+            field_sources: ConfigFieldSources::default(),
+            chat_retries: 1,
+            stream: false,
+            resume: None,
+            fresh_session: false,
+            no_footer: false,
+            narration: NarrationMode::Normal,
+            profile: profile.to_string(),
+            profile_explicit: true,
+            profile_inference: None,
+            style: "default".to_string(),
+            action: Action::Repl,
+        }
+    }
+
+    /// `--provider openai-compatible --base-url <fake>/v1 --api responses`, parsed the way the
+    /// binary parses it. The caller has pointed HOME at an empty temporary directory.
+    fn responses_config(root: &Path, evidence: &Path, profile: &str, url: &str) -> Config {
+        let base_url = format!("{url}/v1");
+        let parsed = commandagent::provider_cli::parse_from([
+            "commandagent",
+            "--cwd",
+            root.to_str().unwrap(),
+            "--state-dir",
+            evidence.join("state").to_str().unwrap(),
+            "--model",
+            "m",
+            "--planner-model",
+            "m",
+            "--provider",
+            "openai-compatible",
+            "--base-url",
+            &base_url,
+            "--api",
+            "responses",
+        ])
+        .unwrap();
+        let parsed =
+            Config::from_cli_with_provider_options(parsed.cli, parsed.provider_options).unwrap();
+        let mut config = base_config(root, evidence, profile, url);
+        config.provider = parsed.provider;
+        config.openai_api = parsed.openai_api;
+        config.openai_compatible = parsed.openai_compatible;
+        assert_eq!(config.openai_api, OpenAiApi::Responses);
+        assert!(config.openai_compatible.is_some());
+        config
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // The normalization: exactly the rules in the recording's `normalization`.
+    // -----------------------------------------------------------------------------------------
+
+    pub(super) const NORMALIZATION: [&str; 6] = [
+        "temporary roots (workspace, evidence, registry, extension root, HOME; canonical and as created; longest first) -> <ROOT>",
+        "the fake's loopback URL http://127.0.0.1:<port>, then 127.0.0.1:<port> -> <LOOPBACK>",
+        "a JSON number under epoch, occurred_at_epoch_ms, duration_ms, elapsed_ms, estimated_prompt_tokens_sent, estimated_stable_prefix_chars -> \"<N>\" (the existing off comparison's NORMALIZED_NUMBER_FIELDS)",
+        "inside a string, epoch|occurred_at_epoch_ms|duration_ms|elapsed_ms then [\"]? spaces [:=] spaces digits -> the prefix and <TIME>; an ISO 8601 date-time inside a string -> <TIME>",
+        "the string value of run_nonce or process_nonce, wherever it appears -> <NONCE-n>; a UUID -> <UUID-n>; n by first appearance within a path",
+        "a revision's 16 lowercase hex digits as a whole word -> <REVISION-n>; n by first appearance within a path",
+    ];
+
+    /// The same keys as the existing off comparison (`off_control::NORMALIZED_NUMBER_FIELDS`).
+    const NORMALIZED_NUMBER_FIELDS: [&str; 6] = [
+        "epoch",
+        "occurred_at_epoch_ms",
+        "duration_ms",
+        "elapsed_ms",
+        "estimated_prompt_tokens_sent",
+        "estimated_stable_prefix_chars",
+    ];
+    const NONCE_KEYS: [&str; 2] = ["run_nonce", "process_nonce"];
+
+    pub(super) struct Normalizer {
+        url: String,
+        host: String,
+        roots: Vec<String>,
+        nonces: Vec<String>,
+        uuids: Vec<String>,
+        revisions: Vec<String>,
+        section: String,
+        /// Replacements per `<top-level observation key>/<kind>`.
+        pub(super) counts: BTreeMap<String, usize>,
+    }
+
+    impl Normalizer {
+        fn new(url: &str, roots: &[PathBuf]) -> Self {
+            let mut spelled = Vec::new();
+            for root in roots {
+                spelled.push(root.display().to_string());
+                if let Ok(canonical) = std::fs::canonicalize(root) {
+                    spelled.push(canonical.display().to_string());
+                }
+            }
+            spelled.sort_by(|a, b| b.len().cmp(&a.len()).then(a.cmp(b)));
+            spelled.dedup();
+            Self {
+                url: url.to_string(),
+                host: url.trim_start_matches("http://").to_string(),
+                roots: spelled,
+                nonces: Vec::new(),
+                uuids: Vec::new(),
+                revisions: Vec::new(),
+                section: String::new(),
+                counts: BTreeMap::new(),
+            }
+        }
+
+        fn count(&mut self, kind: &'static str, times: usize) {
+            if times > 0 {
+                *self
+                    .counts
+                    .entry(format!("{}/{kind}", self.section))
+                    .or_default() += times;
+            }
+        }
+
+        fn collect_nonces(&mut self, value: &Value) {
+            match value {
+                Value::Object(object) => {
+                    for (key, value) in object {
+                        if NONCE_KEYS.contains(&key.as_str())
+                            && let Some(text) = value.as_str()
+                            && !self.nonces.iter().any(|known| known == text)
+                        {
+                            self.nonces.push(text.to_string());
+                        }
+                        self.collect_nonces(value);
+                    }
+                }
+                Value::Array(items) => items.iter().for_each(|item| self.collect_nonces(item)),
+                _ => {}
+            }
+        }
+
+        fn value(&mut self, value: &Value) -> Value {
+            match value {
+                Value::Object(object) => Value::Object(
+                    object
+                        .iter()
+                        .map(|(key, value)| {
+                            let value = if NORMALIZED_NUMBER_FIELDS.contains(&key.as_str())
+                                && value.is_number()
+                            {
+                                self.count("number", 1);
+                                json!("<N>")
+                            } else {
+                                self.value(value)
+                            };
+                            (key.clone(), value)
+                        })
+                        .collect(),
+                ),
+                Value::Array(items) => {
+                    Value::Array(items.iter().map(|item| self.value(item)).collect())
+                }
+                Value::String(text) => Value::String(self.text(text)),
+                other => other.clone(),
+            }
+        }
+
+        fn numbered(
+            list: &mut Vec<String>,
+            prefix: &str,
+            regex: &regex::Regex,
+            text: &str,
+        ) -> (String, usize) {
+            let mut times = 0;
+            let replaced = regex
+                .replace_all(text, |captures: &regex::Captures<'_>| {
+                    let found = captures[0].to_string();
+                    let index = match list.iter().position(|known| *known == found) {
+                        Some(index) => index,
+                        None => {
+                            list.push(found);
+                            list.len() - 1
+                        }
+                    };
+                    times += 1;
+                    format!("<{prefix}-{}>", index + 1)
+                })
+                .into_owned();
+            (replaced, times)
+        }
+
+        fn text(&mut self, text: &str) -> String {
+            let mut text = text.to_string();
+            let times = text.matches(&self.url).count();
+            text = text.replace(&self.url, "<LOOPBACK>");
+            let host_times = text.matches(&self.host).count();
+            text = text.replace(&self.host, "<LOOPBACK>");
+            self.count("loopback", times + host_times);
+            for index in 0..self.roots.len() {
+                let root = self.roots[index].clone();
+                let times = text.matches(&root).count();
+                text = text.replace(&root, "<ROOT>");
+                self.count("root", times);
+            }
+            for index in 0..self.nonces.len() {
+                let nonce = self.nonces[index].clone();
+                let times = text.matches(&nonce).count();
+                text = text.replace(&nonce, &format!("<NONCE-{}>", index + 1));
+                self.count("nonce", times);
+            }
+            let iso = regex::Regex::new(
+                r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})?",
+            )
+            .unwrap();
+            let times = iso.find_iter(&text).count();
+            text = iso.replace_all(&text, "<TIME>").into_owned();
+            self.count("time", times);
+            let named = regex::Regex::new(
+                r#"(epoch|occurred_at_epoch_ms|duration_ms|elapsed_ms)("? *[:=] *)[0-9]+"#,
+            )
+            .unwrap();
+            let times = named.find_iter(&text).count();
+            text = named.replace_all(&text, "${1}${2}<TIME>").into_owned();
+            self.count("time", times);
+            let uuid = regex::Regex::new(
+                r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+            )
+            .unwrap();
+            let (replaced, times) = Self::numbered(&mut self.uuids, "UUID", &uuid, &text);
+            text = replaced;
+            self.count("uuid", times);
+            let revision = regex::Regex::new(r"\b[0-9a-f]{16}\b").unwrap();
+            let (replaced, times) =
+                Self::numbered(&mut self.revisions, "REVISION", &revision, &text);
+            text = replaced;
+            self.count("revision", times);
+            text
+        }
+
+        /// The same walk as `value`, with each top-level key named in the counts.
+        pub(super) fn normalize(&mut self, value: &Value) -> Value {
+            self.collect_nonces(value);
+            let Value::Object(object) = value else {
+                return self.value(value);
+            };
+            let mut normalized = serde_json::Map::new();
+            for (key, value) in object {
+                self.section = key.clone();
+                let value = if NORMALIZED_NUMBER_FIELDS.contains(&key.as_str()) && value.is_number()
+                {
+                    self.count("number", 1);
+                    json!("<N>")
+                } else {
+                    self.value(value)
+                };
+                normalized.insert(key.clone(), value);
+            }
+            Value::Object(normalized)
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // The observation of one path.
+    // -----------------------------------------------------------------------------------------
+
+    fn files_under(root: &Path, skip: &[&str]) -> BTreeMap<String, String> {
+        let mut files = BTreeMap::new();
+        let mut pending = vec![root.to_path_buf()];
+        while let Some(directory) = pending.pop() {
+            let Ok(entries) = std::fs::read_dir(directory) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    pending.push(path);
+                } else {
+                    let relative = path.strip_prefix(root).unwrap().display().to_string();
+                    if skip.contains(&relative.as_str()) {
+                        continue;
+                    }
+                    let text = String::from_utf8_lossy(&std::fs::read(&path).unwrap()).to_string();
+                    files.insert(relative, text);
+                }
+            }
+        }
+        files
+    }
+
+    fn as_json(text: &str) -> Value {
+        serde_json::from_str(text).unwrap_or_else(|_| Value::String(text.to_string()))
+    }
+
+    /// The raw observation of one path, then the same value normalized, and what was replaced.
+    fn observe(path: &ResponsesPath) -> (Value, BTreeMap<String, usize>) {
+        let home = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let evidence_dir = tempfile::tempdir().unwrap();
+        let registry = tempfile::tempdir().unwrap();
+        let extension = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(workspace.path()).unwrap();
+        let evidence = std::fs::canonicalize(evidence_dir.path()).unwrap();
+        std::fs::write(root.join("settings.json"), "{\"mode\":\"fast\"}").unwrap();
+        register_extension(&std::fs::canonicalize(extension.path()).unwrap());
+        write_flat_registry(registry.path());
+
+        let saved_home = std::env::var_os("HOME");
+        set_env("HOME", Some(home.path().as_os_str()));
+        set_env(
+            "COMMANDAGENT_COMPATIBLE_REASONING_EFFORT",
+            None::<&std::ffi::OsStr>,
+        );
+        set_env(
+            REGISTRY_ENV,
+            (path.profile == FLAT_PROFILE).then(|| registry.path().as_os_str()),
+        );
+
+        let replies = (path.replies)();
+        let http = FakeHttp::start(replies.iter().map(Value::to_string).collect());
+        let url = http.url.clone();
+        let config = responses_config(&root, &evidence, path.profile, &url);
+        let mut catalog = SecretCatalog::new();
+        catalog
+            .register_credential("DUMMY_API_KEY", DUMMY_SECRET)
+            .unwrap();
+        install_scope(catalog, Some(&root), config.eval_events_path.as_deref());
+        let mut client = client_from_config(&config, false).unwrap();
+        let mut snapshot = SessionSnapshot::new();
+        let outcome = run_session_with_outcome_with_ui(
+            client.as_mut(),
+            &mut snapshot,
+            path.prompt,
+            &[],
+            &config,
+            &NOOP_UI,
+        );
+        drop(client);
+        let (requests, unused) = http.finish();
+        set_env(REGISTRY_ENV, None::<&std::ffi::OsStr>);
+        set_env("HOME", saved_home.as_deref());
+
+        let outcome = match outcome {
+            Ok(outcome) => json!({"ok": {
+                "stop_reason": format!("{:?}", outcome.stop_reason),
+                "final_text": outcome.final_text,
+                "iterations": outcome.iterations,
+                "tool_calls": outcome.tool_calls,
+                "changed_paths": outcome.changed_paths,
+            }}),
+            Err(error) => json!({"err": format!("{error:#}")}),
+        };
+        let events = serde_json::Deserializer::from_str(
+            &std::fs::read_to_string(evidence.join("events.jsonl")).unwrap_or_default(),
+        )
+        .into_iter::<Value>()
+        .map(Result::unwrap)
+        .collect::<Vec<_>>();
+        let event_names = events
+            .iter()
+            .map(|event| event["event"].clone())
+            .collect::<Vec<_>>();
+        let raw = json!({
+            "replies": replies,
+            "requests": requests.iter().map(|body| as_json(body)).collect::<Vec<_>>(),
+            "request_count": requests.len(),
+            "unused_replies": unused,
+            "event_names": event_names,
+            "events": events,
+            "history": serde_json::to_value(&snapshot).unwrap(),
+            "state_files": files_under(&evidence, &["events.jsonl"])
+                .into_iter()
+                .map(|(name, text)| (name, as_json(&text)))
+                .collect::<BTreeMap<_, _>>(),
+            "artifacts": files_under(&root, &[]),
+            "outcome": outcome,
+        });
+        let roots = [
+            home.path().to_path_buf(),
+            workspace.path().to_path_buf(),
+            evidence_dir.path().to_path_buf(),
+            registry.path().to_path_buf(),
+            extension.path().to_path_buf(),
+        ];
+        let mut normalizer = Normalizer::new(&url, &roots);
+        let normalized = normalizer.normalize(&raw);
+        (normalized, normalizer.counts)
+    }
+
+    /// The whole recording, and the replacements per path.
+    pub(super) fn golden() -> (Value, Value) {
+        let mut paths = Vec::new();
+        let mut counts = serde_json::Map::new();
+        for path in &PATHS {
+            let (observation, replaced) = observe(path);
+            counts.insert(path.id.to_string(), json!(replaced));
+            paths.push(json!({"id": path.id, "observation": observation}));
+        }
+        let document = json!({
+            "issue": "#1005",
+            "kind": "responses-off",
+            "source": SOURCE,
+            "normalization": NORMALIZATION,
+            "paths": paths,
+        });
+        (document, Value::Object(counts))
+    }
+
+    #[test]
+    fn records_the_responses_off_golden() {
+        let Some(out) = std::env::var_os("RESPONSES_OFF_OUT") else {
+            return;
+        };
+        let _guard = lock();
+        let (document, counts) = golden();
+        let out = PathBuf::from(out);
+        std::fs::write(
+            &out,
+            format!("{}\n", serde_json::to_string_pretty(&document).unwrap()),
+        )
+        .unwrap();
+        let mut counts_path = out.into_os_string();
+        counts_path.push(".counts.json");
+        std::fs::write(
+            counts_path,
+            format!("{}\n", serde_json::to_string_pretty(&counts).unwrap()),
+        )
+        .unwrap();
+    }
+}
+
+/// The golden recorded on the base with `responses_off`, compared with what the same code
+/// observes now. Nothing is normalized here beyond the recorder's own rules.
+mod responses_off_comparison {
+    use serde_json::Value;
+
+    use super::responses_off::{SOURCE, golden};
+    use super::{lock, sha256};
+
+    const GOLDEN: &str =
+        include_str!("corpus/apps/structured-stage-receipts/fixtures/responses-off-golden.json");
+    const MANIFEST: &str =
+        include_str!("corpus/apps/structured-stage-receipts/source-manifest.json");
+
+    #[test]
+    fn the_responses_off_paths_match_the_base_recording_byte_for_byte() {
+        let _guard = lock();
+        let recorded: Value = serde_json::from_str(GOLDEN).unwrap();
+        let (now, _) = golden();
+        let (old_paths, new_paths) = (
+            recorded["paths"].as_array().unwrap(),
+            now["paths"].as_array().unwrap(),
+        );
+        assert_eq!(new_paths.len(), old_paths.len());
+        for (new, old) in new_paths.iter().zip(old_paths) {
+            assert_eq!(new["id"], old["id"]);
+            for (key, value) in old["observation"].as_object().unwrap() {
+                assert_eq!(&new["observation"][key], value, "{} {key}", old["id"]);
+            }
+            assert_eq!(new["observation"], old["observation"], "{}", old["id"]);
+        }
+        let text = format!("{}\n", serde_json::to_string_pretty(&now).unwrap());
+        assert!(text == GOLDEN, "the bytes differ from the base recording");
+    }
+
+    #[test]
+    fn the_manifest_pins_the_responses_off_golden_and_its_source() {
+        let manifest: Value = serde_json::from_str(MANIFEST).unwrap();
+        assert_eq!(manifest["responses_off_base_sha"], SOURCE);
+        assert_eq!(
+            manifest["fixture_sha256"]["responses-off-golden.json"],
+            sha256(GOLDEN.as_bytes())
+        );
+        let recorded: Value = serde_json::from_str(GOLDEN).unwrap();
+        assert_eq!(recorded["source"], SOURCE);
+        assert_eq!(recorded["kind"], "responses-off");
+    }
+
+    const RESPONSES_CASES: &str =
+        include_str!("corpus/apps/structured-stage-receipts/fixtures/responses-cases.json");
+
+    /// Issue #1005: the Responses rows name the API and the tool protocol on two axes, and the
+    /// test that runs each. A renamed test fails here.
+    #[test]
+    fn the_corpus_names_the_responses_rows_and_what_runs_them() {
+        let manifest: Value = serde_json::from_str(MANIFEST).unwrap();
+        assert_eq!(
+            manifest["fixture_sha256"]["responses-cases.json"],
+            sha256(RESPONSES_CASES.as_bytes())
+        );
+        let cases: Value = serde_json::from_str(RESPONSES_CASES).unwrap();
+        assert_eq!(cases["issue"], "#1005");
+        let source = include_str!("structured_stage_receipts.rs");
+        for row in cases["rows"].as_array().unwrap() {
+            assert_eq!(row["api"], "responses", "{row}");
+            assert_eq!(row["tool_protocol"], "native", "{row}");
+            let name = format!("fn {}(", row["test"].as_str().unwrap());
+            assert!(source.contains(&name), "{name} names nothing that runs");
+        }
+    }
+}

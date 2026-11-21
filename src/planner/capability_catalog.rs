@@ -1,11 +1,10 @@
-use std::fmt;
-
 use toml::Value;
 use toml::value::Table;
 
 use crate::planner::{declarative_command_checks as command_checks, verify};
 use crate::tools::path_guard::validate_workspace_relative;
 
+pub mod artifact;
 mod cli;
 mod data;
 pub mod ingest;
@@ -20,6 +19,7 @@ pub enum CapabilityKind {
     CommandCheck,
     InternalCheck,
     Probe,
+    AdapterCheck,
 }
 
 impl CapabilityKind {
@@ -29,6 +29,7 @@ impl CapabilityKind {
             Self::CommandCheck => "CommandCheck",
             Self::InternalCheck => "InternalCheck",
             Self::Probe => "Probe",
+            Self::AdapterCheck => "AdapterCheck",
         }
     }
 }
@@ -91,69 +92,32 @@ pub enum InternalCapability {
     Data(DataInternalCheck),
     Ingest(ingest::IngestInternalCheck),
     Pack(PackInternalCheck),
+    ArtifactContract(artifact::ArtifactContractCheck),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum CatalogError {
+    #[error("unknown capability id `{0}`")]
     UnknownId(String),
-    UnknownParameter {
-        id: String,
-        parameter: String,
-    },
-    MissingParameter {
-        id: String,
-        parameter: String,
-    },
+    #[error("unknown parameter `{parameter}` for capability `{id}`")]
+    UnknownParameter { id: String, parameter: String },
+    #[error("missing parameter `{parameter}` for capability `{id}`")]
+    MissingParameter { id: String, parameter: String },
+    #[error("parameter `{parameter}` for capability `{id}` must be {expected}")]
     TypeMismatch {
         id: String,
         parameter: String,
         expected: String,
     },
+    #[error("invalid parameter `{parameter}` for capability `{id}`: {reason}")]
     InvalidParameter {
         id: String,
         parameter: String,
         reason: String,
     },
-    ProbeBindingUnimplemented {
-        id: String,
-    },
+    #[error("probe capability `{id}` is registered but not bindable yet")]
+    ProbeBindingUnimplemented { id: String },
 }
-
-impl fmt::Display for CatalogError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::UnknownId(id) => write!(f, "unknown capability id `{id}`"),
-            Self::UnknownParameter { id, parameter } => {
-                write!(f, "unknown parameter `{parameter}` for capability `{id}`")
-            }
-            Self::MissingParameter { id, parameter } => {
-                write!(f, "missing parameter `{parameter}` for capability `{id}`")
-            }
-            Self::TypeMismatch {
-                id,
-                parameter,
-                expected,
-            } => write!(
-                f,
-                "parameter `{parameter}` for capability `{id}` must be {expected}"
-            ),
-            Self::InvalidParameter {
-                id,
-                parameter,
-                reason,
-            } => write!(
-                f,
-                "invalid parameter `{parameter}` for capability `{id}`: {reason}"
-            ),
-            Self::ProbeBindingUnimplemented { id } => write!(
-                f,
-                "probe capability `{id}` is registered but not bindable yet"
-            ),
-        }
-    }
-}
-
-impl std::error::Error for CatalogError {}
 
 static NO_PARAMS: [ParamSpec; 0] = [];
 static PORT_PARAMS: [ParamSpec; 1] = [ParamSpec {
@@ -230,7 +194,7 @@ static BASE_REGISTRY: [CapabilitySpec; 5] = [
 ];
 
 pub fn registry() -> &'static [CapabilitySpec] {
-    command_checks::combined_registry(pack::combined_registry(ingest::registry(&BASE_REGISTRY)))
+    artifact::combined_registry()
 }
 
 pub fn resolve(id: &str, params: &Table) -> Result<ResolvedCapability, CatalogError> {
@@ -280,6 +244,7 @@ pub fn resolve(id: &str, params: &Table) -> Result<ResolvedCapability, CatalogEr
         _ if nextjs::is_id(spec.id) => nextjs::resolve(spec, params),
         _ if cli::is_id(spec.id) => cli::resolve(spec, params),
         _ if pack::is_id(spec.id) => pack::resolve(spec, params),
+        _ if artifact::is_id(spec.id) => artifact::resolve(spec, params),
         _ => ingest::resolve_or_data(spec, params),
     }
 }

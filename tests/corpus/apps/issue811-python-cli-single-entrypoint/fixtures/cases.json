@@ -1,0 +1,28 @@
+{
+  "cases": [
+    {
+      "id": "two-packages",
+      "goal": "Create csv_summarizer.py that summarizes a CSV file",
+      "files": ["pyproject.toml", "src/app/main.py", "src/csv_summarizer/main.py"],
+      "scripts": {"csv-summarizer": "app.main:main"},
+      "expect": "fail",
+      "reason_contains": ["src/app/main.py", "src/csv_summarizer/main.py"]
+    },
+    {
+      "id": "one-package",
+      "goal": "Create csv_summarizer.py that summarizes a CSV file",
+      "files": ["pyproject.toml", "src/csv_summarizer/main.py"],
+      "scripts": {"csv-summarizer": "csv_summarizer.main:main"},
+      "expect": "pass",
+      "reason_contains": []
+    },
+    {
+      "id": "goal-explicit-filename",
+      "goal": "Implement the entrypoint at src/csv_stats/main.py",
+      "files": ["pyproject.toml", "src/csv_stats/main.py"],
+      "scripts": {"csv-stats": "csv_stats.main:main"},
+      "expect": "pass",
+      "reason_contains": []
+    }
+  ]
+}

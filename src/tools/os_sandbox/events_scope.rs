@@ -6,6 +6,11 @@
 //! written to the child's file. Only the destination is saved and restored; the
 //! installed policy and its downgrade state are never touched, so restoring can
 //! not make `required` pass again.
+//!
+//! A workflow parent run enters the scope too (Issue #804): its destination is
+//! `evidence/workflow-events.jsonl`, so a downgrade in the parent's own stage is
+//! written there once and never to a child's file. Nothing is written for a
+//! status that has not been downgraded.
 
 use std::path::PathBuf;
 
@@ -41,17 +46,23 @@ fn replace(path: Option<PathBuf>) -> Option<PathBuf> {
 
 /// The current destination.
 #[cfg(any(target_os = "linux", test))]
-pub(super) fn current_path() -> Option<PathBuf> {
+pub(crate) fn current_path() -> Option<PathBuf> {
     EVENTS_PATH
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .clone()
 }
 
+/// Downgrade the installed backend as a failed wrap would, for tests outside
+/// this module that need a deterministic downgrade without a real backend.
+#[cfg(test)]
+pub(crate) fn downgrade_for_test(reason: &str) {
+    super::mark_backend_unavailable(reason.to_string());
+}
+
 /// Announce the status event. Without a path nothing is written to disk. The event
-/// still goes through `eval_events::emit`, but the status bus and presentation
-/// have no branch for `bash_sandbox_status` yet, so it is not shown in the TUI (a
-/// separate Issue).
+/// still goes through `eval_events::emit`, so presentation shows a downgrade as one
+/// fixed line (Issue #803); with a path the file record and that line are both made.
 #[cfg(any(target_os = "linux", test))]
 pub(super) fn announce(path: Option<&std::path::Path>, event: serde_json::Value) {
     #[cfg(test)]

@@ -1,0 +1,330 @@
+{
+  "issue": "#985",
+  "kind": "synthetic",
+  "cases": [
+    {
+      "name": "standalone",
+      "status_and_uncapped": [
+        "Draft",
+        "full",
+        ""
+      ],
+      "passes": true,
+      "plan": {
+        "goal": "Write the notes",
+        "profile": "cap-standalone",
+        "style": "default",
+        "intent": "create",
+        "phases": [
+          {
+            "id": "outline",
+            "prompt": "Write the outline."
+          },
+          {
+            "id": "implementation",
+            "prompt": "Write the notes."
+          }
+        ]
+      },
+      "planner": [
+        {
+          "content": "{\"goal\":\"Write outline\",\"steps\":[{\"id\":\"write-artifact\",\"kind\":\"implement\",\"expected_result\":\"pass\",\"instruction\":\"Write outline\",\"expected_paths\":[\"outline.txt\"],\"verify\":[]}]}"
+        },
+        {
+          "content": "{\"goal\":\"Write notes\",\"steps\":[{\"id\":\"write-artifact\",\"kind\":\"implement\",\"expected_result\":\"pass\",\"instruction\":\"Write notes\",\"expected_paths\":[\"notes.txt\"],\"verify\":[]}]}"
+        }
+      ],
+      "execution": [
+        {
+          "content": "",
+          "tool_calls": [
+            {
+              "id": "standalone-write-1",
+              "name": "Write",
+              "arguments": {
+                "path": "outline.txt",
+                "content": "the outline\n"
+              }
+            }
+          ]
+        },
+        {
+          "content": "",
+          "tool_calls": [
+            {
+              "id": "standalone-write-2",
+              "name": "Write",
+              "arguments": {
+                "path": "notes.txt",
+                "content": "the notes\n"
+              }
+            }
+          ]
+        }
+      ],
+      "expect": {
+        "ultra_final_acceptance": {
+          "profile": "cap-standalone",
+          "assurance_level": "static",
+          "assurance_reason": "profile_not_admitted"
+        },
+        "ultra_plan_complete": {
+          "profile": "cap-standalone",
+          "assurance_level": "static",
+          "assurance_reason": "profile_not_admitted",
+          "ok": true,
+          "total_phases": 2
+        }
+      },
+      "absent": []
+    },
+    {
+      "name": "standalone-failed",
+      "status_and_uncapped": [
+        "Draft",
+        "full",
+        ""
+      ],
+      "passes": false,
+      "plan": {
+        "goal": "Write the notes",
+        "profile": "cap-standalone",
+        "style": "default",
+        "intent": "create",
+        "phases": [
+          {
+            "id": "outline",
+            "prompt": "Write the outline."
+          },
+          {
+            "id": "implementation",
+            "prompt": "Write the notes."
+          }
+        ]
+      },
+      "planner": [
+        {
+          "content": "{\"goal\":\"Write outline\",\"steps\":[{\"id\":\"write-artifact\",\"kind\":\"implement\",\"expected_result\":\"pass\",\"instruction\":\"Write outline\",\"expected_paths\":[\"outline.txt\"],\"verify\":[]}]}"
+        },
+        {
+          "content": "{\"goal\":\"Write other\",\"steps\":[{\"id\":\"write-artifact\",\"kind\":\"implement\",\"expected_result\":\"pass\",\"instruction\":\"Write other\",\"expected_paths\":[\"other.txt\"],\"verify\":[]}]}"
+        }
+      ],
+      "execution": [
+        {
+          "content": "",
+          "tool_calls": [
+            {
+              "id": "standalone-failed-write-1",
+              "name": "Write",
+              "arguments": {
+                "path": "outline.txt",
+                "content": "the outline\n"
+              }
+            }
+          ]
+        },
+        {
+          "content": "",
+          "tool_calls": [
+            {
+              "id": "standalone-failed-write-2",
+              "name": "Write",
+              "arguments": {
+                "path": "other.txt",
+                "content": "not the notes\n"
+              }
+            }
+          ]
+        }
+      ],
+      "expect": {
+        "ultra_final_acceptance": {
+          "profile": "cap-standalone"
+        }
+      },
+      "absent": [
+        "ultra_plan_complete"
+      ]
+    },
+    {
+      "name": "overlay",
+      "status_and_uncapped": [
+        "Draft",
+        "full",
+        ""
+      ],
+      "passes": true,
+      "plan": {
+        "goal": "Build a Python CLI that reads a CSV file path argument and prints sum, average, max, and min for numeric columns.",
+        "profile": "cap-python-cli",
+        "style": "default",
+        "intent": "create",
+        "phases": [
+          {
+            "id": "scaffold",
+            "prompt": "Scaffold the Python CLI"
+          },
+          {
+            "id": "implement",
+            "prompt": "Implement CLI behavior"
+          }
+        ]
+      },
+      "planner": [
+        {
+          "content": "{\"goal\":\"Create pyproject.toml and src/csv_stats/main.py for a CSV file argument CLI\",\"steps\":[{\"id\":\"scaffold\",\"kind\":\"setup\",\"expected_result\":\"pass\",\"instruction\":\"Create pyproject.toml and src/csv_stats/main.py for a CSV file argument CLI\",\"expected_paths\":[\"pyproject.toml\",\"src/csv_stats/main.py\"],\"verify\":[]}]}"
+        },
+        {
+          "content": "{\"goal\":\"Implement the CLI so it reads a CSV path argument, prints aggregate values, and changes output when the input file changes\",\"steps\":[{\"id\":\"implement\",\"kind\":\"implement\",\"expected_result\":\"pass\",\"instruction\":\"Implement the CLI so it reads a CSV path argument, prints aggregate values, and changes output when the input file changes\",\"expected_paths\":[\"src/csv_stats/main.py\",\"docs/usage.md\"],\"verify\":[\"python3 -m compileall -q src\"]}]}"
+        }
+      ],
+      "execution": [
+        {
+          "content": "",
+          "tool_calls": [
+            {
+              "id": "overlay-write-1",
+              "name": "Write",
+              "arguments": {
+                "path": "pyproject.toml",
+                "content": "[project]\nname = \"csv-stats\"\nversion = \"0.1.0\"\n\n[project.scripts]\ncsv-stats = \"csv_stats.main:main\"\n"
+              }
+            },
+            {
+              "id": "overlay-write-2",
+              "name": "Write",
+              "arguments": {
+                "path": "src/csv_stats/main.py",
+                "content": "#!/usr/bin/env python3\nimport csv\nimport sys\nfrom pathlib import Path\ndef fmt(value: float) -> str:\n    if value.is_integer():\n        return str(int(value))\n    return f\"{value:.3f}\".rstrip(\"0\").rstrip(\".\")\ndef main() -> None:\n    if len(sys.argv) != 2:\n        print(\"usage: csv-stats <file>\", file=sys.stderr)\n        raise SystemExit(2)\n    path = Path(sys.argv[1])\n    if not path.is_file():\n        print(f\"missing file: {path}\", file=sys.stderr)\n        raise SystemExit(1)\n    with path.open(newline=\"\") as handle:\n        rows = list(csv.DictReader(handle))\n    numeric = {}\n    for column in (rows[0].keys() if rows else []):\n        values = []\n        for row in rows:\n            try:\n                values.append(float(row[column]))\n            except ValueError:\n                pass\n        if values:\n            numeric[column] = (sum(values), sum(values) / len(values), max(values), min(values))\n    if not numeric:\n        print(\"no numeric columns\", file=sys.stderr)\n        raise SystemExit(1)\n    print(\"column | sum | average | max | min\")\n    for column in sorted(numeric):\n        total, average, maximum, minimum = numeric[column]\n        print(f\"{column} | {fmt(total)} | {fmt(average)} | {fmt(maximum)} | {fmt(minimum)}\")\n\nif __name__ == \"__main__\":\n    main()\n"
+              }
+            }
+          ]
+        },
+        {
+          "content": "",
+          "tool_calls": [
+            {
+              "id": "overlay-write-3",
+              "name": "Write",
+              "arguments": {
+                "path": "src/csv_stats/main.py",
+                "content": "#!/usr/bin/env python3\nimport csv\nimport sys\nfrom pathlib import Path\ndef fmt(value: float) -> str:\n    if value.is_integer():\n        return str(int(value))\n    return f\"{value:.3f}\".rstrip(\"0\").rstrip(\".\")\ndef main() -> None:\n    if len(sys.argv) != 2:\n        print(\"usage: csv-stats <file>\", file=sys.stderr)\n        raise SystemExit(2)\n    path = Path(sys.argv[1])\n    if not path.is_file():\n        print(f\"missing file: {path}\", file=sys.stderr)\n        raise SystemExit(1)\n    with path.open(newline=\"\") as handle:\n        rows = list(csv.DictReader(handle))\n    numeric = {}\n    for column in (rows[0].keys() if rows else []):\n        values = []\n        for row in rows:\n            try:\n                values.append(float(row[column]))\n            except ValueError:\n                pass\n        if values:\n            numeric[column] = (sum(values), sum(values) / len(values), max(values), min(values))\n    if not numeric:\n        print(\"no numeric columns\", file=sys.stderr)\n        raise SystemExit(1)\n    print(\"column | sum | average | max | min\")\n    for column in sorted(numeric):\n        total, average, maximum, minimum = numeric[column]\n        print(f\"{column} | {fmt(total)} | {fmt(average)} | {fmt(maximum)} | {fmt(minimum)}\")\n\nif __name__ == \"__main__\":\n    main()\n"
+              }
+            },
+            {
+              "id": "overlay-write-4",
+              "name": "Write",
+              "arguments": {
+                "path": "docs/usage.md",
+                "content": "csv-stats <file>\n"
+              }
+            }
+          ]
+        }
+      ],
+      "expect": {
+        "ultra_final_acceptance": {
+          "profile": "cap-python-cli",
+          "assurance_level": "static",
+          "assurance_reason": "profile_not_admitted"
+        },
+        "ultra_plan_complete": {
+          "profile": "cap-python-cli",
+          "assurance_level": "static",
+          "assurance_reason": "profile_not_admitted",
+          "ok": true,
+          "total_phases": 2
+        }
+      },
+      "absent": []
+    },
+    {
+      "name": "admitted",
+      "status_and_uncapped": [
+        "Admitted",
+        "full",
+        ""
+      ],
+      "passes": true,
+      "plan": {
+        "goal": "Build a Python CLI that reads a CSV file path argument and prints sum, average, max, and min for numeric columns.",
+        "profile": "python-cli",
+        "style": "default",
+        "intent": "create",
+        "phases": [
+          {
+            "id": "scaffold",
+            "prompt": "Scaffold the Python CLI"
+          },
+          {
+            "id": "implement",
+            "prompt": "Implement CLI behavior"
+          }
+        ]
+      },
+      "planner": [
+        {
+          "content": "{\"goal\":\"Create pyproject.toml and src/csv_stats/main.py for a CSV file argument CLI\",\"steps\":[{\"id\":\"scaffold\",\"kind\":\"setup\",\"expected_result\":\"pass\",\"instruction\":\"Create pyproject.toml and src/csv_stats/main.py for a CSV file argument CLI\",\"expected_paths\":[\"pyproject.toml\",\"src/csv_stats/main.py\"],\"verify\":[]}]}"
+        },
+        {
+          "content": "{\"goal\":\"Implement the CLI so it reads a CSV path argument, prints aggregate values, and changes output when the input file changes\",\"steps\":[{\"id\":\"implement\",\"kind\":\"implement\",\"expected_result\":\"pass\",\"instruction\":\"Implement the CLI so it reads a CSV path argument, prints aggregate values, and changes output when the input file changes\",\"expected_paths\":[\"src/csv_stats/main.py\",\"README.md\"],\"verify\":[\"python3 -m compileall -q src\"]}]}"
+        }
+      ],
+      "execution": [
+        {
+          "content": "",
+          "tool_calls": [
+            {
+              "id": "admitted-write-1",
+              "name": "Write",
+              "arguments": {
+                "path": "pyproject.toml",
+                "content": "[project]\nname = \"csv-stats\"\nversion = \"0.1.0\"\n\n[project.scripts]\ncsv-stats = \"csv_stats.main:main\"\n"
+              }
+            },
+            {
+              "id": "admitted-write-2",
+              "name": "Write",
+              "arguments": {
+                "path": "src/csv_stats/main.py",
+                "content": "#!/usr/bin/env python3\nimport csv\nimport sys\nfrom pathlib import Path\ndef fmt(value: float) -> str:\n    if value.is_integer():\n        return str(int(value))\n    return f\"{value:.3f}\".rstrip(\"0\").rstrip(\".\")\ndef main() -> None:\n    if len(sys.argv) != 2:\n        print(\"usage: csv-stats <file>\", file=sys.stderr)\n        raise SystemExit(2)\n    path = Path(sys.argv[1])\n    if not path.is_file():\n        print(f\"missing file: {path}\", file=sys.stderr)\n        raise SystemExit(1)\n    with path.open(newline=\"\") as handle:\n        rows = list(csv.DictReader(handle))\n    numeric = {}\n    for column in (rows[0].keys() if rows else []):\n        values = []\n        for row in rows:\n            try:\n                values.append(float(row[column]))\n            except ValueError:\n                pass\n        if values:\n            numeric[column] = (sum(values), sum(values) / len(values), max(values), min(values))\n    if not numeric:\n        print(\"no numeric columns\", file=sys.stderr)\n        raise SystemExit(1)\n    print(\"column | sum | average | max | min\")\n    for column in sorted(numeric):\n        total, average, maximum, minimum = numeric[column]\n        print(f\"{column} | {fmt(total)} | {fmt(average)} | {fmt(maximum)} | {fmt(minimum)}\")\n\nif __name__ == \"__main__\":\n    main()\n"
+              }
+            }
+          ]
+        },
+        {
+          "content": "",
+          "tool_calls": [
+            {
+              "id": "admitted-write-3",
+              "name": "Write",
+              "arguments": {
+                "path": "src/csv_stats/main.py",
+                "content": "#!/usr/bin/env python3\nimport csv\nimport sys\nfrom pathlib import Path\ndef fmt(value: float) -> str:\n    if value.is_integer():\n        return str(int(value))\n    return f\"{value:.3f}\".rstrip(\"0\").rstrip(\".\")\ndef main() -> None:\n    if len(sys.argv) != 2:\n        print(\"usage: csv-stats <file>\", file=sys.stderr)\n        raise SystemExit(2)\n    path = Path(sys.argv[1])\n    if not path.is_file():\n        print(f\"missing file: {path}\", file=sys.stderr)\n        raise SystemExit(1)\n    with path.open(newline=\"\") as handle:\n        rows = list(csv.DictReader(handle))\n    numeric = {}\n    for column in (rows[0].keys() if rows else []):\n        values = []\n        for row in rows:\n            try:\n                values.append(float(row[column]))\n            except ValueError:\n                pass\n        if values:\n            numeric[column] = (sum(values), sum(values) / len(values), max(values), min(values))\n    if not numeric:\n        print(\"no numeric columns\", file=sys.stderr)\n        raise SystemExit(1)\n    print(\"column | sum | average | max | min\")\n    for column in sorted(numeric):\n        total, average, maximum, minimum = numeric[column]\n        print(f\"{column} | {fmt(total)} | {fmt(average)} | {fmt(maximum)} | {fmt(minimum)}\")\n\nif __name__ == \"__main__\":\n    main()\n"
+              }
+            },
+            {
+              "id": "admitted-write-4",
+              "name": "Write",
+              "arguments": {
+                "path": "README.md",
+                "content": "csv-stats <file>\n"
+              }
+            }
+          ]
+        }
+      ],
+      "expect": {
+        "ultra_plan_complete": {
+          "profile": "python-cli",
+          "assurance_level": "full",
+          "assurance_reason": "",
+          "ok": true,
+          "total_phases": 2
+        }
+      },
+      "absent": []
+    }
+  ]
+}

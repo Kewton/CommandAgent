@@ -1,4 +1,5 @@
 use super::diagnostics::{CompileError, PythonTraceback};
+pub mod artifact_diagnostics; // Issue #955: accepted adapter diagnostics, never a verdict
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VerifyStatus {
@@ -21,6 +22,8 @@ pub struct VerificationReport {
     pub profile_failures: Vec<String>,
     pub compile_errors: Vec<CompileError>,
     pub python_tracebacks: Vec<PythonTraceback>,
+    pub artifact_repair_paths: crate::planner::artifact_contract_checks::ArtifactRepairPaths,
+    pub artifact_diagnostics: artifact_diagnostics::ArtifactDiagnostics,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,6 +56,8 @@ impl VerificationReport {
             profile_failures: Vec::new(),
             compile_errors: Vec::new(),
             python_tracebacks: Vec::new(),
+            artifact_repair_paths: Default::default(),
+            artifact_diagnostics: Default::default(),
         }
     }
 
@@ -575,6 +580,7 @@ mod tests {
 
     #[test]
     fn verify_step_missing_path_reports_status_reason_and_repair_target() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         let report = verify_step(dir.path(), &step(&["missing.txt"], &["false"]));
         assert_eq!(
@@ -588,6 +594,7 @@ mod tests {
 
     #[test]
     fn verify_step_passes_when_paths_exist_and_command_succeeds() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("present.txt"), "ok\n").unwrap();
         let report = verify_step(
@@ -600,6 +607,7 @@ mod tests {
 
     #[test]
     fn verify_step_failing_command_is_recorded_as_command_failure() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("present.txt"), "ok\n").unwrap();
         let report = verify_step(dir.path(), &step(&["present.txt"], &["false"]));

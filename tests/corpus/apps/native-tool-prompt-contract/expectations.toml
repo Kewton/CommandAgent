@@ -1,0 +1,68 @@
+case_id = "native-tool-prompt-contract"
+source = "Issue #936: a native tool calling request keeps each tool description in the function schema of every provider wire format and drops the system prompt Tools list and heading, while every turn without schemas keeps the XML system prompt of the base SHA byte for byte"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[json_fields]
+fixtures/cases.json:kind = "synthetic"
+fixtures/cases.json:base_sha = "4bfa521bde8fe7274a114fd637bb09577c4f5a9c"
+fixtures/cases.json:root = "<root>"
+source-manifest.json:base_sha = "4bfa521bde8fe7274a114fd637bb09577c4f5a9c"
+source-manifest.json:kind = "synthetic"
+
+[fixture_contains]
+fixtures/cases.json = [
+  "\"id\": \"builder-native-plain\"",
+  "\"id\": \"builder-native-guided\"",
+  "\"id\": \"builder-native-empty-tools\"",
+  "\"id\": \"builder-native-empty-tools-guided\"",
+  "\"id\": \"builder-xml-plain\"",
+  "\"id\": \"builder-xml-guided\"",
+  "\"id\": \"builder-xml-empty-tools\"",
+  "\"id\": \"builder-xml-empty-tools-guided\"",
+  "\"id\": \"loop-native\"",
+  "\"id\": \"loop-xml\"",
+  "\"id\": \"lm-studio-chat-completions\"",
+  "\"id\": \"lm-studio-responses\"",
+  "\"id\": \"openai-compatible-chat-completions\"",
+  "\"id\": \"openai-compatible-responses\"",
+  "\"id\": \"ollama-chat\"",
+  "\"id\": \"ollama-chat-stream\"",
+  "\"id\": \"gemini-interactions\"",
+  "\"id\": \"gemini-interactions-previous\"",
+  "\"id\": \"gemini-stream-generate-content\"",
+  "\"estimated_prompt_tokens_sent\": 778",
+  "\"estimated_prompt_tokens_sent\": 410"
+]
+
+[fixture_ordered]
+fixtures/cases.json = [
+  "\"registry_tools\"",
+  "\"name\": \"Bash\"",
+  "\"name\": \"Read\"",
+  "\"name\": \"Write\"",
+  "\"name\": \"Edit\"",
+  "\"name\": \"Glob\"",
+  "\"name\": \"Grep\"",
+  "\"systems\"",
+  "\"telemetry\"",
+  "\"wire_formats\""
+]

@@ -1,0 +1,95 @@
+{
+  "issue": "#928",
+  "field": "usage.prompt_tokens_details.cached_tokens",
+  "event": "provider_turn_duration",
+  "event_field": "provider_cached_input_tokens",
+  "cases": [
+    {
+      "id": "recorded-compatible-base-1",
+      "kind": "recorded",
+      "source": "06-compatible-base-1.response.json",
+      "usage": {"prompt_tokens": 5361, "completion_tokens": 2, "total_tokens": 5363, "prompt_tokens_details": {"cached_tokens": 0}},
+      "expected_cached_input_tokens": 0
+    },
+    {
+      "id": "recorded-compatible-base-2",
+      "kind": "recorded",
+      "source": "07-compatible-base-2.response.json",
+      "usage": {"prompt_tokens": 5361, "completion_tokens": 2, "total_tokens": 5363, "prompt_tokens_details": {"cached_tokens": 5344}},
+      "expected_cached_input_tokens": 5344
+    },
+    {
+      "id": "recorded-compatible-system-middle-change",
+      "kind": "recorded",
+      "source": "10-compatible-system-middle-change.response.json",
+      "usage": {"prompt_tokens": 5362, "completion_tokens": 2, "total_tokens": 5364, "prompt_tokens_details": {"cached_tokens": 2688}},
+      "expected_cached_input_tokens": 2688
+    },
+    {
+      "id": "synthetic-legacy-usage",
+      "kind": "synthetic",
+      "usage": {"prompt_tokens": 5361, "completion_tokens": 2, "total_tokens": 5363},
+      "expected_cached_input_tokens": null
+    },
+    {
+      "id": "synthetic-no-usage",
+      "kind": "synthetic",
+      "usage": null,
+      "expected_cached_input_tokens": null
+    },
+    {
+      "id": "synthetic-cached-null",
+      "kind": "synthetic",
+      "usage": {"prompt_tokens": 5361, "completion_tokens": 2, "prompt_tokens_details": {"cached_tokens": null}},
+      "expected_cached_input_tokens": null
+    },
+    {
+      "id": "synthetic-cached-negative",
+      "kind": "synthetic",
+      "usage": {"prompt_tokens": 5361, "completion_tokens": 2, "prompt_tokens_details": {"cached_tokens": -1}},
+      "expected_cached_input_tokens": null
+    },
+    {
+      "id": "synthetic-cached-fraction",
+      "kind": "synthetic",
+      "usage": {"prompt_tokens": 5361, "completion_tokens": 2, "prompt_tokens_details": {"cached_tokens": 1.5}},
+      "expected_cached_input_tokens": null
+    },
+    {
+      "id": "synthetic-cached-string",
+      "kind": "synthetic",
+      "usage": {"prompt_tokens": 5361, "completion_tokens": 2, "prompt_tokens_details": {"cached_tokens": "5344"}},
+      "expected_cached_input_tokens": null
+    },
+    {
+      "id": "synthetic-cached-above-u64",
+      "kind": "synthetic",
+      "usage": {"prompt_tokens": 5361, "completion_tokens": 2, "prompt_tokens_details": {"cached_tokens": 18446744073709551616}},
+      "expected_cached_input_tokens": null
+    },
+    {
+      "id": "synthetic-cached-above-prompt-total",
+      "kind": "synthetic",
+      "usage": {"prompt_tokens": 5361, "completion_tokens": 2, "prompt_tokens_details": {"cached_tokens": 5362}},
+      "expected_cached_input_tokens": null
+    },
+    {
+      "id": "synthetic-cached-equals-prompt-total",
+      "kind": "synthetic",
+      "usage": {"prompt_tokens": 5361, "completion_tokens": 2, "prompt_tokens_details": {"cached_tokens": 5361}},
+      "expected_cached_input_tokens": 5361
+    },
+    {
+      "id": "synthetic-cached-without-prompt-total",
+      "kind": "synthetic",
+      "usage": {"completion_tokens": 2, "prompt_tokens_details": {"cached_tokens": 5344}},
+      "expected_cached_input_tokens": 5344
+    }
+  ],
+  "sequence": [
+    "recorded-compatible-base-2",
+    "synthetic-legacy-usage",
+    "recorded-compatible-base-1",
+    "recorded-compatible-system-middle-change"
+  ]
+}

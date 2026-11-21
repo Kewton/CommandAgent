@@ -1,0 +1,44 @@
+case_id = "probe-persistence-draft-only-not-preserved"
+source = "synthetic, derived from S-119a and develop 46d99b14"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = ["src/app/page.tsx"]
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[json_fields]
+browser-interaction.json:ok = "false"
+browser-interaction.json:probe_mode = "contract"
+browser-interaction.json:token_echoed = "true"
+browser-interaction.json:persistence_after_reload = "not_evaluated"
+browser-interaction.json:persistence_after_reload_reason = "no_mutation_observed"
+browser-interaction.json:failure_kind = "persistence_not_evaluated:no_mutation_observed"
+
+[fixture_contains]
+src/app/page.tsx = [
+  "data-anvil-action=\"primary\"",
+  "localStorage.setItem(\"search\""
+]
+browser-interaction.json = [
+  "\"persistence_draft_only\"",
+  "\"persistence_changed_dimensions\": []"
+]
+provenance.md = [
+  "synthetic",
+  "S-119a"
+]

@@ -1,0 +1,53 @@
+{
+  "source": "Issue #838 generality G1 IC-15 (a): a Verify step whose repair rewrites a model-written verifier passes only when the host's deterministic oracle also passes (2026-10-24)",
+  "cli_q": {
+    "workspace_from": "issue820-model-verifier-oracle-disagreement/fixtures/cases.json#files",
+    "producer_step": "create-verification-script",
+    "verifier_step": "verify-calculations",
+    "verifier_path": "verify_output.py",
+    "verifier_command": "python3 verify_output.py",
+    "host_oracle_command": "python3 -m compileall -q src",
+    "fixed_verifier": "import os\nimport subprocess\nimport sys\n\nHERE = os.path.dirname(os.path.abspath(__file__))\nresult = subprocess.run(\n    [sys.executable, os.path.join(HERE, \"src\", \"csv_stats\", \"main.py\"), os.path.join(HERE, \"fixture.csv\")],\n    capture_output=True,\n    text=True,\n)\nrows = {line.split()[0]: line.split() for line in result.stdout.splitlines() if line.strip()}\nprice = rows.get(\"price\", [])\nqty = rows.get(\"qty\", [])\nok = (\n    result.returncode == 0\n    and price[1:2] == [\"350\"]\n    and price[-2:] == [\"150\", \"80\"]\n    and qty[1:2] == [\"10\"]\n    and qty[-2:] == [\"5\", \"2\"]\n)\nprint(\"PASS\" if ok else \"FAIL: unexpected table\")\nsys.exit(0 if ok else 1)\n",
+    "always_pass_verifier": "import sys\n\nsys.exit(0)\n",
+    "constant_table_cli": "import sys\n\nprint(\"column  sum  mean     max  min\")\nprint(\"------  ---  -------  ---  ---\")\nprint(\"price   350  100      150  80\")\nprint(\"qty     10   3.0      5    2\")\n"
+  },
+  "ambig_g": {
+    "goal": "ちょっとしたメモアプリを作って。ブラウザで使えるようにしてください。",
+    "producer_step": "create-smoke-check",
+    "verifier_step": "run-smoke-check",
+    "verifier_path": "smoke-check.js",
+    "verifier_command": "node smoke-check.js",
+    "files": {
+      "index.html": "<!DOCTYPE html>\n<html lang=\"ja\">\n<head>\n    <meta charset=\"UTF-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n    <title>Simple Memo App</title>\n    <link rel=\"stylesheet\" href=\"style.css\">\n</head>\n<body>\n    <div class=\"container\">\n        <h1>メモアプリ</h1>\n        <div class=\"input-area\">\n            <textarea id=\"memo-input\" placeholder=\"メモを入力してください...\"></textarea>\n            <button id=\"save-btn\">保存</button>\n        </div>\n        <div id=\"notes-container\"></div>\n    </div>\n    <script src=\"script.js\"></script>\n</body>\n</html>\n",
+      "script.js": "document.addEventListener('DOMContentLoaded', () => {\n    const saveBtn = document.getElementById('save-btn');\n    const memoInput = document.getElementById('memo-input');\n    const notesContainer = document.getElementById('notes-container');\n\n    saveBtn.addEventListener('click', () => {\n        const text = memoInput.value.trim();\n        if (text) {\n            addNote(text);\n            memoInput.value = '';\n        }\n    });\n\n    function addNote(text) {\n        const noteDiv = document.createElement('div');\n        noteDiv.className = 'note';\n        noteDiv.textContent = text;\n        notesContainer.prepend(noteDiv);\n    }\n});\n",
+      "smoke-check.js": "const fs = require('fs');\nconst path = require('path');\n\nconst htmlPath = path.join(__dirname, 'index.html');\nconst expectedIds = ['note-input', 'save-btn', 'notes-list'];\n\ntry {\n    const content = fs.readFileSync(htmlPath, 'utf8');\n    let allFound = true;\n    \n    expectedIds.forEach(id => {\n        if (!content.includes(`id=\"${id}\"`)) {\n            console.error(`Missing ID: ${id}`);\n            allFound = false;\n        }\n    });\n\n    if (allFound) {\n        console.log('Smoke check passed: All expected IDs found in index.html');\n        process.exit(0);\n    } else {\n        console.error('Smoke check failed: Some IDs are missing');\n        process.exit(1);\n    }\n} catch (err) {\n    console.error('Error reading index.html:', err);\n    process.exit(1);\n}\n"
+    },
+    "always_pass_verifier": "process.exit(0);\n"
+  },
+  "cases": [
+    {
+      "id": "python-cli-verifier-rewritten-and-oracle-passes",
+      "expect": "step_passes"
+    },
+    {
+      "id": "python-cli-verifier-rewritten-and-oracle-fails",
+      "expect": "model_verifier_edited_host_oracle_failed"
+    },
+    {
+      "id": "generic-verifier-rewritten-always-success",
+      "expect": "model_verifier_edited_without_host_oracle"
+    },
+    {
+      "id": "deterministic-oracle-script-rewritten",
+      "expect": "model_verifier_edited_without_host_oracle"
+    },
+    {
+      "id": "protected-path-script-rewritten",
+      "expect": "model_verifier_edited_without_host_oracle"
+    },
+    {
+      "id": "implementation-only-repair",
+      "expect": "unchanged_step_passes"
+    }
+  ]
+}

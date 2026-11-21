@@ -1,0 +1,76 @@
+{
+  "kind": "synthetic",
+  "note": "Hand-authored. plan is the supplement 1 plan (Implement owns topwords.py and smoke_check.py, Verify runs the script); strong, weak and unchanged are the verify commands of supplements 1, 2 and 3, each put in that plan's Verify step. recorded_splits names, for each recorded run, the verifier script that the accepted owner split (#906) gives its own Implement step and the step ids the plan has after admission.",
+  "plan": {
+    "goal": "Create topwords.py, a Python 3 standard-library word counter, and check it with a smoke script.",
+    "steps": [
+      {
+        "id": "implement-topwords",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Create topwords.py that prints the top N words of standard input as word<TAB>count.",
+        "expected_paths": ["topwords.py"],
+        "verify": []
+      },
+      {
+        "id": "implement-smoke-check",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Create smoke_check.py that runs topwords.py on its argument file with subprocess and asserts the output.",
+        "expected_paths": ["smoke_check.py"],
+        "verify": []
+      },
+      {
+        "id": "verify-topwords",
+        "kind": "verify",
+        "expected_result": "pass",
+        "instruction": "Run the smoke script on sample.txt.",
+        "expected_paths": [],
+        "verify": ["python3 smoke_check.py sample.txt"]
+      }
+    ]
+  },
+  "strong": [
+    {"id": "plan-script-with-argument", "verify": "python3 smoke_check.py sample.txt"},
+    {"id": "plan-script-after-option", "verify": "python3 -B smoke_check.py sample.txt"},
+    {"id": "plan-script-dot-slash", "verify": "python ./smoke_check.py sample.txt"}
+  ],
+  "weak": [
+    {"id": "inline-code", "verify": "python3 -c \"import topwords\""},
+    {"id": "script-not-in-plan", "verify": "python3 other.py"},
+    {"id": "parent-path", "verify": "python3 ../x.py"},
+    {"id": "absolute-path", "verify": "python3 /abs/x.py"},
+    {"id": "no-path", "verify": "python3"},
+    {"id": "module", "verify": "python3 -m http.server"},
+    {"id": "double-dash", "verify": "python3 -- smoke_check.py"},
+    {"id": "long-option", "verify": "python3 --check-hash-based-pycs never smoke_check.py"},
+    {"id": "pipeline", "verify": "python3 smoke_check.py sample.txt | tee out.txt"},
+    {"id": "or-true", "verify": "python3 smoke_check.py sample.txt || true"}
+  ],
+  "unchanged": [
+    {"id": "node-script", "verify": "node smoke-check.js", "strong": true},
+    {"id": "unittest", "verify": "python3 -m unittest", "strong": true},
+    {"id": "pytest", "verify": "pytest", "strong": true}
+  ],
+  "recorded_splits": [
+    {
+      "recorded": "recorded-Aa-med-b-mid",
+      "verifier_path": "smoke-check.py",
+      "admitted_step_ids": [
+        "implement-topwords-verifier",
+        "implement-topwords",
+        "verify-topwords"
+      ]
+    },
+    {
+      "recorded": "recorded-C3-c-mid",
+      "verifier_path": "test_csv2jsonl.py",
+      "admitted_step_ids": [
+        "inspect-products-csv",
+        "implement-converter-and-contract-test-verifier",
+        "implement-converter-and-contract-test",
+        "verify-converter-contract"
+      ]
+    }
+  ]
+}

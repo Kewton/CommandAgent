@@ -439,6 +439,7 @@ pub fn render_step_plan_block(
 pub fn render_activity_line(event: &Value) -> Option<String> {
     let name = event.get("event").and_then(Value::as_str)?;
     match name {
+        "bash_sandbox_status" => crate::tui::sandbox_status::render_line(event),
         "ultra_phase_start" => {
             let index = event
                 .get("phase_index")
@@ -1192,7 +1193,28 @@ mod tests {
     use crate::planner::ultra_plan::{UltraPhase, UltraPlan};
     use serde_json::json;
 
-    static PRESENTATION_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    /// What another lib test writes to this process's projection while it runs an ultra plan:
+    /// its plan card and its events, through the same calls a run makes.
+    fn another_test_writes_the_projection() {
+        let plan = UltraPlan {
+            goal: "Another test's plan".to_string(),
+            profile: "python-cli".to_string(),
+            style: "default".to_string(),
+            intent: "create".to_string(),
+            phases: vec![UltraPhase {
+                id: "other-phase".to_string(),
+                prompt: "other".to_string(),
+            }],
+        };
+        emit_ultra_plan_card(&plan, &PlanProgress::default());
+        for event in [
+            json!({"event": "ultra_phase_start", "phase_id": "other-phase", "phase_index": 1, "phase_total": 1}),
+            json!({"event": "step_prompt_contract", "step_id": "other-step", "step_kind": "inspect"}),
+            json!({"event": "ultra_phase_complete", "phase_id": "implement"}),
+        ] {
+            crate::eval_events::emit(None, event);
+        }
+    }
 
     #[test]
     fn plan_card_and_step_block_snapshot_handle_japanese_goal() {
@@ -1518,9 +1540,19 @@ mod tests {
         );
     }
 
+    /// This reads the process-wide projection, which every lib test that emits an event
+    /// writes, so its body runs in a process of its own. While it holds between setting the
+    /// projection and reading it, another test in this process writes the projection here.
     #[test]
     fn current_plan_projection_marks_mid_run_and_post_run() {
-        let _test_guard = PRESENTATION_TEST_LOCK.lock().unwrap();
+        crate::cli_pack::tests::own_process::run_holding(
+            "tui::presentation::tests::current_plan_projection_marks_mid_run_and_post_run",
+            current_plan_projection_marks_mid_run_and_post_run_in_its_own_process,
+            another_test_writes_the_projection,
+        );
+    }
+
+    fn current_plan_projection_marks_mid_run_and_post_run_in_its_own_process() {
         reset_for_test();
         let plan = UltraPlan {
             goal: "Build app".to_string(),
@@ -1561,6 +1593,7 @@ mod tests {
                 }],
             },
         );
+        crate::cli_pack::tests::own_process::hold();
 
         let mid = render_current_plan();
         assert!(mid.contains("1. ✓ setup"), "{mid}");
@@ -1576,9 +1609,17 @@ mod tests {
         assert!(post.contains("2. ✓ implement"), "{post}");
     }
 
+    /// As above: the status card reads the process-wide projection and status bus.
     #[test]
     fn status_card_snapshot_includes_sources_port_and_probe() {
-        let _test_guard = PRESENTATION_TEST_LOCK.lock().unwrap();
+        crate::cli_pack::tests::own_process::run_holding(
+            "tui::presentation::tests::status_card_snapshot_includes_sources_port_and_probe",
+            status_card_snapshot_includes_sources_port_and_probe_in_its_own_process,
+            another_test_writes_the_projection,
+        );
+    }
+
+    fn status_card_snapshot_includes_sources_port_and_probe_in_its_own_process() {
         let _status_test_guard = crate::tui::status_bus::lock_global_for_test();
         reset_for_test();
         let sources = ConfigFieldSources {
@@ -1597,6 +1638,7 @@ mod tests {
             narration: "preset:local".to_string(),
             footer: "preset:local".to_string(),
             stream: "default:repl".to_string(),
+            run_budget: None,
         };
         let config = Config {
             workspace_root: std::path::PathBuf::from("."),
@@ -1673,6 +1715,7 @@ mod tests {
             deadline_secs: 600,
             started_at: crate::tui::status_bus::StatusTime::ZERO,
         });
+        crate::cli_pack::tests::own_process::hold();
 
         let card = render_status_card(&config);
 

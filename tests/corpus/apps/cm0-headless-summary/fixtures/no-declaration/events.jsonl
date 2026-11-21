@@ -1,0 +1,4 @@
+{"event":"run_start","workspace_root":"/tmp/cm0/no-declaration","provider":"openai","model":"plain-model","schema_version":"1"}
+{"event":"provider_turn_duration","caller_scope":"executor","duration_ms":2000,"prompt_eval_count":100,"eval_count":30,"schema_version":"1"}
+{"event":"tui_command_stop","ok":true,"status":"completed","assurance_level":"static","release_gate_status":"not_applicable","stop_reason":"completed","next_action":"none","failure_kind":"","time_profile_total_ms":2000,"schema_version":"1"}
+{"event":"run_stop","ok":true,"status":"completed","assurance_level":"static","release_gate_status":"not_applicable","stop_reason":"completed","next_action":"none","schema_version":"1"}

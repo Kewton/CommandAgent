@@ -1,0 +1,419 @@
+{
+  "schema_version": "1",
+  "status": "fail",
+  "checks": [
+    {
+      "id": "mode.offline",
+      "category": "mode",
+      "label": "Offline scope",
+      "status": "pass",
+      "message": "enabled: runtime dependency setup and listed Bash commands are refused by a lexical check; when a sandbox backend applies, the OS also refuses outbound network connections from sandboxed commands (macOS always; Linux only with Landlock ABI4, kernel 6.7 or later, below that the network is checked lexically only); without a backend only the lexical check applies; provider/API requests remain enabled",
+      "remediation": null,
+      "details": {
+        "blocked_bash_command_families": [
+          "npm install",
+          "pnpm install",
+          "yarn install",
+          "cargo install",
+          "curl",
+          "wget"
+        ],
+        "enabled": true,
+        "provider_requests_blocked": false,
+        "runtime_dependency_setup_blocked": true
+      }
+    },
+    {
+      "id": "config.model",
+      "category": "configuration",
+      "label": "Model",
+      "status": "pass",
+      "message": "m-1013 (source=CLI; detail=flag)",
+      "remediation": null,
+      "details": {
+        "source": "cli",
+        "source_detail": "flag",
+        "value": "m-1013"
+      }
+    },
+    {
+      "id": "config.provider",
+      "category": "configuration",
+      "label": "Provider",
+      "status": "pass",
+      "message": "openai (source=CLI; detail=flag)",
+      "remediation": null,
+      "details": {
+        "source": "cli",
+        "source_detail": "flag",
+        "value": "openai"
+      }
+    },
+    {
+      "id": "config.planner_model",
+      "category": "configuration",
+      "label": "Planner model",
+      "status": "pass",
+      "message": "m-1013 (source=CLI; detail=flag)",
+      "remediation": null,
+      "details": {
+        "source": "cli",
+        "source_detail": "flag",
+        "value": "m-1013"
+      }
+    },
+    {
+      "id": "config.planner_provider",
+      "category": "configuration",
+      "label": "Planner provider",
+      "status": "pass",
+      "message": "openai (source=CLI; detail=flag)",
+      "remediation": null,
+      "details": {
+        "source": "cli",
+        "source_detail": "flag",
+        "value": "openai"
+      }
+    },
+    {
+      "id": "config.context_budget",
+      "category": "configuration",
+      "label": "Context budget",
+      "status": "pass",
+      "message": "65536 tokens (source=default; detail=default)",
+      "remediation": null,
+      "details": {
+        "ollama_num_ctx": null,
+        "ollama_roles": [],
+        "source": "default",
+        "source_detail": "default",
+        "value": 65536
+      }
+    },
+    {
+      "id": "config.profile",
+      "category": "configuration",
+      "label": "Profile",
+      "status": "pass",
+      "message": "generic (source=default; detail=default)",
+      "remediation": null,
+      "details": {
+        "source": "default",
+        "source_detail": "default",
+        "value": "generic"
+      }
+    },
+    {
+      "id": "config.ollama_think",
+      "category": "configuration",
+      "label": "Ollama think",
+      "status": "pass",
+      "message": "omitted (request field absent)",
+      "remediation": null,
+      "details": {
+        "declared": false,
+        "effective_value": null,
+        "ollama_roles": [],
+        "request_field_present": false
+      }
+    },
+    {
+      "id": "config.compatible_reasoning_effort",
+      "category": "configuration",
+      "label": "Compatible reasoning effort",
+      "status": "pass",
+      "message": "not applicable (no OpenAI-compatible or LM Studio role)",
+      "remediation": null,
+      "details": {
+        "applicable_roles": [],
+        "declared": false,
+        "env": "COMMANDAGENT_COMPATIBLE_REASONING_EFFORT",
+        "requested_value": null,
+        "roles": [
+          {
+            "provider": "openai",
+            "requested_value": null,
+            "role": "executor",
+            "source": null,
+            "status": "not_applicable"
+          },
+          {
+            "provider": "openai",
+            "requested_value": null,
+            "role": "planner",
+            "source": null,
+            "status": "not_applicable"
+          },
+          {
+            "provider": "openai",
+            "requested_value": null,
+            "role": "classifier",
+            "source": null,
+            "status": "not_applicable"
+          }
+        ],
+        "server_support_verified": false,
+        "setting": "omitted",
+        "source": null,
+        "status": "not_applicable"
+      }
+    },
+    {
+      "id": "config.openrouter_provider_routing",
+      "category": "configuration",
+      "label": "OpenRouter provider routing",
+      "status": "pass",
+      "message": "not applicable (no openai-compatible role)",
+      "remediation": null,
+      "details": {
+        "applicable_roles": [],
+        "declared": false,
+        "preset_key": "openrouter_provider",
+        "requested_provider": null,
+        "roles": [
+          {
+            "provider": "openai",
+            "requested_provider": null,
+            "role": "executor",
+            "source": null,
+            "status": "not_applicable"
+          },
+          {
+            "provider": "openai",
+            "requested_provider": null,
+            "role": "planner",
+            "source": null,
+            "status": "not_applicable"
+          },
+          {
+            "provider": "openai",
+            "requested_provider": null,
+            "role": "classifier",
+            "source": null,
+            "status": "not_applicable"
+          }
+        ],
+        "server_support_verified": false,
+        "source": null,
+        "status": "not_applicable"
+      }
+    },
+    {
+      "id": "config.file.workspace_commandagent",
+      "category": "config_file",
+      "label": "Config file",
+      "status": "pass",
+      "message": "<ROOT>/ws/.commandagent/config.toml: not found (optional)",
+      "remediation": null,
+      "details": {
+        "exists": false,
+        "parseable": false,
+        "path": "<ROOT>/ws/.commandagent/config.toml"
+      }
+    },
+    {
+      "id": "config.file.workspace_anvil",
+      "category": "config_file",
+      "label": "Config file",
+      "status": "pass",
+      "message": "<ROOT>/ws/.anvil/config.toml: not found (optional)",
+      "remediation": null,
+      "details": {
+        "exists": false,
+        "parseable": false,
+        "path": "<ROOT>/ws/.anvil/config.toml"
+      }
+    },
+    {
+      "id": "config.file.home_commandagent",
+      "category": "config_file",
+      "label": "Config file",
+      "status": "pass",
+      "message": "<ROOT>/home/.commandagent/config.toml: not found (optional)",
+      "remediation": null,
+      "details": {
+        "exists": false,
+        "parseable": false,
+        "path": "<ROOT>/home/.commandagent/config.toml"
+      }
+    },
+    {
+      "id": "config.file.home_anvil",
+      "category": "config_file",
+      "label": "Config file",
+      "status": "pass",
+      "message": "<ROOT>/home/.anvil/config.toml: not found (optional)",
+      "remediation": null,
+      "details": {
+        "exists": false,
+        "parseable": false,
+        "path": "<ROOT>/home/.anvil/config.toml"
+      }
+    },
+    {
+      "id": "pack.selection",
+      "category": "pack",
+      "label": "Pack selection",
+      "status": "pass",
+      "message": "no pack selected",
+      "remediation": null,
+      "details": {
+        "selection": null
+      }
+    },
+    {
+      "id": "profile.extensions",
+      "category": "profile",
+      "label": "Draft profiles",
+      "status": "pass",
+      "message": "no external draft profiles loaded",
+      "remediation": null,
+      "details": {
+        "profiles": []
+      }
+    },
+    {
+      "id": "provider.openai.executor_model_identity",
+      "category": "provider",
+      "label": "OpenAI executor model identity",
+      "status": "pass",
+      "message": "m-1013 is outside the registered GPT-5.6 family policy",
+      "remediation": null,
+      "details": {
+        "registered_family": false,
+        "requested_model": "m-1013",
+        "role": "executor",
+        "snapshot_pinned": null
+      }
+    },
+    {
+      "id": "provider.openai.planner_model_identity",
+      "category": "provider",
+      "label": "OpenAI planner model identity",
+      "status": "pass",
+      "message": "m-1013 is outside the registered GPT-5.6 family policy",
+      "remediation": null,
+      "details": {
+        "registered_family": false,
+        "requested_model": "m-1013",
+        "role": "planner",
+        "snapshot_pinned": null
+      }
+    },
+    {
+      "id": "provider.openai.api_key",
+      "category": "provider",
+      "label": "OpenAI key",
+      "status": "fail",
+      "message": "OPENAI_API_KEY is not set in the process environment",
+      "remediation": "set OPENAI_API_KEY in the process environment without printing it",
+      "details": {
+        "key": "OPENAI_API_KEY",
+        "present": false,
+        "source": null,
+        "value": null
+      }
+    },
+    {
+      "id": "provider.openai.reachable",
+      "category": "provider",
+      "label": "OpenAI",
+      "status": "warn",
+      "message": "reachability was not attempted because OPENAI_API_KEY is missing",
+      "remediation": "set OPENAI_API_KEY in the process environment and rerun --doctor",
+      "details": {
+        "endpoint": "https://api.openai.com",
+        "reachable": null,
+        "status": null
+      }
+    },
+    <HOST:interaction.playwright>,
+    {
+      "id": "state.directory_writable",
+      "category": "state",
+      "label": "State directory",
+      "status": "pass",
+      "message": "<ROOT>/ws/state is writable (temporary file created and removed)",
+      "remediation": null,
+      "details": {
+        "path": "<ROOT>/ws/state",
+        "probe_file_removed": true,
+        "writable": true
+      }
+    },
+    {
+      "id": "terminal.tty",
+      "category": "terminal",
+      "label": "TTY",
+      "status": "warn",
+      "message": "stdin=false, stdout=false, stderr=false",
+      "remediation": "run from an interactive terminal when validating TUI behavior",
+      "details": {
+        "stderr": false,
+        "stdin": false,
+        "stdout": false
+      }
+    },
+    {
+      "id": "terminal.color",
+      "category": "terminal",
+      "label": "Color",
+      "status": "pass",
+      "message": "enabled (NO_COLOR is not set)",
+      "remediation": null,
+      "details": {
+        "enabled": true,
+        "no_color": false
+      }
+    },
+    {
+      "id": "terminal.width",
+      "category": "terminal",
+      "label": "Terminal width",
+      "status": "warn",
+      "message": "unavailable",
+      "remediation": "run from a TTY whose terminal size can be queried",
+      "details": {
+        "columns": null
+      }
+    },
+    {
+      "id": "terminal.footer",
+      "category": "terminal",
+      "label": "Footer",
+      "status": "warn",
+      "message": "disabled because stdout is not a TTY",
+      "remediation": "use a stdout TTY and remove footer-disable flags or environment settings if the fixed footer is desired",
+      "details": {
+        "color_enabled": true,
+        "enabled": false
+      }
+    },
+    {
+      "id": "workspace.root_writable",
+      "category": "workspace",
+      "label": "Workspace",
+      "status": "pass",
+      "message": "<ROOT>/ws is writable (temporary file created and removed)",
+      "remediation": null,
+      "details": {
+        "path": "<ROOT>/ws",
+        "probe_file_removed": true,
+        "writable": true
+      }
+    },
+    {
+      "id": "workspace.dotenv",
+      "category": "workspace",
+      "label": "Workspace .env",
+      "status": "pass",
+      "message": "<ROOT>/ws/.env is not present",
+      "remediation": null,
+      "details": {
+        "exists": false,
+        "keys": [],
+        "path": "<ROOT>/ws/.env"
+      }
+    }
+  ]
+}

@@ -58,14 +58,14 @@ pub(crate) fn run(config: &Config) -> anyhow::Result<()> {
             };
             let mut session =
                 state::SessionStore::new(config.state_dir.clone()).load_or_create(resume)?;
-            let reply = minimal_loop::loop_run::run_session_with_required_paths_with_ui(
+            let reply = minimal_loop::request_pattern::run_direct_prompt(
                 &mut *client,
                 &mut session,
                 &prompt,
-                &[],
                 config,
                 ui.as_interaction(),
-            )?;
+            )?
+            .final_text;
             state::SessionStore::new(config.state_dir.clone()).save(&session)?;
             drop(ui);
             PlainRenderer.render_assistant(&reply)?;

@@ -12,11 +12,14 @@ pub use crate::planner::adjudication::contract::IntentId;
 use crate::planner::intent::detect_intent;
 use crate::planner::profile::{ProfileInference, infer_profile, resolve_profile_runtime};
 
+mod env_deferral;
+pub mod openrouter_routing;
 mod resolution;
+mod toml_comment;
 mod validation;
 use resolution::{
-    ProviderResolution, load_named_preset, merge_preset, parse_preset_key, preset_missing_keys,
-    resolve_named_preset, resolve_providers,
+    ProviderResolution, load_named_preset, merge_preset, preset_missing_keys, resolve_named_preset,
+    resolve_providers,
 };
 
 pub const LOCAL_PROVIDER_CHAT_TIMEOUT_SECS: u64 = 600;
@@ -45,6 +48,7 @@ pub const SUPPORTED_PRESET_KEYS: &[&str] = &[
     "stream",
     "prompt_layout",
     "plan_preset",
+    "openrouter_provider",
 ];
 pub const SUPPORTED_TOP_LEVEL_KEYS: &[&str] = &[
     "extension_root",
@@ -53,6 +57,8 @@ pub const SUPPORTED_TOP_LEVEL_KEYS: &[&str] = &[
     "stream",
     "prompt_layout",
     "plan_preset",
+    "request_pattern",
+    "request_pattern_threshold",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -86,6 +92,7 @@ pub struct OpenAiCompatibleConfig {
     executor: bool,
     planner: bool,
     classifier: bool,
+    openrouter_provider: Option<openrouter_routing::ResolvedOpenRouterRouting>,
 }
 
 impl OpenAiCompatibleConfig {
@@ -443,6 +450,8 @@ pub struct Config {
     pub recovery_plan_auto_runs: u8,
     pub chat_timeout_secs: u64,
     pub chat_timeout_source: String,
+    /// Where each value came from, and also the run's wallet (`run_budget`). The reason it is here
+    /// and what comparing it means are in the doc of `RunBudgetSlot` and `RunBudgetHandle`.
     pub field_sources: ConfigFieldSources,
     pub chat_retries: usize,
     pub stream: bool,
@@ -457,6 +466,8 @@ pub struct Config {
     pub action: Action,
 }
 
+/// Where each value of a [`Config`] came from. It also holds the run's wallet, `run_budget`: for why
+/// and for what `PartialEq` means of it, see `RunBudgetSlot` and `RunBudgetHandle` in the transport.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigFieldSources {
     pub model: String,
@@ -474,6 +485,7 @@ pub struct ConfigFieldSources {
     pub narration: String,
     pub footer: String,
     pub stream: String,
+    pub(crate) run_budget: crate::structured_budget::transport::RunBudgetSlot,
 }
 
 impl Default for ConfigFieldSources {
@@ -494,6 +506,7 @@ impl Default for ConfigFieldSources {
             narration: "default".to_string(),
             footer: "default".to_string(),
             stream: "default".to_string(),
+            run_budget: None,
         }
     }
 }
@@ -534,6 +547,7 @@ struct PresetConfig {
     narration: Option<Sourced<NarrationMode>>,
     footer: Option<Sourced<FooterMode>>,
     stream: Option<Sourced<bool>>,
+    openrouter_provider: Option<Sourced<openrouter_routing::OpenRouterProviderRouting>>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -662,6 +676,7 @@ impl Config {
             .unwrap_or(std::env::current_dir().context("failed to read current directory")?)
             .canonicalize()
             .context("failed to canonicalize workspace root")?;
+        toml_comment::validate_config_files(&workspace_root)?;
         validation::validate_config_files(&workspace_root)?;
         let preset = load_named_preset(&workspace_root, cli.preset.as_deref())?;
         let extension_root = cli
@@ -839,6 +854,7 @@ impl Config {
             narration: narration.source.clone(),
             footer: footer.source.clone(),
             stream: stream.source.clone(),
+            run_budget: None,
         };
         // Install the accepted config's scope so every later persistence and
         // display boundary can resolve the same exact-value catalog.
@@ -995,7 +1011,7 @@ fn planner_model_tier(model: &str) -> PlannerModelTier {
 
 fn config_file_narration(root: &Path) -> Option<Sourced<NarrationMode>> {
     for path in config_paths(root) {
-        if let Ok(Some(file)) = parse_config_file_if_present(&path)
+        if let Ok(Some(file)) = parse_config_file_if_present(&path, None)
             && let Some(narration) = file.narration
         {
             return Some(narration);
@@ -1006,7 +1022,7 @@ fn config_file_narration(root: &Path) -> Option<Sourced<NarrationMode>> {
 
 fn config_file_footer(root: &Path) -> Option<Sourced<FooterMode>> {
     for path in config_paths(root) {
-        if let Ok(Some(file)) = parse_config_file_if_present(&path)
+        if let Ok(Some(file)) = parse_config_file_if_present(&path, None)
             && let Some(footer) = file.footer
         {
             return Some(footer);
@@ -1017,7 +1033,7 @@ fn config_file_footer(root: &Path) -> Option<Sourced<FooterMode>> {
 
 fn config_file_stream(root: &Path) -> Option<Sourced<bool>> {
     for path in config_paths(root) {
-        if let Ok(Some(file)) = parse_config_file_if_present(&path)
+        if let Ok(Some(file)) = parse_config_file_if_present(&path, None)
             && let Some(stream) = file.stream
         {
             return Some(stream);
@@ -1028,7 +1044,7 @@ fn config_file_stream(root: &Path) -> Option<Sourced<bool>> {
 
 fn config_file_prompt_layout(root: &Path) -> Option<Sourced<PromptLayout>> {
     for path in config_paths(root) {
-        if let Ok(Some(file)) = parse_config_file_if_present(&path)
+        if let Ok(Some(file)) = parse_config_file_if_present(&path, None)
             && let Some(prompt_layout) = file.prompt_layout
         {
             return Some(prompt_layout);
@@ -1039,7 +1055,7 @@ fn config_file_prompt_layout(root: &Path) -> Option<Sourced<PromptLayout>> {
 
 fn config_file_plan_preset(root: &Path) -> Option<Sourced<PlanPreset>> {
     for path in config_paths(root) {
-        if let Ok(Some(file)) = parse_config_file_if_present(&path)
+        if let Ok(Some(file)) = parse_config_file_if_present(&path, None)
             && let Some(plan_preset) = file.plan_preset
         {
             return Some(plan_preset);
@@ -1101,7 +1117,7 @@ fn legacy_config_file_value<T>(
     None
 }
 
-fn config_paths(root: &Path) -> Vec<PathBuf> {
+pub(crate) fn config_paths(root: &Path) -> Vec<PathBuf> {
     let mut paths = vec![
         root.join(".commandagent").join("config.toml"),
         root.join(".anvil").join("config.toml"),
@@ -1121,35 +1137,37 @@ pub(crate) fn inspect_config_files(root: &Path, preset_name: Option<&str>) -> Co
     let mut inspection_errors = Vec::new();
     let paths = config_paths(root)
         .into_iter()
-        .map(|path| match parse_config_file_if_present(&path) {
-            Ok(Some(file)) => {
-                if let Some(name) = preset_name
-                    && let Some(preset) = file.presets.get(name)
-                {
-                    preset_found = true;
-                    merge_preset(&mut merged, preset);
+        .map(
+            |path| match parse_config_file_if_present(&path, preset_name) {
+                Ok(Some(file)) => {
+                    if let Some(name) = preset_name
+                        && let Some(preset) = file.presets.get(name)
+                    {
+                        preset_found = true;
+                        merge_preset(&mut merged, preset);
+                    }
+                    ConfigPathInspection {
+                        path,
+                        exists: true,
+                        parse_error: None,
+                    }
                 }
-                ConfigPathInspection {
+                Ok(None) => ConfigPathInspection {
                     path,
-                    exists: true,
+                    exists: false,
                     parse_error: None,
+                },
+                Err(error) => {
+                    let error = format!("{error:#}");
+                    inspection_errors.push(error.clone());
+                    ConfigPathInspection {
+                        path,
+                        exists: true,
+                        parse_error: Some(error),
+                    }
                 }
-            }
-            Ok(None) => ConfigPathInspection {
-                path,
-                exists: false,
-                parse_error: None,
             },
-            Err(error) => {
-                let error = format!("{error:#}");
-                inspection_errors.push(error.clone());
-                ConfigPathInspection {
-                    path,
-                    exists: true,
-                    parse_error: Some(error),
-                }
-            }
-        })
+        )
         .collect();
     let preset = preset_name.map(|name| {
         if preset_found {
@@ -1173,15 +1191,25 @@ pub(crate) fn inspect_config_files(root: &Path, preset_name: Option<&str>) -> Co
     }
 }
 
-fn parse_config_file_if_present(path: &Path) -> anyhow::Result<Option<ConfigFile>> {
+/// Parses `path`; `${ENV}` references are expanded only in the
+/// `[preset.<selected>]` section, so an unselected preset cannot block startup.
+/// Every preset key still gets the usual key and value-shape validation.
+fn parse_config_file_if_present(
+    path: &Path,
+    selected: Option<&str>,
+) -> anyhow::Result<Option<ConfigFile>> {
     match std::fs::read_to_string(path) {
-        Ok(text) => parse_config_file(path, &text).map(Some),
+        Ok(text) => parse_config_file(path, &text, selected).map(Some),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(err) => Err(err).with_context(|| format!("failed to read {}", path.display())),
     }
 }
 
-fn parse_config_file(path: &Path, text: &str) -> anyhow::Result<ConfigFile> {
+fn parse_config_file(
+    path: &Path,
+    text: &str,
+    selected: Option<&str>,
+) -> anyhow::Result<ConfigFile> {
     if let Err(error) = text.parse::<toml::Table>() {
         bail!("{}", validation::invalid_toml_location(path, text, &error));
     }
@@ -1189,6 +1217,7 @@ fn parse_config_file(path: &Path, text: &str) -> anyhow::Result<ConfigFile> {
     let mut section = ConfigSection::Top;
     for (index, raw_line) in text.lines().enumerate() {
         let line_no = index + 1;
+        toml_comment::reject_uninterpretable(path, line_no, raw_line)?;
         let line = strip_toml_comment(raw_line).trim();
         if line.is_empty() {
             continue;
@@ -1197,6 +1226,7 @@ fn parse_config_file(path: &Path, text: &str) -> anyhow::Result<ConfigFile> {
             .strip_prefix('[')
             .and_then(|line| line.strip_suffix(']'))
         {
+            openrouter_routing::reject_unsupported_section(path, line_no, section_name)?;
             section = if let Some(name) = section_name.trim().strip_prefix("preset.") {
                 let name = name.trim();
                 if name.is_empty() {
@@ -1222,7 +1252,16 @@ fn parse_config_file(path: &Path, text: &str) -> anyhow::Result<ConfigFile> {
             ConfigSection::Preset(name) => {
                 let source = format!("preset:{name}");
                 let preset = file.presets.entry(name.clone()).or_default();
-                parse_preset_key(path, line_no, name, key, value, &source, preset)?;
+                env_deferral::parse_preset_key_deferring_env(
+                    path,
+                    line_no,
+                    name,
+                    key,
+                    value,
+                    &source,
+                    preset,
+                    selected != Some(name.as_str()),
+                )?;
             }
             ConfigSection::Other => {}
         }
@@ -1251,65 +1290,54 @@ fn parse_top_level_key(
         "extension_root" => {
             file.extension_root = Some(sourced(
                 parse_string_value(path, line_no, key, value)?,
-                format!(
-                    "config:{}",
-                    path.file_name().unwrap_or_default().to_string_lossy()
-                ),
+                config_file_source(path),
             ));
             Ok(())
         }
         "narration" => {
             file.narration = Some(sourced(
                 parse_narration_value(path, line_no, key, value)?,
-                format!(
-                    "config:{}",
-                    path.file_name().unwrap_or_default().to_string_lossy()
-                ),
+                config_file_source(path),
             ));
             Ok(())
         }
         "footer" => {
             file.footer = Some(sourced(
                 parse_footer_value(path, line_no, key, value)?,
-                format!(
-                    "config:{}",
-                    path.file_name().unwrap_or_default().to_string_lossy()
-                ),
+                config_file_source(path),
             ));
             Ok(())
         }
         "stream" => {
             file.stream = Some(sourced(
                 parse_stream_value(path, line_no, key, value)?,
-                format!(
-                    "config:{}",
-                    path.file_name().unwrap_or_default().to_string_lossy()
-                ),
+                config_file_source(path),
             ));
             Ok(())
         }
         "prompt_layout" => {
             file.prompt_layout = Some(sourced(
                 parse_prompt_layout_value(path, line_no, key, value)?,
-                format!(
-                    "config:{}",
-                    path.file_name().unwrap_or_default().to_string_lossy()
-                ),
+                config_file_source(path),
             ));
             Ok(())
         }
         "plan_preset" => {
             file.plan_preset = Some(sourced(
                 parse_plan_preset_value(path, line_no, key, value)?,
-                format!(
-                    "config:{}",
-                    path.file_name().unwrap_or_default().to_string_lossy()
-                ),
+                config_file_source(path),
             ));
             Ok(())
         }
-        _ => unreachable!("SUPPORTED_TOP_LEVEL_KEYS contains unhandled key '{key}'"),
+        _ => crate::minimal_loop::request_pattern::check_config_value(path, line_no, key, value),
     }
+}
+
+fn config_file_source(path: &Path) -> String {
+    format!(
+        "config:{}",
+        path.file_name().unwrap_or_default().to_string_lossy()
+    )
 }
 
 pub(crate) fn selected_preset_pack(
@@ -1338,7 +1366,7 @@ pub(crate) fn preset_names(root: &Path) -> Vec<String> {
 
 pub(crate) fn configured_extension_root(root: &Path) -> anyhow::Result<Option<PathBuf>> {
     for path in config_paths(root) {
-        if let Ok(Some(file)) = parse_config_file_if_present(&path)
+        if let Ok(Some(file)) = parse_config_file_if_present(&path, None)
             && let Some(value) = file.extension_root
         {
             let configured = PathBuf::from(value.value);
@@ -1352,25 +1380,9 @@ pub(crate) fn configured_extension_root(root: &Path) -> anyhow::Result<Option<Pa
     Ok(None)
 }
 
-fn strip_toml_comment(line: &str) -> &str {
-    let mut quoted = false;
-    let mut escaped = false;
-    for (index, ch) in line.char_indices() {
-        if escaped {
-            escaped = false;
-            continue;
-        }
-        match ch {
-            '\\' if quoted => escaped = true,
-            '"' => quoted = !quoted,
-            '#' if !quoted => return &line[..index],
-            _ => {}
-        }
-    }
-    line
-}
+pub(crate) use toml_comment::strip_toml_comment;
 
-fn parse_string_value(
+pub(crate) fn parse_string_value(
     path: &Path,
     line_no: usize,
     key: &str,
@@ -1390,7 +1402,8 @@ fn parse_string_value(
     expand_env_references(&value).with_context(|| format!("{}:{} {key}", path.display(), line_no))
 }
 
-fn expand_env_references(value: &str) -> anyhow::Result<String> {
+pub(crate) fn expand_env_references(value: &str) -> anyhow::Result<String> {
+    let defer = env_deferral::env_expansion_is_deferred();
     let mut output = String::new();
     let mut remaining = value;
     while let Some(start) = remaining.find("${") {
@@ -1409,7 +1422,12 @@ fn expand_env_references(value: &str) -> anyhow::Result<String> {
         {
             bail!("contains invalid environment reference '${{{name}}}'");
         }
-        let resolved = std::env::var(name)
+        if defer {
+            env_deferral::note_env_expansion_deferred();
+            remaining = &reference[end + 1..];
+            continue;
+        }
+        let resolved = crate::startup_credentials::var(name)
             .with_context(|| format!("environment variable {name} is not set or is not Unicode"))?;
         // Register the expansion value before any later validation can embed it
         // in an error, and so it is scrubbed from every persisted record. A
@@ -1761,6 +1779,13 @@ pub fn default_state_dir() -> PathBuf {
     crate::runtime_paths::default_state_dir()
 }
 
+/// The key name the selected preset chooses, by the loader a run uses, if it is one a run takes.
+#[cfg(target_os = "macos")]
+pub(crate) fn preset_api_key_env(root: &Path, preset: Option<&str>) -> Option<String> {
+    let name = load_named_preset(root, preset).ok()??.api_key_env?.value;
+    validate_api_key_env_name(&name).ok()
+}
+
 /// Build the run's secret sources: every non-empty built-in provider key, the
 /// compatible `api_key_env`, and the bounded root dotenv values.
 ///
@@ -1775,7 +1800,7 @@ pub(crate) fn build_secret_sources(
     use crate::sensitive_data::{CollectionFailure, CollectionRefusal, SecretCatalog};
     let mut catalog = SecretCatalog::new();
     let mut refusals: Vec<CollectionRefusal> = Vec::new();
-    for name in ["OPENAI_API_KEY", "GEMINI_API_KEY", "LM_STUDIO_API_TOKEN"] {
+    for name in crate::startup_credentials::BUILT_IN_CREDENTIAL_NAMES {
         if let Ok(value) = load_api_key(root, name)
             && let Err(refusal) = catalog.register_credential(name, &value)
         {
@@ -1787,6 +1812,16 @@ pub(crate) fn build_secret_sources(
         && let Err(refusal) = catalog.register_credential(name, &value)
     {
         refusals.push(collection_refusal(name, refusal));
+    }
+    // A received value this run does not select, such as a preset's key name with no compatible
+    // role, is still a value this process holds. One too short to be a secret is left out here,
+    // as it was before it travelled: only a selected credential is refused for that.
+    for value in crate::startup_credentials::held_values() {
+        if value.trim().chars().count() >= crate::sensitive_data::MIN_GENERIC_SECRET_LEN
+            && let Err(refusal) = catalog.register_credential("received", value)
+        {
+            refusals.push(collection_refusal("received", refusal));
+        }
     }
     match crate::sensitive_data::collect_scoped_dotenv(root) {
         Ok(collection) => {
@@ -1867,7 +1902,7 @@ pub fn install_run_secret_scope(
 }
 
 pub fn load_api_key(workspace_root: &std::path::Path, name: &str) -> anyhow::Result<String> {
-    if let Ok(value) = std::env::var(name)
+    if let Ok(value) = crate::startup_credentials::var(name)
         && !value.trim().is_empty()
     {
         return Ok(value);
@@ -1884,7 +1919,7 @@ pub fn load_api_key(workspace_root: &std::path::Path, name: &str) -> anyhow::Res
 }
 
 pub fn load_process_api_key(name: &str) -> anyhow::Result<String> {
-    std::env::var(name)
+    crate::startup_credentials::var(name)
         .ok()
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| {

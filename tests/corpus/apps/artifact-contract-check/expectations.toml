@@ -1,0 +1,65 @@
+case_id = "artifact-contract-check"
+source = "Issue #933: artifact_contract_check runs one operator-registered external adapter from an empty environment with a pinned realpath executable, pinned tooling members and links, bounded request/stream/time limits, and host-held input digests; the host verifies the generic envelope (protocol, request ID, run nonce, input digests, unique required check/target coverage, the count identity, and execution state), caps the domain verdict at partial, never emits full, keeps native failures and admission reasons, and writes its receipt as an event rather than a workspace artifact"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[json_fields]
+fixtures/cases.json:capability = "artifact_contract_check"
+fixtures/cases.json:domain_cap = "partial"
+source-manifest.json:kind = "synthetic"
+source-manifest.json:base_sha = "be989685e756da430ed0b652d14846cfa079c578"
+
+[fixture_contains]
+fixtures/cases.json = [
+  "\"kind\": \"synthetic\"",
+  "\"id\": \"synthetic-two-adapters-same-host-path\"",
+  "\"id\": \"synthetic-truth-all-required-passed-capped\"",
+  "\"id\": \"synthetic-truth-mismatch-plus-unresolved\"",
+  "\"id\": \"synthetic-truth-static-failed-later-not-run\"",
+  "\"id\": \"synthetic-exit0-invalid-json\"",
+  "\"id\": \"synthetic-stale-nonce\"",
+  "\"id\": \"synthetic-missing-required-target\"",
+  "\"id\": \"synthetic-count-identity-broken\"",
+  "\"id\": \"synthetic-zero-executed-as-success\"",
+  "\"id\": \"synthetic-input-changed-midrun\"",
+  "\"id\": \"synthetic-timeout-group-reaped\"",
+  "\"id\": \"synthetic-output-overflow\"",
+  "\"id\": \"synthetic-cancel\"",
+  "\"id\": \"synthetic-dummy-credential-and-node-variables\"",
+  "\"id\": \"synthetic-workspace-fake-node\"",
+  "\"id\": \"synthetic-self-approved-registry\"",
+  "\"id\": \"synthetic-tooling-symlink\"",
+  "\"id\": \"synthetic-operator-selected-old-version\"",
+  "\"id\": \"synthetic-runner-manifest-and-pack\"",
+  "\"id\": \"synthetic-native-failure-preserved\"",
+  "\"id\": \"synthetic-input-swapped-for-fifo\"",
+  "\"id\": \"synthetic-optional-row-omitted\"",
+  "\"id\": \"synthetic-broken-tooling-before-provider\""
+]
+
+[fixture_ordered]
+fixtures/cases.json = [
+  "\"synthetic-two-adapters-same-host-path\"",
+  "\"synthetic-truth-all-required-passed-capped\"",
+  "\"synthetic-exit0-invalid-json\"",
+  "\"synthetic-timeout-group-reaped\"",
+  "\"synthetic-runner-manifest-and-pack\""
+]

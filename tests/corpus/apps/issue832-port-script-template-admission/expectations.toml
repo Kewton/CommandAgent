@@ -1,0 +1,16 @@
+case_id = "issue832-port-script-template-admission"
+source = "G1 stage 3a rerun game-g phase 5: the nextjs-port-scripts template catalog verify was rejected by the host's own admission"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+source-manifest.json = ["01a168f5-ef76-7de1-9afa-f0c62754fbbd", "final-build-verification", "node_smoke_without_assertion"]
+template-plan.json = ["nextjs-port-scripts", "verify-nextjs-port-scripts", "final-build-verification"]

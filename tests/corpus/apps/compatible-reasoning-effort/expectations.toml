@@ -1,0 +1,58 @@
+case_id = "compatible-reasoning-effort"
+source = "Issue #931: COMMANDAGENT_COMPATIBLE_REASONING_EFFORT declares one reasoning effort for the roles on the shared OpenAI-compatible transport (the openai-compatible override and LM Studio); Chat Completions carries it once as top-level reasoning_effort and Responses as reasoning.effort, an unset, empty, or whitespace-only value leaves the request exactly as before, an unknown, boolean, uppercase, or non-Unicode value fails before any request without showing the value, Ollama native, OpenAI, and Gemini roles never receive it, a server 400 stays a failure without a downgraded resend, a transport retry resends the same value, and the reply, tool calls, usage, and Responses replay stay as before"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[json_fields]
+fixtures/cases.json:variable = "COMMANDAGENT_COMPATIBLE_REASONING_EFFORT"
+source-manifest.json:base_sha = "f9103ce6ad184319f0cc17de11ce0b78d0e1a885"
+
+[fixture_contains]
+fixtures/cases.json = [
+  "\"kind\": \"recorded\"",
+  "\"kind\": \"synthetic\"",
+  "\"id\": \"recorded-chat-effort-omitted\"",
+  "\"id\": \"recorded-chat-effort-low\"",
+  "\"id\": \"recorded-responses-effort-low\"",
+  "\"id\": \"recorded-responses-effort-high\"",
+  "\"id\": \"synthetic-unset-responses\"",
+  "\"id\": \"synthetic-empty-chat\"",
+  "\"id\": \"synthetic-whitespace-responses\"",
+  "\"id\": \"synthetic-trimmed-low-chat\"",
+  "\"id\": \"synthetic-invalid-unknown\"",
+  "\"id\": \"synthetic-invalid-true\"",
+  "\"id\": \"synthetic-invalid-uppercase\"",
+  "\"id\": \"synthetic-role-executor-only\"",
+  "\"id\": \"synthetic-role-planner-only\"",
+  "\"id\": \"synthetic-role-native-only-invalid\"",
+  "\"id\": \"synthetic-openai-mixed-role\"",
+  "\"id\": \"synthetic-medium-rejected-400\"",
+  "\"id\": \"synthetic-retry-503-same-effort\""
+]
+
+[fixture_ordered]
+fixtures/cases.json = [
+  "\"recorded-chat-effort-omitted\"",
+  "\"recorded-chat-effort-low\"",
+  "\"recorded-responses-effort-low\"",
+  "\"recorded-responses-effort-high\"",
+  "\"synthetic-unset-responses\""
+]

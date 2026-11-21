@@ -79,6 +79,10 @@ jobs:
       - name: Repository acceptance suite
         env:
           COMMANDAGENT_PROBE_VERDICT_FILE: ${{ runner.temp }}/probe-verdicts.txt
+          # The step above set the AppArmor userns sysctl to 0, so the Linux strict isolation
+          # (#982) must work here; its tests fail when it does not. Tests read this, never
+          # production.
+          COMMANDAGENT_TEST_LINUX_STRICT: available
         run: bash scripts/ci.sh
       - name: Sandboxed cargo with an external toolchain
         run: |
@@ -122,6 +126,110 @@ jobs:
           # annotate every UNVERIFIED line. This step fails the job if any probe was
           # UNVERIFIED or if the verdict file is missing or empty.
           bash scripts/check-probe-verdicts.sh
+
+  operator-root-example-macos:
+    name: Operator-root example (macOS)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Operator-root example and operator check on macOS
+        run: |
+          # The pinned process runs only under the macOS Seatbelt sandbox, so the
+          # success and refusal paths of examples/operator-root and the macOS-only
+          # operator-check tests run here. If the isolation probe is unavailable on
+          # this runner the tests fail; nothing is skipped, ignored, or cfg'd out.
+          cargo test --locked --test example_operator_root
+          cargo test --locked --test operator_check
+
+  linux-strict-capability:
+    name: Linux strict isolation (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    # The Linux strict isolation backend (#982). First it records what the runner's kernel
+    # offers: image, kernel, LSM list, Landlock ABI, the two userns sysctls, user/mount/net/IPC
+    # namespaces with a tmpfs mount and pivot_root inside, a seccomp filter and its errno, and
+    # close_range CLOEXEC, each measured with the real syscall as the runner's non-root user
+    # and printed on one line; an item that cannot be measured is a failure, never a skip.
+    # Then it runs the backend's tests twice: after the declared preparation, with the
+    # expectation of the matrix row, and with the AppArmor restriction put back, where every
+    # entry must refuse `unavailable`. The tests read COMMANDAGENT_TEST_LINUX_STRICT; production
+    # never does.
+    continue-on-error: ${{ !matrix.required }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Required: an unmeasurable item, a capability still missing after the preparation,
+          # or a failed test fails the job and the workflow.
+          - os: ubuntu-24.04
+            required: true
+            prepared: available
+          # Record only (continue-on-error). ubuntu-22.04's kernel has Landlock ABI 4, below
+          # the backend's floor of ABI 6, so the backend must be unavailable there.
+          # ubuntu-latest is moving to 26.04, so its image is not fixed. Their results are
+          # read from the one-line summary at the end and do not fail the workflow.
+          - os: ubuntu-22.04
+            required: false
+            prepared: unavailable
+          - os: ubuntu-latest
+            required: false
+            prepared: available
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record capabilities at the runner's initial values
+        # A capability missing here is recorded; an item that cannot be measured fails.
+        continue-on-error: ${{ !matrix.required }}
+        run: python3 -I -B scripts/ci/linux_strict_capability_probe.py --context github-runner --phase initial
+      - name: Allow unprivileged user namespaces (the declared preparation)
+        continue-on-error: ${{ !matrix.required }}
+        run: |
+          # ubuntu-24.04 restricts unprivileged user namespaces through AppArmor. The
+          # runner is a VM discarded after the job, so this applies to this job only.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sysctl -n kernel.apparmor_restrict_unprivileged_userns
+      - name: Record capabilities after the preparation
+        # Here a missing capability fails too: the backend needs every item.
+        continue-on-error: ${{ !matrix.required }}
+        run: python3 -I -B scripts/ci/linux_strict_capability_probe.py --context github-runner --phase prepared
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+      - name: Build the backend's tests
+        run: cargo test --locked --no-run --lib --test profile_tool_commit --test operator_check
+      - name: Backend tests after the preparation
+        id: prepared
+        continue-on-error: ${{ !matrix.required }}
+        env:
+          COMMANDAGENT_TEST_LINUX_STRICT: ${{ matrix.prepared }}
+        run: |
+          cargo test --locked --lib tools::profile_tools
+          cargo test --locked --test profile_tool_commit --test operator_check
+      - name: Put the AppArmor restriction back
+        continue-on-error: ${{ !matrix.required }}
+        run: |
+          # The runner's own default: unshare then succeeds and the setgroups write is refused,
+          # which the probe must answer as unavailable.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=1
+          sysctl -n kernel.apparmor_restrict_unprivileged_userns
+      - name: Backend tests with the restriction (every entry unavailable)
+        id: restricted
+        continue-on-error: ${{ !matrix.required }}
+        env:
+          COMMANDAGENT_TEST_LINUX_STRICT: unavailable
+        run: |
+          cargo test --locked --lib tools::profile_tools::isolation
+          cargo test --locked --test profile_tool_commit --test operator_check
+      - name: One-line result
+        if: always()
+        run: |
+          echo "linux-strict-result: os=${{ matrix.os }} required=${{ matrix.required }} prepared=${{ matrix.prepared }}:${{ steps.prepared.outcome }} restricted=unavailable:${{ steps.restricted.outcome }}"
 
   gui-dashboard:
     name: GUI Dashboard

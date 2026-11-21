@@ -1,0 +1,14 @@
+{
+  "contract": {
+    "event": "bash_sandbox_status",
+    "surface": "presentation scrollback",
+    "lines_per_downgrade": 1,
+    "reason_echoed": false
+  },
+  "cases": [
+    {"id": "applied", "mode": "auto", "applied": true, "lines": 0, "contains": []},
+    {"id": "off", "mode": "off", "applied": false, "lines": 0, "contains": []},
+    {"id": "auto-downgrade", "mode": "auto", "applied": false, "lines": 1, "contains": ["not applied", "lexical"]},
+    {"id": "required-downgrade", "mode": "required", "applied": false, "lines": 1, "contains": ["not applied", "refused"]}
+  ]
+}

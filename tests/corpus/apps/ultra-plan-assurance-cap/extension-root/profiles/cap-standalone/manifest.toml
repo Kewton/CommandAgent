@@ -1,0 +1,22 @@
+[metadata]
+id = "cap-standalone"
+display_name = "Assurance cap standalone"
+schema_version = "v2"
+task_family = "generic"
+
+[plan]
+intent = "create"
+phases = [
+  { id = "implementation", prompt = "Write the notes for {goal}." },
+]
+
+[artifacts]
+required = ["notes.txt"]
+
+[guidance.variants.contract]
+triggers = [{ condition = "always" }]
+messages = { instruction = "Write notes.txt." }
+
+[[checks.final]]
+id = "scaffold_files_present"
+params = { files = ["notes.txt"] }

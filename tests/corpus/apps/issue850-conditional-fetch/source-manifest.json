@@ -1,0 +1,13 @@
+{
+  "source": "<user>/share/work/gen-eval-1022/campaign-G1-3a5/stage3a/content-q/work/src/app/notes/[id]/page.tsx",
+  "source_sha256": "ba628a9318c3e5dae0d6798f4cdaaee12b72f36df3a8340550b2bfdb7f4b7e46",
+  "campaign": "campaign-G1-3a5",
+  "develop_commit": "8261861c",
+  "capture": "L-107 content-q phase 4/4 profile invariant failure: api_contract_failure POST /api/notes does not check Response.ok (IC-24); handleSave at source lines 66-86",
+  "derived_fixture": "fixtures/page.tsx keeps handleSave verbatim from the recorded source (the const res ternary, the comment and the !res.ok guard) inside a minimal client component; the surrounding component, state hooks and markup are host-authored. fixtures/routes.ts is host-authored: one POST and one PUT export, written to both api/notes route files by the test. fixtures/cases.json is host-authored exact-once edits of page.tsx.",
+  "fixture_sha256": {
+    "fixtures/page.tsx": "9d86d2e8aefecd4b2d3e7f062bbd1e3b7a441434911d560e3b56355faeb0d2c6",
+    "fixtures/routes.ts": "14a580879ff66cb92e9a92b9694cd7f49bae0426d412df4159ad154d569c9b99",
+    "fixtures/cases.json": "6d9bd4e6df35d196f9da96314e955e67aedd98b8e06a3964a0a06e9c8b4b76fe"
+  }
+}

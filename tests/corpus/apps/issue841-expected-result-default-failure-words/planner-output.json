@@ -1,0 +1,17 @@
+{
+  "goal": "Markdownをリアルタイムプレビューできるノートアプリ(編集・保存・一覧)をNext.jsアプリとして3011ポートで開発してください。",
+  "steps": [
+    {
+      "id": "inspect-storage-lib",
+      "kind": "inspect",
+      "instruction": "Inspect src/lib/storage.ts to ensure it provides the necessary CRUD functions (getAll, getById, save, delete) and handles I/O failures for the API routes to consume."
+    },
+    {
+      "id": "implement-notes-collection-route",
+      "kind": "implement",
+      "instruction": "Create src/app/api/notes/route.ts implementing GET (list all notes) and POST (create new note) with failure handling for invalid input.",
+      "expected_paths": ["src/app/api/notes/route.ts"],
+      "verify": ["test -f src/app/api/notes/route.ts"]
+    }
+  ]
+}

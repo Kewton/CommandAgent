@@ -193,6 +193,67 @@ for a role with `--provider`, `--base-url`, and `--api-key-env`, or a preset,
 and restart CommandAgent to change it. Whenever the executor, planner, or
 classifier resolves to `openai-compatible`, its base URL is required.
 
+### OpenRouter provider routing
+
+A preset can declare OpenRouter provider routing with `openrouter_provider`, a
+one-line inline table that accepts only `only`, `order`, and
+`allow_fallbacks`. CommandAgent sends exactly the declared keys as the
+top-level `provider` object of each Chat Completions or Responses request, so
+no relay is needed. Keep the key itself in the process environment and name
+only the variable in the preset:
+
+```toml
+[preset.glm_openrouter]
+provider = "openai-compatible"
+model = "z-ai/glm-5.3-flash"
+base_url = "https://openrouter.ai/api/v1"
+api_key_env = "OPENROUTER_API_KEY"
+api = "chat_completions"
+tool_protocol = "native"
+openrouter_provider = { only = ["open-inference/fp4"], allow_fallbacks = false }
+```
+
+- `only` is the set of allowed providers and `order` is a preference order;
+  CommandAgent never rewrites one into the other, and keeps the list order and
+  values as written. Each is a non-empty list of at most 32 distinct slugs:
+  segments of letters, digits, `-`, `_`, or `.` joined by `/`, at most 128
+  bytes each. CommandAgent keeps no list of real providers.
+- `allow_fallbacks` is sent only when written; it is never filled in.
+- A base slug and a variant slug are different requests: `open-inference`
+  allows every OpenInference variant, while `open-inference/fp4` names the fp4
+  variant only. `only = ["open-inference"], allow_fallbacks = false` matches a
+  relay that adds that same object.
+- Routing values are not `${ENV}`-expanded. An unknown key, a wrong type, an
+  empty list, a malformed or repeated slug, or a control character is a
+  configuration error that names the file, line, and key but never the value.
+- Routing is sent only by the executor, planner, or classifier roles that
+  resolve to `openai-compatible`; LM Studio, Ollama native, OpenAI, and Gemini
+  roles never receive it. A preset that declares routing without any
+  `openai-compatible` role fails before any request. The routing is fixed when
+  the client is built, and every clone, retry, and native or text tool turn
+  sends the same object. A server rejection such as HTTP 400 or 404 stays a
+  failure and is never resent without the routing.
+- A child preset or a higher-precedence config file replaces the whole table;
+  keys are not merged with an inherited table. `openrouter_provider = {}`
+  clears an inherited routing and sends no `provider` key.
+- Reasoning effort is unchanged and can be combined with routing, for example
+  `COMMANDAGENT_COMPATIBLE_REASONING_EFFORT=low`.
+
+`commandagent --doctor` reports the requested object, its source preset, and
+the roles that send it in `config.openrouter_provider_routing`, with
+`server_support_verified: false`; the check sends no request. With routing
+declared, `provider_request` adds `requested_provider`,
+`provider_routing_source`, and `provider_role`, and each successful (2xx)
+response body adds an `openrouter_provider_observed` event. Its
+`response_provider` is the response's top-level `provider` field exactly as
+the upstream reported it (`response_provider_status: "reported"`), or null with
+`missing`, `invalid`, or `unparseable`. That field is the upstream's own
+statement, not an independent attestation, and it is optional in the
+published schema; CommandAgent never fills it in from the requested routing or
+from the transport name, and a provider name alone does not prove which
+variant (such as fp4) served the request. Without routing, requests and events
+are exactly as before.
+
 ## Ollama host and models
 
 Ollama requires a running HTTP server and a locally available model. Local API

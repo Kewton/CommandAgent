@@ -1,0 +1,11 @@
+{
+  "release_gate_status": "failed",
+  "release_gate_reasons": [
+    "route_unreachable_from_entry:/notes/[id]"
+  ],
+  "profile_failures": [
+    "release gate failed: route_unreachable_from_entry:/notes/[id]",
+    "repair guidance: route_unreachable_from_entry:/notes/[id] (src/app/notes/[id]/page.tsx): add a link from the entry page to this route, or delete the page if it is not used"
+  ],
+  "repair_target": "implementation"
+}

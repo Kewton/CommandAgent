@@ -210,6 +210,8 @@ pub fn normalize_model_host(value: &str, provider: Provider) -> anyhow::Result<S
 }
 
 async fn discover_models(state: &AppState, provider: Provider) -> anyhow::Result<Vec<String>> {
+    // A model list is a send no run budget counts.
+    commandagent::refuse_unmetered_gui_send()?;
     let client = reqwest::Client::builder()
         .connect_timeout(MODEL_DISCOVERY_TIMEOUT)
         .timeout(MODEL_DISCOVERY_TIMEOUT)
@@ -221,7 +223,7 @@ async fn discover_models(state: &AppState, provider: Provider) -> anyhow::Result
         Provider::Openai | Provider::Gemini => anyhow::bail!("provider is not local"),
     };
     if provider == Provider::LmStudio
-        && let Some(token) = std::env::var_os("LM_STUDIO_API_TOKEN")
+        && let Some(token) = commandagent::startup_credentials::var_os("LM_STUDIO_API_TOKEN")
             .and_then(|value| value.into_string().ok())
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())

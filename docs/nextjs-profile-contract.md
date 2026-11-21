@@ -105,6 +105,19 @@ successful movement and erase the observation. A changed contract dimension
 such as `player_x` is retained when the probe subsequently exercises restart,
 so reset behavior can be compared with the post-input state.
 
+For persistence, a contract-mode probe reloads the page and compares only the
+`data-anvil-state` keys that a commit changed, such as the primary action. Keys
+that typing alone changed (a draft or a search term) are excluded, and so is
+text inside an input, textarea, or contenteditable element, because a copy of
+what the probe typed surviving the reload is not persistence. An app whose only
+surviving change is such a draft copy is reported as `not_evaluated`
+(`no_mutation_observed`) with `persistence_draft_only` in the informational
+failure kinds. An app that saves automatically should therefore expose the keys
+that change only when a save happens, after typing has finished (after a
+debounce, or on Save; for example `savedAt`, `savedContentLength`, or
+`revision`), in `data-anvil-state`. A key that changes at the same moment as a
+keystroke is treated as part of the draft.
+
 For canvas apps, non-blank output is not sufficient evidence that rendering
 continues. The probe compares readable pixel hashes before start, after start,
 and after input. If all remain identical across that started interaction

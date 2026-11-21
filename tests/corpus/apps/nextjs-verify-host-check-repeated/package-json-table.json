@@ -1,0 +1,16 @@
+{
+  "synthetic": "derived from the shape of campaign-G1-3a9 game-g phase 1; not a recorded run",
+  "port": 3011,
+  "cases": [
+    { "name": "dev -p, start -p, build", "package_json": "{\"scripts\":{\"dev\":\"next dev -p 3011\",\"start\":\"next start -p 3011\",\"build\":\"next build\"}}", "dev": true, "start": true, "build": true },
+    { "name": "dev -p3011, start --port 3011", "package_json": "{\"scripts\":{\"dev\":\"next dev -p3011\",\"start\":\"next start --port 3011\",\"build\":\"next build\"}}", "dev": true, "start": true, "build": true },
+    { "name": "dev --port=3011, no start", "package_json": "{\"scripts\":{\"dev\":\"next dev --port=3011\",\"build\":\"next build\"}}", "dev": true, "start": true, "build": true },
+    { "name": "two spaces before the port", "package_json": "{\"scripts\":{\"dev\":\"next dev  -p 3011\",\"start\":\"\",\"build\":\"next build\"}}", "dev": true, "start": true, "build": true },
+    { "name": "other port", "package_json": "{\"scripts\":{\"dev\":\"next dev -p 3000\",\"start\":\"next start -p 3000\",\"build\":\"next build\"}}", "dev": false, "start": false, "build": true },
+    { "name": "start without a port", "package_json": "{\"scripts\":{\"dev\":\"next dev -p 3011\",\"start\":\"next start\",\"build\":\"next build\"}}", "dev": true, "start": false, "build": true },
+    { "name": "build with a flag", "package_json": "{\"scripts\":{\"dev\":\"next dev -p 3011\",\"build\":\"next build --lint\"}}", "dev": true, "start": true, "build": false },
+    { "name": "no scripts", "package_json": "{}", "dev": false, "start": true, "build": false },
+    { "name": "broken json", "package_json": "{\"scripts\":", "dev": false, "start": false, "build": false },
+    { "name": "no package.json", "package_json": null, "dev": false, "start": false, "build": false }
+  ]
+}

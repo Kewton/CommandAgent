@@ -291,6 +291,10 @@ pub fn run_with_output_dir(
     execution: &mut dyn ChatClient,
     output_dir: PathBuf,
 ) -> anyhow::Result<ModelProbeOutput> {
+    crate::structured_budget::entry::refuse(
+        crate::structured_budget::entry::Unmetered::ModelProbe,
+    )?;
+    crate::tools::profile_tools::refuse_for_client(config, &*execution)?;
     let mut scratch = ScratchWorkspace::create()?;
     seed_scratch_workspace(&scratch.path)?;
     fs::create_dir_all(&output_dir)
@@ -579,6 +583,8 @@ fn probe_run_options(step_kind: RunSessionStepKind) -> RunSessionOptions {
         require_mutation_before_contract_short_circuit: false,
         escalation_carryover: None,
         recovery_obligation: None,
+        request_guidance: None,
+        final_repair: None,
     }
 }
 

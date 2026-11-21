@@ -1,0 +1,9 @@
+{
+  "synthetic": "expectation for the cases in workspaces.json",
+  "cases": [
+    { "target": "src/lib/persistence.js", "selection_reason": "diagnosis_mapped", "dependency_missing": false },
+    { "target": null, "selection_reason": "fallback", "dependency_missing": false },
+    { "target": null, "selection_reason": "fallback", "dependency_missing": false },
+    { "target": null, "selection_reason": "fallback", "dependency_missing": true }
+  ]
+}

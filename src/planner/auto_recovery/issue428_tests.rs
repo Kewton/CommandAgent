@@ -6,6 +6,7 @@ const TEST_COMPLETION_BOUND: Duration = Duration::from_secs(30);
 
 #[test]
 fn e1_successful_reads_do_not_promote_failed_build_or_business_acceptance() {
+    let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
     for (label, commands, evidence, expected_reason) in [
         (
             "build failure",

@@ -138,16 +138,26 @@ fn issue488_authority_and_requirement_controls_preserve_existing_broad_formation
             );
             continue;
         }
-        // The older, broader #479 formation rule is deliberately retained.
+        // The older, broader #479 formation rule is retained where the saved
+        // marker obligation is acquired. Without it no later proposal can be
+        // formed, so the first admission stops (#884).
         let original = proposal_plan("O");
-        let decision = admission::Admission::default()
-            .check(&c, None, &original, &mut original.clone(), 1)
-            .unwrap();
-        assert_eq!(
-            matches!(decision, admission::Decision::Retry(_)),
-            control != "configured",
-            "{control}"
-        );
+        let decision =
+            admission::Admission::default().check(&c, None, &original, &mut original.clone(), 1);
+        match (control, refused) {
+            ("configured", _) => assert!(
+                matches!(decision, Ok(admission::Decision::Ready(_))),
+                "{control}"
+            ),
+            (_, true) => assert!(
+                matches!(decision, Ok(admission::Decision::Retry(_))),
+                "{control}"
+            ),
+            (_, false) => assert!(
+                decision.is_err_and(|e| format!("{e:#}").contains("no acceptable form")),
+                "{control}"
+            ),
+        }
     }
 }
 

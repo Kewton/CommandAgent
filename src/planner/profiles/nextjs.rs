@@ -4,9 +4,12 @@ mod dependency_family;
 mod domain;
 mod fix_reproducer;
 pub(crate) mod knowledge;
+pub(crate) mod package_script_check;
 pub(crate) mod recovery_authority;
 mod repair_excerpts;
 mod response_shape;
+pub(crate) mod route_reachability;
+pub(crate) mod source_checks;
 
 pub(crate) fn contract_repair_advisory(root: &std::path::Path) -> Option<String> {
     response_shape::advisory(root)
@@ -24,6 +27,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{Map, Value};
 
 use self::contract_checks::Mode;
+use self::package_script_check::PortScript;
 
 use crate::minimal_loop::evidence_knowledge;
 use crate::minimal_loop::import_scan::{
@@ -522,8 +526,8 @@ fn profile_verify_commands(port: u16) -> Vec<String> {
 
 fn package_script_port_verify_commands(port: u16) -> Vec<String> {
     vec![
-        package_script_required_port_verify_command("dev", port),
-        package_script_optional_port_verify_command("start", port),
+        package_script_check::port_check_command(PortScript::Dev, port),
+        package_script_check::port_check_command(PortScript::Start, port),
     ]
 }
 
@@ -538,56 +542,8 @@ fn catalog_package_json_port_script_verify_command(port: u16) -> String {
     }
 }
 
-fn package_script_required_port_verify_command(script: &str, port: u16) -> String {
-    format!(
-        concat!(
-            "node -p \"",
-            "['{script}'].every(function(k){{",
-            "return String(Object(require('./package.json').scripts)[k]).split(' ')",
-            ".some(function(t,i,a){{return t=='next' ? a.slice(i+1).find(function(x){{return x}})==k : false}}) ? ",
-            "String(Object(require('./package.json').scripts)[k]).split(' ')",
-            ".some(function(t,i,a){{",
-            "return t=='--port={port}' ? true : ",
-            "t=='-p' ? a.slice(i+1).find(function(x){{return x}})=='{port}' : ",
-            "t=='-p{port}' ? true : ",
-            "t=='--port' ? a.slice(i+1).find(function(x){{return x}})=='{port}' : ",
-            "false",
-            "}}) : false",
-            "}}) ? true : process.exit(1)",
-            "\""
-        ),
-        script = script,
-        port = port
-    )
-}
-
-fn package_script_optional_port_verify_command(script: &str, port: u16) -> String {
-    format!(
-        concat!(
-            "node -p \"",
-            "['{script}'].every(function(k){{",
-            "return Object(require('./package.json').scripts)[k] ? ",
-            "String(Object(require('./package.json').scripts)[k]).split(' ')",
-            ".some(function(t,i,a){{return t=='next' ? a.slice(i+1).find(function(x){{return x}})==k : false}}) ? ",
-            "String(Object(require('./package.json').scripts)[k]).split(' ')",
-            ".some(function(t,i,a){{",
-            "return t=='--port={port}' ? true : ",
-            "t=='-p' ? a.slice(i+1).find(function(x){{return x}})=='{port}' : ",
-            "t=='-p{port}' ? true : ",
-            "t=='--port' ? a.slice(i+1).find(function(x){{return x}})=='{port}' : ",
-            "false",
-            "}}) : false : true",
-            "}}) ? true : process.exit(1)",
-            "\""
-        ),
-        script = script,
-        port = port
-    )
-}
-
 fn package_build_script_verify_command() -> String {
-    "node -p \"String(require('./package.json').scripts.build)=='next build' ? true : process.exit(1)\""
-        .to_string()
+    package_script_check::build_check_command()
 }
 
 fn merge_required_final_artifacts(paths: &mut Vec<String>, phase_prompt: &str) {
@@ -800,6 +756,7 @@ pub fn quality_expectations(root: &Path, goal: &str) -> ProfileQualityExpectatio
             "npm install".to_string(),
             "pnpm install".to_string(),
             "yarn install".to_string(),
+            "an inline Node behaviour check (node -e, or a node check that requires a TypeScript module); it has no accepted form and is frozen once written. Use npm run build, a content grep (a host check token), or a smoke-check.js that asserts on plain JavaScript files only".to_string(),
         ],
         dependency_order_hint: Some(
             "Create package.json and a Next.js entrypoint before npm run build. Known-profile scaffolds are pre-provisioned before phase 1 when absent; verify or extend existing scaffold rather than re-planning file creation.".to_string(),

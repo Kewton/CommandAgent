@@ -3,13 +3,14 @@ use std::path::Path;
 use serde_json::json;
 
 use crate::eval_events;
+use crate::planner::profiles::nextjs::source_checks;
 use crate::planner::step_plan::PlanStep;
 use crate::tools::path_guard::validate_workspace_relative;
 
 const SOURCE_ASSERTION_REASON: &str =
     "source implementation detail grep replaced with semantic equivalent assertion";
 const SOURCE_ASSERTION_KIND: &str = "source_impl_detail_assertion";
-const SOURCE_ASSERTION_MARKER: &str = "__anvil_source_impl_detail_assertion__";
+pub(crate) const SOURCE_ASSERTION_MARKER: &str = "__anvil_source_impl_detail_assertion__";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceAssertionRepair {
@@ -46,7 +47,7 @@ pub fn normalize_source_assertion_grep(command: &str) -> Option<SourceAssertionR
 }
 
 pub fn normalized_command_is_source_assertion(command: &str) -> bool {
-    command.contains(SOURCE_ASSERTION_MARKER)
+    command.contains(SOURCE_ASSERTION_MARKER) || source_checks::is_source_assertion(command)
 }
 
 pub fn can_demote_failed_source_assertion(
@@ -112,33 +113,12 @@ fn source_assertion_check_command(
     source_path: &str,
 ) -> String {
     match equivalent {
-        SourceAssertionEquivalent::KeydownInput => format!(
-            concat!(
-                "node -p '",
-                "(function(s,m){{return [",
-                "s.includes(\"onKeyDown\"),",
-                "s.includes(\"keys[\"),",
-                "s.includes(\"addEventListener\")?s.includes(\"keydown\"):false",
-                "].some(function(x){{return x}})?true:process.exit(1)}})",
-                "(String(require(\"fs\").readFileSync(\"{source_path}\")),",
-                "\"{marker}\")",
-                "'"
-            ),
-            source_path = source_path,
-            marker = SOURCE_ASSERTION_MARKER,
-        ),
-        SourceAssertionEquivalent::ExactToken(token) => format!(
-            concat!(
-                "node -p '",
-                "(function(s,m){{return s.includes(\"{token}\")?true:process.exit(1)}})",
-                "(String(require(\"fs\").readFileSync(\"{source_path}\")),",
-                "\"{marker}\")",
-                "'"
-            ),
-            token = token,
-            source_path = source_path,
-            marker = SOURCE_ASSERTION_MARKER,
-        ),
+        SourceAssertionEquivalent::KeydownInput => {
+            source_checks::source_keydown_command(source_path)
+        }
+        SourceAssertionEquivalent::ExactToken(token) => {
+            source_checks::source_token_command(token, source_path)
+        }
     }
 }
 
@@ -149,6 +129,7 @@ fn step_has_contract_or_build_check(step: &PlanStep) -> bool {
             || lower.contains("next build")
             || lower.contains("data-anvil-")
             || lower.contains("package.json")
+            || source_checks::is_contract_or_build_check(command)
     })
 }
 
@@ -208,7 +189,7 @@ fn grep_option(value: &str) -> bool {
             .all(|ch| matches!(ch, 'q' | 's' | 'i' | 'F' | 'E' | 'G' | 'w' | 'x'))
 }
 
-fn source_path(path: &str) -> Option<String> {
+pub(crate) fn source_path(path: &str) -> Option<String> {
     let rel = path.trim().trim_start_matches("./").replace('\\', "/");
     if !rel.starts_with("src/")
         || rel.starts_with('/')
@@ -242,7 +223,7 @@ fn looks_like_code_api_pattern(pattern: &str) -> bool {
     source_api_token(pattern).is_some()
 }
 
-fn source_api_token(pattern: &str) -> Option<String> {
+pub(crate) fn source_api_token(pattern: &str) -> Option<String> {
     for token in [
         "addEventListener",
         "removeEventListener",
@@ -272,7 +253,7 @@ fn identifier_before_call(pattern: &str) -> Option<String> {
     safe_identifier(token).then(|| token.to_string())
 }
 
-fn safe_identifier(token: &str) -> bool {
+pub(crate) fn safe_identifier(token: &str) -> bool {
     let mut chars = token.chars();
     let Some(first) = chars.next() else {
         return false;
@@ -342,11 +323,17 @@ mod tests {
         .unwrap();
 
         assert_eq!(repair.kind, SOURCE_ASSERTION_KIND);
-        assert!(repair.normalized.contains(SOURCE_ASSERTION_MARKER));
-        assert!(repair.normalized.contains("onKeyDown"));
-        assert!(repair.normalized.contains("keys["));
-        assert!(repair.normalized.contains("addEventListener"));
-        assert!(repair.normalized.contains("keydown"));
+        assert_eq!(
+            repair.normalized,
+            "anvil-nextjs-check:source_keydown:src/app/page.tsx"
+        );
+        assert!(normalized_command_is_source_assertion(&repair.normalized));
+        // The inline text it replaced keeps the marker and the equivalent set.
+        let inline = source_checks::legacy_for_token(&repair.normalized).unwrap();
+        assert!(inline.contains(SOURCE_ASSERTION_MARKER));
+        for needle in ["onKeyDown", "keys[", "addEventListener", "keydown"] {
+            assert!(inline.contains(needle), "{needle}");
+        }
     }
 
     #[test]

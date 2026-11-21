@@ -85,6 +85,7 @@ pub fn generate_ultra_plan_with_ui(
     config: &Config,
     ui: &dyn InteractionUi,
 ) -> anyhow::Result<UltraPlan> {
+    crate::tools::profile_tools::refuse_before_provider(&config.workspace_root, config)?;
     if ui.interrupted() {
         anyhow::bail!("interrupted by user");
     }
@@ -274,6 +275,7 @@ pub fn generate_and_run_ultra_plan_with_ui(
     config: &Config,
     ui: &dyn InteractionUi,
 ) -> anyhow::Result<String> {
+    crate::tools::profile_tools::refuse_for_client(config, &*execution)?;
     let plan = generate_ultra_plan_with_ui(planner, goal, config, ui)?;
     save_ultra_plan(&config.workspace_root, &plan)?;
     run_ultra_plan_with_ui(planner, execution, &plan, config, ui)
@@ -295,6 +297,8 @@ pub fn run_ultra_plan_with_ui(
     config: &Config,
     ui: &dyn InteractionUi,
 ) -> anyhow::Result<String> {
+    crate::structured_budget::command::guard(config)?;
+    crate::tools::profile_tools::refuse_plan_for_client(&plan.profile, config, &*execution)?;
     let preset_plan = crate::planner::ultra_preset::is_profile_preset_plan(config, plan);
     let mut active_plan = plan.clone();
     let mut active_config = config.clone();
@@ -671,6 +675,11 @@ pub fn run_ultra_plan_with_ui(
         )?;
         phase_machine.phase_committed(true, &plan.intent)?;
     }
+    crate::structured_budget::outcome::gate(config)?;
+    // These two end at their own adjudication, with no final acceptance to judge the stages.
+    if fix_runtime.is_some() || investigation_runtime.is_some() {
+        crate::planner::structured_stages::refuse_unmet_plan(config)?;
+    }
     if let Some(runtime) = fix_runtime {
         let result = runtime.finish(config, plan);
         phase_machine.intent_finished(result.is_ok())?;
@@ -933,12 +942,14 @@ pub fn run_ultra_plan_with_ui(
             let before_missing_keys = verification_missing_signals(&acceptance_report);
             let before_route_bound_paths =
                 route_bound_source_paths(&config.workspace_root, &plan.profile);
+            let artifact_repair_paths = acceptance_report.artifact_repair_paths.candidates.clone();
             let before_source_snapshot = final_acceptance_source_snapshot(
                 &config.workspace_root,
                 &plan.profile,
                 &plan.goal,
                 &expected_paths,
                 &[],
+                &artifact_repair_paths,
             );
             let mut repair_prompt = final_acceptance_repair_prompt_with_events(
                 &config.workspace_root,
@@ -1011,6 +1022,8 @@ pub fn run_ultra_plan_with_ui(
                     "session_message_count": ultra_session.messages.len(),
                 }),
             );
+            escalation_carryover
+                .bind_repair_targets(&acceptance_report.artifact_repair_paths.failed_targets);
             let repair_outcome = match if evidence_compact_retry {
                 let mut compact_session = SessionSnapshot::new();
                 run_final_acceptance_repair_with_carryover(
@@ -1174,6 +1187,7 @@ pub fn run_ultra_plan_with_ui(
                 &plan.goal,
                 &expected_paths,
                 &repair_outcome.changed_paths,
+                &artifact_repair_paths,
             );
             let actual_changed_paths =
                 changed_snapshot_paths(&before_source_snapshot, &after_source_snapshot);
@@ -1546,6 +1560,7 @@ pub fn run_ultra_plan_with_ui(
             );
         }
     }
+    crate::structured_budget::outcome::gate(config)?;
     phase_machine.acceptance_passed(
         final_acceptance_cycle_deltas
             .last()
@@ -1556,15 +1571,16 @@ pub fn run_ultra_plan_with_ui(
     let profile_id = ProfileId::parse(&plan.profile);
     let runtime = ProfileRuntimeRegistry::resolve(&profile_id);
     let terminal_capabilities = runtime.required_capabilities(&plan.goal);
-    let (assurance_level, assurance_reason) =
-        runtime.assurance_for_completion(&profile_id, &terminal_capabilities);
+    let (level, reason) = runtime.assurance_for_completion(&profile_id, &terminal_capabilities);
+    let (mut level, mut reason) = (level.to_string(), reason.to_string());
+    crate::planner::profile_admission::cap_assurance(profile_id.as_str(), &mut level, &mut reason);
     eval_events::typed::emit(
         config.eval_events_path.as_deref(),
         &eval_events::typed::UltraPlanCompleteEvent::new(
             plan.phases.len(),
             &plan.profile,
-            assurance_level,
-            assurance_reason,
+            &level,
+            &reason,
         ),
     );
     Ok(format!(

@@ -22,6 +22,9 @@ const SERVER_CHECK_TIMEOUT_MS = 5000;
 const RENDER_POLL_INTERVAL_MS = 250;
 const MARKER_POLL_INTERVAL_MS = 80;
 const RENDER_SETTLE_MS = 120;
+const RECOVERY_ATTEMPT_MS = 2500;
+const RECOVERY_EFFECT_WINDOW_MS = 700;
+const RECOVERY_QUIET_MS = 450;
 const HELD_INPUT_OBSERVE_MS = 320;
 const TOKEN_ECHO_SETTLE_MS = 3000;
 const PERSISTENCE_SURFACE_SETTLE_MS = 3000;
@@ -36,6 +39,7 @@ let input_after_marker = "";
 let recovery_before_marker = "";
 let recovery_after_marker = "";
 let recovery_transition_status = "unknown";
+let recovery_control = "none";
 let probe_mode = "heuristic";
 let contract_hook_status = "unknown";
 let contract_hooks = null;
@@ -58,6 +62,7 @@ let action_hooks = [];
 let text_entry = "not_evaluated";
 let text_entry_target = "";
 let typed_token = `anvil-${Math.random().toString(36).slice(2, 8) || "probe"}`;
+const persistence_commit = createPersistenceCommitWitness(url, typed_token);
 let token_echoed = false;
 let echo_latency_ms = null;
 let token_echoed_after_reload = false;
@@ -662,15 +667,20 @@ async function evaluatePersistenceReload(page, mode) {
   }
   mark("persistence_reload");
   const typedTokenWasPresent = text_input_state_change && token_echoed;
+  // A contract run judges persistence by the keys a commit changed. The typed token
+  // can survive as a draft copy, so it is only evidence for the heuristic probe.
+  const judgeByTypedToken = typedTokenWasPresent && mode !== "contract";
+  if (mode === "contract") await persistence_commit.awaitSaveSettled(page);
   persistence_before_reload_marker = await settledRenderedValue(
     page,
     () => activeMarker(page, mode),
     PERSISTENCE_SURFACE_SETTLE_MS
   );
   try {
+    persistence_commit.markReload();
     await page.reload({ waitUntil: "domcontentloaded", timeout: GOTO_TIMEOUT_MS });
     await waitForAnySurface(page);
-    persistence_after_reload_marker = typedTokenWasPresent
+    persistence_after_reload_marker = judgeByTypedToken
       ? await settledRenderedValue(
         page,
         () => activeMarker(page, mode),
@@ -692,7 +702,7 @@ async function evaluatePersistenceReload(page, mode) {
         steps.push("token_echoed_after_reload");
       }
     }
-    if (typedTokenWasPresent) {
+    if (judgeByTypedToken) {
       let typedTokenSurvived = reloadEcho.matched;
       if (!typedTokenSurvived) {
         const tokenSurvivedStartedAt = Date.now();
@@ -713,6 +723,23 @@ async function evaluatePersistenceReload(page, mode) {
         persistence_before_reload_marker,
         persistence_after_reload_marker
       );
+      if (persistence_after_reload === "not_evaluated" && mode === "contract") {
+        const commit = await persistence_commit.evaluate(page, {
+          mode,
+          legacy_keys: contractPersistenceMutationKeys(persistence_before_reload_marker),
+          text_entry,
+          text_input_state_change,
+          http_mutation_failure
+        });
+        steps.push(...commit.steps);
+        if (commit.verdict) {
+          persistence_after_reload = commit.verdict;
+          persistence_after_reload_reason = "";
+        }
+      }
+      if (typedTokenWasPresent && persistence_after_reload === "not_evaluated") {
+        informational_failure_kinds.push("persistence_draft_only");
+      }
     }
     steps.push(
       persistence_after_reload === "not_evaluated"
@@ -727,7 +754,35 @@ async function evaluatePersistenceReload(page, mode) {
   }
 }
 
-function contractResetWardChange(beforeText, afterText, baselineText) {
+// Maps each key that moved between consecutive samples to its largest single change,
+// or to null when the key is not numeric (its jump cannot be measured).
+function movingKeyLargestSteps(samples) {
+  const steps = new Map();
+  for (let index = 1; index < samples.length; index += 1) {
+    const before = contractStatesFromMarker(samples[index - 1]);
+    const after = contractStatesFromMarker(samples[index]);
+    for (const key of changedTopLevelStateKeys(samples[index - 1], samples[index])) {
+      for (let slot = 0; slot < Math.max(before.length, after.length); slot += 1) {
+        const from = (before[slot] || {})[key];
+        const to = (after[slot] || {})[key];
+        if (stableStateString(from) === stableStateString(to)) continue;
+        const numeric = typeof from === "number" && typeof to === "number";
+        const known = steps.has(key) ? steps.get(key) : 0;
+        steps.set(key, numeric && known !== null ? Math.max(known, Math.abs(to - from)) : null);
+      }
+    }
+  }
+  return steps;
+}
+
+// `scope` narrows which keys can prove a restart: `playedKeys` (keys the probe's own
+// inputs changed; empty means any key) and `movingKeys` (keys that moved by themselves
+// before the press, with their largest single change). A moving key counts only when it
+// lands exactly on the baseline with one jump (`trail`: the samples from the press to
+// the end) clearly larger than any of its own steps.
+function contractResetWardChange(beforeText, afterText, baselineText, scope = {}) {
+  const movingKeys = scope.movingKeys || new Map();
+  const playedKeys = scope.playedKeys || new Set();
   if (!beforeText || !afterText || beforeText === afterText) return false;
   const changed = changedTopLevelStateKeys(beforeText, afterText);
   if (changed.length === 0) return false;
@@ -740,9 +795,26 @@ function contractResetWardChange(beforeText, afterText, baselineText) {
     const afterState = after[index] || {};
     const baselineState = baseline[index] || {};
     for (const key of changed) {
+      if (playedKeys.size > 0 && !playedKeys.has(key)) continue;
       const beforeValue = beforeState[key];
       const afterValue = afterState[key];
       const baselineValue = baselineState[key];
+      if (movingKeys.has(key)) {
+        const largestStep = movingKeys.get(key);
+        // Sampling can merge two natural steps into one, hence twice the largest step.
+        const largestJump = movingKeyLargestSteps(scope.trail || []).get(key);
+        if (
+          largestStep !== null &&
+          typeof largestJump === "number" &&
+          typeof beforeValue === "number" &&
+          typeof afterValue === "number" &&
+          stableStateString(afterValue) === stableStateString(baselineValue) &&
+          largestJump > 2 * largestStep
+        ) {
+          return true;
+        }
+        continue;
+      }
       if (
         stableStateString(afterValue) === stableStateString(baselineValue) &&
         stableStateString(beforeValue) !== stableStateString(baselineValue)
@@ -759,7 +831,7 @@ function contractResetWardChange(beforeText, afterText, baselineText) {
       }
     }
   }
-  return true;
+  return false;
 }
 
 async function contractHookStatus(page) {
@@ -1003,10 +1075,24 @@ async function tokenEchoedOutsideTextEntryTargetNow(page, token) {
   if (!token) return false;
   return await page.evaluate((value) => {
     const excluded = document.querySelector('[data-anvil-probe-text-target="1"]');
+    const isTextEntryElement = (element) => {
+      const tag = (element.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "textarea") return true;
+      const attr = element.getAttribute ? element.getAttribute("contenteditable") : null;
+      const editable = attr === null ? null : String(attr).toLowerCase();
+      return editable === "" || editable === "true" || editable === "plaintext-only";
+    };
+    // After a reload the probe's own mark is gone, so a text entry candidate is
+    // recognised by what it is: its text is the typed draft, never an echo.
     const isExcluded = (node) => {
-      if (!excluded || !node) return false;
+      if (!node) return false;
       const element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
-      return !!element && (element === excluded || excluded.contains(element));
+      if (!element) return false;
+      if (excluded && (element === excluded || excluded.contains(element))) return true;
+      for (let current = element; current; current = current.parentElement) {
+        if (isTextEntryElement(current)) return true;
+      }
+      return false;
     };
     const walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT);
     let node = walker.nextNode();
@@ -1046,9 +1132,12 @@ async function attemptTextEntry(page, mode) {
       el.setAttribute("data-anvil-probe-text-target", "1");
     });
     await locator.focus({ timeout: 1200 });
+    await persistence_commit.markEntry(page);
     await page.keyboard.type(typed_token, { delay: 5 });
     input_typed_marker = await activeMarker(page, mode);
+    persistence_commit.markSaveStart();
     const primaryClicked = await clickPrimaryActionIfPresent(page);
+    persistence_commit.markSaveEnd(primaryClicked);
     if (mode === "contract" && !primaryClicked) {
       informational_failure_kinds.push("primary_action_disabled_after_text_entry");
     }
@@ -1226,36 +1315,92 @@ async function attemptRecoveryTransition(page, initialStartText, mode) {
   recovery_transition_status = "not_observed";
 }
 
+// Samples the marker until it is quiet for `quietMs` or `limitMs` passes.
+async function sampleContractMarker(page, first, limitMs, quietMs) {
+  const samples = [first];
+  const endAt = Date.now() + limitMs;
+  let last = first;
+  let quietSince = Date.now();
+  while (Date.now() < endAt) {
+    await page.waitForTimeout(MARKER_POLL_INTERVAL_MS);
+    const current = await activeMarker(page, "contract");
+    if (current !== last) {
+      samples.push(current);
+      last = current;
+      quietSince = Date.now();
+    } else if (Date.now() - quietSince >= quietMs) {
+      samples.quiet = true;
+      break;
+    }
+  }
+  return samples;
+}
+
+async function pressContractRecoveryControl(page, postStartMarker, press) {
+  // Watch the state without pressing, as long as the effect window lasts, so only the
+  // press can move the marker and every key that moves by itself is known.
+  const settling = await sampleContractMarker(
+    page,
+    await activeMarker(page, "contract"),
+    RECOVERY_EFFECT_WINDOW_MS,
+    RECOVERY_QUIET_MS
+  );
+  const movingKeys = movingKeyLargestSteps(settling);
+  recovery_before_marker = settling[settling.length - 1];
+  try {
+    await press();
+    const first = await markerAfterActiveChange(page, "contract", recovery_before_marker, 700);
+    // Follow the effect of this same press to the end (async or lagging resets).
+    const window = first === recovery_before_marker
+      ? [first]
+      : await sampleContractMarker(page, first, RECOVERY_EFFECT_WINDOW_MS, RECOVERY_QUIET_MS);
+    recovery_after_marker = window[window.length - 1];
+    // Only the value the press finally leaves counts, and only for keys the probe's own
+    // inputs changed that did not move by themselves before the press.
+    const scope = {
+      movingKeys,
+      playedKeys: new Set(state_dimensions_changed),
+      trail: [recovery_before_marker, ...window]
+    };
+    return contractResetWardChange(recovery_before_marker, recovery_after_marker, postStartMarker, scope);
+  } catch (_) {
+    return false;
+  }
+}
+
 async function attemptContractRecoveryTransition(page, postStartMarker) {
-  const deadline = Date.now() + 1200;
+  const deadline = Date.now() + RECOVERY_ATTEMPT_MS;
+  let hasRestart = false;
   while (Date.now() < deadline) {
-    let candidate = page.locator('[data-anvil-action="restart"]').first();
-    if (!(await candidate.count())) {
-      candidate = page.locator('[data-anvil-action="primary"]').first();
+    const restart = page.locator('[data-anvil-action="restart"]').first();
+    hasRestart = (await restart.count()) > 0;
+    recovery_control = hasRestart ? "restart" : "none";
+    if (hasRestart && await pressContractRecoveryControl(page, postStartMarker, () => restart.click({ timeout: 1000 }))) {
+      steps.push("recovery_transition");
+      recovery_transition_status = "observed";
+      return;
     }
-    if (await candidate.count()) {
-      recovery_before_marker = await activeMarker(page, "contract");
-      try {
-        await candidate.click({ timeout: 1000 });
-        recovery_after_marker = await markerAfterActiveChange(page, "contract", recovery_before_marker, 700);
-        if (contractResetWardChange(recovery_before_marker, recovery_after_marker, postStartMarker)) {
-          steps.push("recovery_transition");
-          recovery_transition_status = "observed";
-          return;
-        }
-      } catch (_) {}
-    }
-    recovery_before_marker = await activeMarker(page, "contract");
-    try {
+    const keyboardRestarted = await pressContractRecoveryControl(page, postStartMarker, async () => {
+      await page.evaluate(() => {
+        const active = document.activeElement;
+        if (active && active !== document.body && typeof active.blur === "function") active.blur();
+      });
       await page.keyboard.press("r");
-      recovery_after_marker = await markerAfterActiveChange(page, "contract", recovery_before_marker, 700);
-      if (contractResetWardChange(recovery_before_marker, recovery_after_marker, postStartMarker)) {
-        steps.push("recovery_transition");
-        recovery_transition_status = "observed";
-        return;
-      }
-    } catch (_) {}
+    });
+    if (keyboardRestarted) {
+      recovery_control = "keyboard_r";
+      steps.push("recovery_transition");
+      recovery_transition_status = "observed";
+      return;
+    }
     await page.waitForTimeout(120);
+  }
+  const primary = page.locator('[data-anvil-action="primary"]').first();
+  if (!hasRestart && (await primary.count()) > 0) {
+    // A primary press is not a restart: press it once, after the restart controls
+    // had their time, and never count its effect.
+    recovery_control = "primary_fallback";
+    await pressContractRecoveryControl(page, postStartMarker, () => primary.click({ timeout: 1000 }));
   }
   steps.push("recovery_transition:not_observed");
   recovery_transition_status = "not_observed";
@@ -1276,6 +1421,8 @@ function interactionFailureKind(transitionObserved, inputEvaluated, inputStateCh
     mark("launching");
     browser = await chromium.launch({ headless: true, timeout: LAUNCH_TIMEOUT_MS });
     const page = await browser.newPage();
+    // Registered first: a test double that keeps one handler per event keeps the last.
+    persistence_commit.attach(page);
     page.on("response", (response) => {
       try {
         const request = response.request();
@@ -1402,10 +1549,16 @@ function interactionFailureKind(transitionObserved, inputEvaluated, inputStateCh
 
     if (transitionObserved && probe_mode === "contract") {
       await attemptContractRecoveryTransition(page, after_marker);
+    } else if (probe_mode === "contract") {
+      // No start was observed. The legacy recovery accepts any button that moves the
+      // marker, so it must not be used to invent a start the contract never showed.
+      steps.push("recovery_transition:not_observed");
+      recovery_transition_status = "not_observed";
+      recovery_control = "none";
     } else {
       await attemptRecoveryTransition(page, initial_start_text, probe_mode);
     }
-    if (!transitionObserved && steps.includes("recovery_transition")) {
+    if (!transitionObserved && probe_mode !== "contract" && steps.includes("recovery_transition")) {
       transitionObserved = true;
       steps.push("start_transition");
       after_marker = recovery_after_marker;
@@ -1490,6 +1643,7 @@ function interactionFailureKind(transitionObserved, inputEvaluated, inputStateCh
       visible_state_changed: inputStateChanged,
       recovery_transition: recoveryObserved,
       recovery_transition_status,
+      recovery_control,
       start_transition: transitionObserved,
       start_control_found,
       primary_start_transition: primary_transition_observed,
@@ -1571,6 +1725,7 @@ function interactionFailureKind(transitionObserved, inputEvaluated, inputStateCh
       visible_state_changed: steps.includes("input_state_change"),
       recovery_transition: steps.includes("recovery_transition"),
       recovery_transition_status,
+      recovery_control,
       start_transition: steps.includes("start_transition") || steps.includes("recovery_transition"),
       start_control_found,
       primary_start_transition: primary_transition_observed,

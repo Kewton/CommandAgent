@@ -27,7 +27,8 @@ use super::{
 use super::{ContractRequirements, ReleaseRecoveryHandoffSummary, contract_origin_for_acceptance};
 use crate::planner::adjudication::{
     GateObservation, append_gate_observation, dedup_strings, disconnected_gate_observations_reason,
-    execution_status_from_observed, profile_behavior_failure_reasons,
+    execution_status_from_observed, final_outcome::final_acceptance_status_for_outcome,
+    profile_behavior_failure_reasons,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -458,6 +459,7 @@ pub(super) fn ultra_final_acceptance_report_with_deterministic_remedies(
     cycle_index: usize,
     setup_authority: &mut UltraRunSetupAuthorityState,
 ) -> anyhow::Result<(VerificationReport, Vec<String>)> {
+    crate::structured_budget::command::guard(config)?;
     let mut deterministic_remedies_applied = Vec::new();
     if reconcile_manifest_changed_dependencies_if_needed(config, &plan.profile, setup_authority)?
         .is_some()
@@ -504,6 +506,7 @@ pub(super) fn ultra_final_acceptance_report_inner(
     config: &Config,
     cycle_index: usize,
 ) -> anyhow::Result<VerificationReport> {
+    crate::structured_budget::outcome::gate(config)?;
     let effective_profile_id = ProfileId::parse(&plan.profile);
     let effective_profile = effective_profile_id.to_string();
     let runtime = ProfileRuntimeRegistry::resolve(&effective_profile_id);
@@ -647,6 +650,8 @@ pub(super) fn ultra_final_acceptance_report_inner(
             &required_capabilities,
             &required_evidence,
         ),
+        &config.workspace_root,
+        &effective_profile,
     );
     let signal_text = ultra_plan_signal_text(plan);
     let gate_telemetry = acceptance_gate_telemetry(
@@ -694,7 +699,137 @@ pub(super) fn ultra_final_acceptance_report_inner(
                 .collect(),
         );
     }
-    let final_acceptance_status = release_gate_final_acceptance_status(&release_gate);
+    let mut compile_errors = profile_report.compile_errors.clone();
+    if let Some(report) = external_report.as_ref() {
+        for error in &report.compile_errors {
+            if !compile_errors.contains(error) {
+                compile_errors.push(error.clone());
+            }
+        }
+    }
+    let primary_reason = if !missing.is_empty() {
+        format!("missing final artifacts: {}", missing.join(", "))
+    } else if contract_binding_missing {
+        "completion contract binding required but missing".to_string()
+    } else if !profile_report.is_pass() {
+        profile_report.primary_reason()
+    } else if let Some(report) = external_report.as_ref().filter(|report| {
+        !external_contract_ok_after_runtime_arbitration(Some(*report), Some(&acceptance))
+    }) {
+        report.primary_reason()
+    } else if profile_behavior_failed {
+        profile_behavior_probe.reasons.join("; ")
+    } else if !acceptance.passed {
+        acceptance.primary_reason.clone()
+    } else if matches!(release_gate.status.as_str(), "partial" | "failed") {
+        release_gate.reasons.join("; ")
+    } else {
+        acceptance.primary_reason.clone()
+    };
+    let mut command_diagnoses = crate::minimal_loop::evidence::command_diagnosis::collect(
+        &config.workspace_root,
+        &verify_commands,
+    );
+    if let Some(report) = &external_report {
+        crate::minimal_loop::evidence::command_diagnosis::annotate(&mut command_diagnoses, report);
+    }
+    let mut report = VerificationReport::pass();
+    for path in missing.iter().cloned() {
+        report.push_missing_path(path);
+    }
+    merge_verification_report(&mut report, profile_report);
+    if let Some(unmet) = crate::planner::structured_stages::final_gate_failure(config) {
+        report.push_profile_failure(unmet);
+    }
+    if !acceptance.passed {
+        report.push_profile_failure(acceptance.primary_reason.clone());
+        for guidance in
+            runtime_acceptance_repair_guidance(&effective_profile, &plan.goal, &acceptance)
+        {
+            report.push_profile_failure(format!("repair guidance: {guidance}"));
+        }
+        for line in crate::planner::profile::early_static_repair_lines(
+            runtime,
+            &config.workspace_root,
+            acceptance.passed,
+            production_build_failed,
+        ) {
+            report.push_profile_failure(line);
+        }
+        for guidance in acceptance
+            .weak_evidence_sources
+            .iter()
+            .filter_map(crate::minimal_loop::evidence::WeakEvidenceSource::repair_guidance)
+        {
+            report.push_profile_failure(format!("repair guidance: {guidance}"));
+        }
+        for target in &acceptance.obligation_repair_targets {
+            report.push_profile_failure(format!(
+                "missing_required_obligation_target:{}:{}",
+                target.obligation, target.target_path
+            ));
+        }
+    }
+    if contract_binding_missing {
+        report.push_profile_failure("completion contract binding required but missing".to_string());
+    }
+    if profile_behavior_failed {
+        for reason in &profile_behavior_probe.reasons {
+            report.push_profile_failure(reason.clone());
+        }
+        if let Some(path) = &profile_behavior_probe.evidence_path {
+            report.push_profile_failure(format!("profile behavior evidence: {path}"));
+        }
+    }
+    if let Some(external_report) = external_report.filter(|report| {
+        !external_contract_ok_after_runtime_arbitration(Some(report), Some(&acceptance))
+    }) {
+        let reason = external_report.primary_reason();
+        merge_verification_report(&mut report, external_report);
+        report.push_profile_failure(format!("external contract failed: {}", reason));
+    }
+    let append_release_observations = !report.is_pass() || release_gate.status == "failed";
+    if release_gate.status == "failed" {
+        report.push_profile_failure(format!(
+            "release gate failed: {}",
+            release_gate.reasons.join("; ")
+        ));
+        for line in crate::planner::profile::release_gate_static_repair_lines(
+            runtime,
+            &config.workspace_root,
+            acceptance.passed,
+            production_build_failed,
+            &release_gate.reasons,
+        ) {
+            report.push_profile_failure(line);
+        }
+    }
+    if append_release_observations {
+        append_release_gate_observation_failures(&mut report, &release_gate);
+    }
+    if let Some(observation) = &browser_probe
+        && let Some(reason) = observation.failure_reason()
+    {
+        report.push_profile_failure(format!("browser_readiness_failed:{reason}"));
+        if !observation.output_excerpt.trim().is_empty() {
+            report.push_profile_failure(format!(
+                "browser_probe_output: {}",
+                eval_events::body_snippet(&observation.output_excerpt)
+            ));
+        }
+        if observation.failure_kind == "build_verifier_failed"
+            && !observation.compile_errors.is_empty()
+        {
+            report.push_compile_errors(
+                "browser readiness build verifier",
+                observation.compile_errors.clone(),
+            );
+        }
+    }
+    let final_acceptance_status = final_acceptance_status_for_outcome(
+        release_gate_final_acceptance_status(&release_gate),
+        report.is_pass(),
+    );
     let runtime_acceptance_status = match profile_behavior_probe.status {
         "failed" => "failed",
         "partial" => "partial",
@@ -739,33 +874,6 @@ pub(super) fn ultra_final_acceptance_report_inner(
         &plan.goal,
         Some(&phase_signal_text),
     );
-    let mut compile_errors = profile_report.compile_errors.clone();
-    if let Some(report) = external_report.as_ref() {
-        for error in &report.compile_errors {
-            if !compile_errors.contains(error) {
-                compile_errors.push(error.clone());
-            }
-        }
-    }
-    let primary_reason = if !missing.is_empty() {
-        format!("missing final artifacts: {}", missing.join(", "))
-    } else if contract_binding_missing {
-        "completion contract binding required but missing".to_string()
-    } else if !profile_report.is_pass() {
-        profile_report.primary_reason()
-    } else if let Some(report) = external_report.as_ref().filter(|report| {
-        !external_contract_ok_after_runtime_arbitration(Some(*report), Some(&acceptance))
-    }) {
-        report.primary_reason()
-    } else if profile_behavior_failed {
-        profile_behavior_probe.reasons.join("; ")
-    } else if !acceptance.passed {
-        acceptance.primary_reason.clone()
-    } else if matches!(release_gate.status.as_str(), "partial" | "failed") {
-        release_gate.reasons.join("; ")
-    } else {
-        acceptance.primary_reason.clone()
-    };
     let recovery_handoff = if acceptance.passed
         && external_ok
         && (matches!(release_gate.status.as_str(), "partial" | "failed")
@@ -799,13 +907,6 @@ pub(super) fn ultra_final_acceptance_report_inner(
     } else {
         None
     };
-    let mut command_diagnoses = crate::minimal_loop::evidence::command_diagnosis::collect(
-        &config.workspace_root,
-        &verify_commands,
-    );
-    if let Some(report) = &external_report {
-        crate::minimal_loop::evidence::command_diagnosis::annotate(&mut command_diagnoses, report);
-    }
     eval_events::emit(
         config.eval_events_path.as_deref(),
         json!({
@@ -930,72 +1031,6 @@ pub(super) fn ultra_final_acceptance_report_inner(
         "ultra_final_acceptance",
         &depth_profile,
     );
-    let mut report = VerificationReport::pass();
-    for path in missing {
-        report.push_missing_path(path);
-    }
-    merge_verification_report(&mut report, profile_report);
-    if !acceptance.passed {
-        report.push_profile_failure(acceptance.primary_reason.clone());
-        for guidance in
-            runtime_acceptance_repair_guidance(&effective_profile, &plan.goal, &acceptance)
-        {
-            report.push_profile_failure(format!("repair guidance: {guidance}"));
-        }
-        for target in &acceptance.obligation_repair_targets {
-            report.push_profile_failure(format!(
-                "missing_required_obligation_target:{}:{}",
-                target.obligation, target.target_path
-            ));
-        }
-    }
-    if contract_binding_missing {
-        report.push_profile_failure("completion contract binding required but missing".to_string());
-    }
-    if profile_behavior_failed {
-        for reason in &profile_behavior_probe.reasons {
-            report.push_profile_failure(reason.clone());
-        }
-        if let Some(path) = &profile_behavior_probe.evidence_path {
-            report.push_profile_failure(format!("profile behavior evidence: {path}"));
-        }
-    }
-    if let Some(external_report) = external_report.filter(|report| {
-        !external_contract_ok_after_runtime_arbitration(Some(report), Some(&acceptance))
-    }) {
-        let reason = external_report.primary_reason();
-        merge_verification_report(&mut report, external_report);
-        report.push_profile_failure(format!("external contract failed: {}", reason));
-    }
-    let append_release_observations = !report.is_pass() || release_gate.status == "failed";
-    if release_gate.status == "failed" {
-        report.push_profile_failure(format!(
-            "release gate failed: {}",
-            release_gate.reasons.join("; ")
-        ));
-    }
-    if append_release_observations {
-        append_release_gate_observation_failures(&mut report, &release_gate);
-    }
-    if let Some(observation) = &browser_probe
-        && let Some(reason) = observation.failure_reason()
-    {
-        report.push_profile_failure(format!("browser_readiness_failed:{reason}"));
-        if !observation.output_excerpt.trim().is_empty() {
-            report.push_profile_failure(format!(
-                "browser_probe_output: {}",
-                eval_events::body_snippet(&observation.output_excerpt)
-            ));
-        }
-        if observation.failure_kind == "build_verifier_failed"
-            && !observation.compile_errors.is_empty()
-        {
-            report.push_compile_errors(
-                "browser readiness build verifier",
-                observation.compile_errors.clone(),
-            );
-        }
-    }
     Ok(report)
 }
 
@@ -1254,6 +1289,13 @@ fn apply_final_testimony_check(
             gate.reasons =
                 dedup_strings(gate.reasons.iter().cloned().chain(report.reasons).collect());
         }
+        Ok(Some(report)) if report.status == "partial" => {
+            if gate.status == "pass" {
+                gate.status = "partial".to_string();
+            }
+            gate.reasons =
+                dedup_strings(gate.reasons.iter().cloned().chain(report.reasons).collect());
+        }
         Ok(_) => {}
         Err(error) => {
             gate.status = "failed".to_string();
@@ -1483,20 +1525,7 @@ pub(super) enum ReleaseEvidenceKind {
 
 #[cfg(test)]
 pub(super) fn browser_release_gate(config: &Config) -> ReleaseGateSummary {
-    browser_release_gate_with_expectations(config, false)
-}
-
-#[cfg(test)]
-pub(super) fn browser_release_gate_with_expectations(
-    config: &Config,
-    canvas_surface_expected: bool,
-) -> ReleaseGateSummary {
-    browser_release_gate_with_options(
-        config,
-        canvas_surface_expected,
-        BrowserInteractionProbeOptions::default(),
-        None,
-    )
+    browser_release_gate_with_options(config, false, Default::default(), None)
 }
 
 pub(super) fn browser_release_gate_with_options(
@@ -2150,3 +2179,7 @@ pub(super) fn text_field(value: &Value, keys: &[&str]) -> Option<String> {
         .find_map(|key| value.get(*key).and_then(Value::as_str))
         .map(|text| text.trim().to_ascii_lowercase())
 }
+
+#[cfg(test)]
+#[path = "create_testimony_partial_tests.rs"]
+mod testimony_partial_tests;

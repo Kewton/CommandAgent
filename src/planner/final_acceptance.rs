@@ -1,7 +1,17 @@
 use super::CompileRepairPromptProtection;
+use crate::tools::sensitive_path::path_is_sensitive;
 
 #[path = "final_acceptance/compile_rollback_verification.rs"]
 mod compile_rollback_verification;
+
+#[path = "final_acceptance/artifact_repair_paths.rs"]
+mod artifact_repair_paths;
+
+#[path = "final_acceptance/artifact_diagnostics.rs"]
+mod artifact_diagnostics;
+
+#[path = "final_acceptance/repair_workspace_snapshot.rs"]
+mod repair_workspace_snapshot;
 
 #[path = "final_acceptance/surface_fit.rs"]
 mod surface_fit;
@@ -154,10 +164,15 @@ pub(super) fn snapshot_last_known_good_sources(
     let mut saved_paths = Vec::new();
     let mut snapshot_origins = Vec::new();
     let mut failures = Vec::new();
+    let mut sensitive_skipped = 0usize;
     for rel in paths {
         let Some(source) = readable_workspace_source_path(&config.workspace_root, &rel) else {
             continue;
         };
+        if path_is_sensitive(&config.workspace_root, &source) {
+            sensitive_skipped += 1;
+            continue;
+        }
         let destination = latest_dir.join(&rel);
         if let Some(parent) = destination.parent()
             && let Err(err) = std::fs::create_dir_all(parent)
@@ -173,7 +188,7 @@ pub(super) fn snapshot_last_known_good_sources(
             Err(err) => failures.push(format!("{rel}: snapshot copy failed: {err}")),
         }
     }
-    if !saved_paths.is_empty() || !failures.is_empty() {
+    if !saved_paths.is_empty() || !failures.is_empty() || sensitive_skipped > 0 {
         eval_events::emit(
             config.eval_events_path.as_deref(),
             json!({
@@ -183,6 +198,7 @@ pub(super) fn snapshot_last_known_good_sources(
                 "snapshot_paths": saved_paths,
                 "snapshot_origins": snapshot_origins,
                 "snapshot_failures": failures,
+                "snapshot_sensitive_skipped": sensitive_skipped,
             }),
         );
     }
@@ -217,36 +233,16 @@ pub(super) fn final_acceptance_source_snapshot(
     goal: &str,
     expected_paths: &[String],
     extra_paths: &[String],
+    artifact_paths: &[String],
 ) -> BTreeMap<String, Option<Vec<u8>>> {
-    let mut paths = snapshot_source_candidates(root, profile, goal, expected_paths);
-    merge_final_acceptance_snapshot_candidates(
-        &mut paths,
-        expected_paths.iter().map(String::as_str),
-    );
-    merge_final_acceptance_snapshot_candidates(&mut paths, extra_paths.iter().map(String::as_str));
-    merge_final_acceptance_snapshot_candidates(
-        &mut paths,
-        crate::planner::repair_targeting::final_acceptance_snapshot_candidates(root, profile)
-            .iter()
-            .map(String::as_str),
-    );
-    for path in route_bound_source_paths(root, profile) {
-        if !paths.contains(&path) {
-            paths.push(path);
-        }
-    }
-    snapshot_paths(root, &paths)
-}
-
-pub(super) fn snapshot_paths(root: &Path, paths: &[String]) -> BTreeMap<String, Option<Vec<u8>>> {
-    let mut snapshot = BTreeMap::new();
-    for path in paths {
-        let Some(rel) = safe_final_acceptance_snapshot_rel_path(path) else {
-            continue;
-        };
-        snapshot.insert(rel.clone(), std::fs::read(root.join(rel)).ok());
-    }
-    snapshot
+    repair_workspace_snapshot::capture(
+        root,
+        profile,
+        goal,
+        expected_paths,
+        extra_paths,
+        artifact_paths,
+    )
 }
 
 pub(super) fn changed_snapshot_paths(
@@ -964,7 +960,7 @@ pub(super) fn try_compile_rollback_after_repair_exhaustion(
     let mut snapshot_paths = Vec::new();
     for rel in &failing_paths {
         let snapshot = latest_dir.join(rel);
-        if !snapshot.is_file() {
+        if !snapshot_restorable(config, &latest_dir, rel) {
             emit_compile_rollback_skipped(
                 config,
                 &failing_paths,
@@ -1099,7 +1095,12 @@ pub(super) fn compile_rollback_snapshot_available(
     };
     failing_paths
         .iter()
-        .all(|rel| latest_dir.join(rel).is_file())
+        .all(|rel| snapshot_restorable(config, &latest_dir, rel))
+}
+
+fn snapshot_restorable(config: &Config, latest_dir: &Path, rel: &str) -> bool {
+    latest_dir.join(rel).is_file()
+        && !path_is_sensitive(&config.workspace_root, &config.workspace_root.join(rel))
 }
 
 pub(super) fn emit_compile_no_snapshot_narrow_retry(
@@ -1319,7 +1320,7 @@ Missing paths:\n{missing}\n\n\
 Dependency failures:\n{dependencies}\n\n\
 Compile errors:\n{compile_errors}\n\n\
 Command failures:\n{command_failures}\n\n\
-Profile failures:\n{profile_failures}\n\n\
+Profile failures:\n{profile_failures}\n\n{artifact_diagnostics}\
 {behavioral_probe_context}\
 {restart_attachment_guidance}\
 {adherence_guidance}\
@@ -1345,6 +1346,7 @@ Final acceptance failure:\n\
         compile_errors = compile_errors,
         command_failures = command_failures,
         profile_failures = profile_failures,
+        artifact_diagnostics = artifact_diagnostics::repair_section(report),
         behavioral_probe_context = behavioral_probe_context,
         restart_attachment_guidance = restart_attachment_guidance,
         adherence_guidance = adherence_guidance,
@@ -1428,7 +1430,7 @@ Missing paths:\n{missing}\n\n\
 Dependency failures:\n{dependencies}\n\n\
 Compile errors:\n{compile_errors}\n\n\
 Command failures:\n{command_failures}\n\n\
-Profile failures:\n{profile_failures}\n\n\
+Profile failures:\n{profile_failures}\n\n{artifact_diagnostics}\
 {behavioral_probe_context}\
 {restart_attachment_guidance}\
 {adherence_guidance}\
@@ -1454,6 +1456,7 @@ Bounded repair rules:\n\
         compile_errors = compile_errors,
         command_failures = command_failures,
         profile_failures = profile_failures,
+        artifact_diagnostics = artifact_diagnostics::repair_section(report),
         behavioral_probe_context = behavioral_probe_context,
         restart_attachment_guidance = restart_attachment_guidance,
         adherence_guidance = adherence_guidance,

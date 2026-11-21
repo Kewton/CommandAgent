@@ -1,0 +1,45 @@
+case_id = "issue851-final-repair-workspace-delta"
+source = "Issue #851 / L-107 (G1 stage 3a cli-g, develop 8261861c): Bash rm repaired the python-cli entry cardinality but final repair skipped re-verification"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["python-cli", "final-repair-workspace-delta"]
+acceptance_passed = true
+primary_reason = "pass"
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/events-observed.jsonl = [
+  "\"event\":\"final_acceptance_repair_complete\"",
+  "\"changed_path_count\":0",
+  "\"reported_changed_paths\":[]",
+  "\"event\":\"final_acceptance_repair_no_source_change\"",
+  "\"reprobe_skipped\":true",
+  "\"event\":\"final_acceptance_repair_exhausted\"",
+  "\"preview\":\"rm src/app/main.py\""
+]
+fixtures/cases.json = [
+  "\"id\": \"bash-rm-extra-entry\"",
+  "\"id\": \"bash-mv-extra-entry\"",
+  "\"id\": \"bash-touch\"",
+  "\"id\": \"bash-create-then-delete\"",
+  "\"id\": \"bash-log-and-cache-only\""
+]
+fixtures/pyproject.toml = [
+  "csv-stats = \"csv_stats.main:main\""
+]

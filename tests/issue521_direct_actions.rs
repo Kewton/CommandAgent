@@ -166,13 +166,43 @@ fn event_lines(workspace: &Path) -> Vec<String> {
     lines
 }
 
+/// The scrollback line `src/tui/sandbox_status.rs` prints when the sandbox is not
+/// applied (Issue #803). Whether it appears depends on the machine, like the
+/// `bash_sandbox_status` event skipped in `event_lines`, so it is dropped by exact
+/// line match over every sentence the renderer can produce.
+fn sandbox_status_lines() -> Vec<String> {
+    let mut lines = Vec::new();
+    for (mode, outcome) in [
+        ("auto", "continuing with lexical checks only"),
+        ("required", "commands are refused"),
+    ] {
+        for backend in ["seatbelt", "landlock", "none"] {
+            lines.push(format!(
+                "⚠ sandbox not applied (mode={mode}, backend={backend}): {outcome}"
+            ));
+        }
+    }
+    lines
+}
+
+fn without_sandbox_status_lines(stdout: &str) -> String {
+    let known = sandbox_status_lines();
+    stdout
+        .split_inclusive('\n')
+        .filter(|line| !known.iter().any(|k| line.trim_end_matches('\n') == k))
+        .collect()
+}
+
 /// Exit code, provider connections, stdout, error lines, and event sequence.
 fn snapshot(workspace: &Path, outcome: &Outcome) -> String {
     let mut out = format!(
         "exit={:?} provider_connections={}\n--stdout--\n",
         outcome.code, outcome.provider_connections
     );
-    out.push_str(&normalize(workspace, &outcome.stdout));
+    out.push_str(&normalize(
+        workspace,
+        &without_sandbox_status_lines(&outcome.stdout),
+    ));
     out.push_str("--stderr--\n");
     for line in outcome.stderr.lines() {
         if line.starts_with("error:") || line.starts_with("Hint:") {
@@ -704,4 +734,28 @@ fn event_lines_drops_only_one_time_profile_right_after_the_stop() {
         ]),
         [&without[0], &without[1], "time_profile", &without[2]]
     );
+}
+
+#[test]
+fn only_the_fixed_sandbox_status_line_is_dropped_from_stdout() {
+    let fixed = "⚠ sandbox not applied (mode=auto, backend=seatbelt): continuing with lexical checks only\n";
+    let kept = [
+        "→ implementing (model turn: m, up to 2s)\n",
+        "⚠ sandbox not applied (mode=auto, backend=seatbelt): continuing with lexical checks only extra\n",
+        "x ⚠ sandbox not applied (mode=auto, backend=seatbelt): continuing with lexical checks only\n",
+        "⚠ sandbox not applied (mode=off, backend=seatbelt): continuing with lexical checks only\n",
+        "⚠ sandbox not applied\n",
+    ]
+    .concat();
+    assert_eq!(
+        without_sandbox_status_lines(&format!("{fixed}{kept}")),
+        kept
+    );
+    assert_eq!(
+        without_sandbox_status_lines(&format!("{kept}{fixed}")),
+        kept
+    );
+    let required =
+        "⚠ sandbox not applied (mode=required, backend=landlock): commands are refused\n";
+    assert_eq!(without_sandbox_status_lines(required), "");
 }

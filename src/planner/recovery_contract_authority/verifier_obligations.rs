@@ -3,6 +3,60 @@ use super::*;
 use crate::planner::step_plan::{ExpectedResult, PlanStep, StepKind, StepPlan};
 use std::collections::BTreeSet;
 
+/// A proposed verifier producer creates a path an already registered producer owns.
+#[derive(Debug, Clone)]
+pub(crate) struct VerifierObligationConflict {
+    pub(crate) registered_step: PlanStep,
+    pub(crate) proposed_step: String,
+    pub(crate) paths: Vec<String>,
+}
+
+impl std::fmt::Display for VerifierObligationConflict {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("conflicting registered verifier creation obligations")
+    }
+}
+
+impl std::error::Error for VerifierObligationConflict {}
+
+impl VerifierObligationConflict {
+    fn new(registered: &PlanStep, proposed: &PlanStep) -> Self {
+        let proposed_paths: BTreeSet<String> = proposed
+            .expected_paths
+            .iter()
+            .filter_map(|p| normalized(p).ok())
+            .collect();
+        let paths = registered
+            .expected_paths
+            .iter()
+            .filter_map(|p| normalized(p).ok())
+            .filter(|p| proposed_paths.contains(p))
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        Self {
+            registered_step: registered.clone(),
+            proposed_step: proposed.id.clone(),
+            paths,
+        }
+    }
+
+    /// Evidence lines for the recovery handoff.
+    pub(crate) fn evidence(&self) -> Vec<String> {
+        vec![
+            format!(
+                "registered verifier producer: {} (paths: {}; verify: {})",
+                self.registered_step.id,
+                self.registered_step.expected_paths.join(", "),
+                self.registered_step.verify.join("; ")
+            ),
+            format!("proposed producer: {}", self.proposed_step),
+            format!("overlapping paths: {}", self.paths.join(", ")),
+            "the registered verifier is kept unchanged".to_string(),
+        ]
+    }
+}
+
 pub(crate) fn scripts(commands: &[String]) -> BTreeSet<String> {
     commands
         .iter()
@@ -68,10 +122,9 @@ pub(crate) fn register(config: &Config, plan: &StepPlan) -> anyhow::Result<()> {
         if registered.contains(step) {
             continue;
         }
-        anyhow::ensure!(
-            !registered.iter().any(|old| overlaps(old, step)),
-            "conflicting registered verifier creation obligations"
-        );
+        if let Some(old) = registered.iter().find(|old| overlaps(old, step)) {
+            return Err(VerifierObligationConflict::new(old, step).into());
+        }
         registered.push(step.clone());
     }
     let path = generated_path(config, ULTRA_RUN_CONTRACT);

@@ -358,6 +358,7 @@ impl FixRuntime {
         if adjudication.assurance == FixAssurance::Failed {
             anyhow::bail!("fix final acceptance failed: {}", adjudication.reason);
         }
+        crate::planner::structured_stages::refuse_unmet_plan(config)?;
         eval_events::emit(
             config.eval_events_path.as_deref(),
             json!({

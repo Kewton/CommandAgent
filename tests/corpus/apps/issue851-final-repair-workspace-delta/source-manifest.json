@@ -1,0 +1,16 @@
+{
+  "source": "<user>/share/work/gen-eval-1022/campaign-G1-3a5/stage3a/cli-g/work/.commandagent/runs/01a16edd-cec9-7cc1-bbef-4ec82524f720/events.jsonl",
+  "source_sha256": "c4b82e522b0eb298842eadb002968043be9c1f7f7e4bf73fe48942fb85e5b499",
+  "source_version": "develop 8261861c; G1 stage 3a cli-g (L-107)",
+  "line_range": "218-232",
+  "owner": "final-acceptance-repair",
+  "capture": "events-observed.jsonl is the unmodified lines 218-232: final acceptance rejects two src/<package>/main.py, the repair runs Bash `rm src/app/main.py`, and final_acceptance_repair_complete reports changed_path_count 0 followed by reprobe_skipped. Absolute paths and secrets are absent from the excerpt.",
+  "derived_fixture": "main.py and pyproject.toml are copies of the final workspace files of that run (src/csv_stats/main.py, pyproject.toml). extra-main.py is a synthetic stand-in for the deleted src/app/main.py, whose content was not preserved. cases.json is hand-authored.",
+  "fixture_sha256": {
+    "cases.json": "70997b50bf7d06bf3de72cd0ae21f24b0880fb77c1fedb45b839a65c31f31c77",
+    "events-observed.jsonl": "8f24c0c08632d727daad5f8aa028c583e1d2d3a81f5cc041a37cbf9cced05cd7",
+    "extra-main.py": "bbc310d68fc2d5ef4d917137c01a5b3cfb094d93437335335a0384fe03ee54b0",
+    "main.py": "9e31c890fdcdbeb9ff54b13cfec45c40873c7164f041df8e8ae89d893d2373cb",
+    "pyproject.toml": "3c9487db3e1a148d8461ee8d9d4d2d9b899eaaa1fa66f30d45b8f5e92a7bf3e5"
+  }
+}

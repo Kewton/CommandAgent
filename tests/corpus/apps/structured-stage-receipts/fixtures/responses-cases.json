@@ -1,0 +1,12 @@
+{
+  "issue": "#1005",
+  "kind": "synthetic",
+  "note": "The API and the tool protocol are two axes: every row here is api=responses on tool_protocol=native. The rows of cases.json keep their wires. Each row's expectation is a golden recorded before this feature, or the same calls on Chat Completions in the same test; nothing here is generated from the Responses implementation.",
+  "rows": [
+    {"id": "responses-attempts-replay", "api": "responses", "tool_protocol": "native", "control": "fixtures/attempts-replay-golden.json", "test": "the_attempts_replay_on_responses_stops_where_the_base_did_on_chat"},
+    {"id": "responses-several-calls-in-one-reply", "api": "responses", "tool_protocol": "native", "control": "chat", "test": "several_calls_in_one_reply_count_and_answer_as_on_chat"},
+    {"id": "responses-bad-call-id-counts-nothing", "api": "responses", "tool_protocol": "native", "control": "chat", "test": "a_reply_with_a_bad_call_id_spends_no_attempt_and_adds_no_schema_refusal"},
+    {"id": "responses-long-stage-answer", "api": "responses", "tool_protocol": "native", "control": "chat", "test": "a_long_stage_answer_goes_back_on_responses_as_on_chat"},
+    {"id": "responses-off", "api": "responses", "tool_protocol": "native", "control": "fixtures/responses-off-golden.json", "test": "the_responses_off_paths_match_the_base_recording_byte_for_byte"}
+  ]
+}

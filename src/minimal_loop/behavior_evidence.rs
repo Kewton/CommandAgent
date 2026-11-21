@@ -68,6 +68,8 @@ struct BehaviorObservation {
     token_echoed_after_reload: bool,
     text_input_state_change: bool,
     recovery_transition: RecoveryTransition,
+    /// Contract-mode recovery the probe could not attribute to a restart control.
+    recovery_unattributed: bool,
     restart_hook_present: bool,
     restart_hook_reachable_after_start: bool,
     persistence_after_reload: PersistenceAfterReload,
@@ -391,6 +393,9 @@ fn behavioral_decision(
     }
     if key == "restart_or_recoverable_state_evidence" {
         return match observation.recovery_transition {
+            RecoveryTransition::Observed if observation.recovery_unattributed => {
+                BehavioralDecision::Unverified("terminal_state_not_reached")
+            }
             RecoveryTransition::Observed => BehavioralDecision::Pass("recovery_transition"),
             RecoveryTransition::NotObserved
                 if observation.start_transition && observation.input_state_change =>
@@ -683,6 +688,9 @@ impl BehaviorObservation {
             == Some(true)
             || steps.contains("text_input_state_change");
         let recovery_transition = recovery_transition(value, &steps);
+        let recovery_unattributed = text_field_deep(value, &["probe_mode"]).as_deref()
+            == Some("contract")
+            && text_field_deep(value, &["recovery_control"]).as_deref() == Some("none");
         let restart_hook_present = bool_field_deep(value, &["restart_present"]) == Some(true)
             || contract_hook_bool(value, "restart_present") == Some(true)
             || string_array_field_deep(value, "action_hooks")
@@ -706,6 +714,7 @@ impl BehaviorObservation {
             token_echoed_after_reload,
             text_input_state_change,
             recovery_transition,
+            recovery_unattributed,
             restart_hook_present,
             restart_hook_reachable_after_start,
             persistence_after_reload,

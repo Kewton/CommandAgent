@@ -9,6 +9,14 @@ pub enum ToolPromptMode {
     XmlFallback,
 }
 
+/// The optional system prompt blocks: the profile guidance and, for a direct
+/// prompt run that adopted a request pattern (Issue #918), the request guidance.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PromptGuidance<'a> {
+    pub profile: Option<&'a str>,
+    pub request: Option<&'a str>,
+}
+
 pub fn build_request_messages(
     history: &[ConversationMessage],
     tools: &[ToolSpec],
@@ -17,12 +25,30 @@ pub fn build_request_messages(
     profile_guidance: Option<&str>,
     mode: ToolPromptMode,
 ) -> Vec<ConversationMessage> {
-    let mut messages = Vec::new();
-    messages.push(ConversationMessage::system(system_prompt(
+    build_guided_request_messages(
+        history,
         tools,
         root,
-        profile_guidance,
+        pending_feedback,
+        PromptGuidance {
+            profile: profile_guidance,
+            request: None,
+        },
         mode,
+    )
+}
+
+pub fn build_guided_request_messages(
+    history: &[ConversationMessage],
+    tools: &[ToolSpec],
+    root: &Path,
+    pending_feedback: Option<&str>,
+    guidance: PromptGuidance<'_>,
+    mode: ToolPromptMode,
+) -> Vec<ConversationMessage> {
+    let mut messages = Vec::new();
+    messages.push(ConversationMessage::system(system_prompt(
+        tools, root, guidance, mode,
     )));
     messages.extend(history.iter().map(sanitize_history_message_for_request));
     if let Some(feedback) = pending_feedback {
@@ -34,26 +60,34 @@ pub fn build_request_messages(
 fn system_prompt(
     tools: &[ToolSpec],
     root: &Path,
-    profile_guidance: Option<&str>,
+    guidance: PromptGuidance<'_>,
     mode: ToolPromptMode,
 ) -> String {
-    let tools = tools
-        .iter()
-        .map(|tool| format!("- {}: {}", tool.function.name, tool.function.description))
-        .collect::<Vec<_>>()
-        .join("\n");
     let mut prompt = format!(
         "You are commandagent, a local coding agent. Work only inside workspace `{}`.\n\
 Use tools for file changes, repository facts, file inspection, build/test checks, and any action that changes the workspace.\n\
 Do not end with planned future work. Do not claim files, tests, or builds succeeded unless you observed them with tools.\n\
 Use workspace-relative paths only, and do not read or write outside the workspace.\n\
-Do not claim completion until requested files and evidence are present.\n\
-Tools:\n{}",
+Do not claim completion until requested files and evidence are present.",
         root.display(),
-        tools
     );
-    if let Some(guidance) = profile_guidance {
+    // A native turn sends each description in the function schema, so only a
+    // turn without schemas lists the tools here (Issue #936).
+    if mode == ToolPromptMode::XmlFallback {
+        let tools = tools
+            .iter()
+            .map(|tool| format!("- {}: {}", tool.function.name, tool.function.description))
+            .collect::<Vec<_>>()
+            .join("\n");
+        prompt.push_str("\nTools:\n");
+        prompt.push_str(&tools);
+    }
+    if let Some(guidance) = guidance.profile {
         prompt.push_str("\n\nProfile guidance:\n");
+        prompt.push_str(guidance);
+    }
+    if let Some(guidance) = guidance.request {
+        prompt.push_str("\n\nRequest guidance:\n");
         prompt.push_str(guidance);
     }
     if mode == ToolPromptMode::XmlFallback {
@@ -74,7 +108,8 @@ fn sanitize_history_message_for_request(message: &ConversationMessage) -> Conver
     }
     if message.role == "tool" {
         let mut cloned = message.clone();
-        cloned.content = crate::eval_events::body_snippet_whole_tokens(&cloned.content);
+        cloned.content =
+            crate::state::tool_history::history_content(cloned.name.as_deref(), &cloned.content);
         return cloned;
     }
     message.clone()
@@ -117,6 +152,26 @@ mod tests {
         assert!(prompt.contains("<anvil_tool_call"));
         assert!(prompt.contains("one JSON object"));
         assert!(prompt.contains("Do not end with planned future work"));
+    }
+
+    #[test]
+    fn only_the_xml_fallback_prompt_lists_the_tools() {
+        let registry = ToolRegistry::default();
+        let specs = registry.specs();
+        let prompt = |mode| {
+            build_request_messages(&[], specs, Path::new("/tmp/work"), None, None, mode)[0]
+                .content
+                .clone()
+        };
+        let native = prompt(ToolPromptMode::Native);
+        let xml = prompt(ToolPromptMode::XmlFallback);
+        assert!(!native.contains("Tools:"));
+        assert!(xml.contains("Tools:\n- Bash: "));
+        for spec in specs {
+            assert!(!native.contains(&spec.function.description));
+            assert!(xml.contains(&spec.function.description));
+        }
+        assert!(xml.starts_with(&native));
     }
 
     #[test]

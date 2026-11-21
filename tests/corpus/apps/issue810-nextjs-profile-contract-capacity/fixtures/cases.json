@@ -1,0 +1,29 @@
+{
+  "web_app": {
+    "goal": "Build a todo list app with Next.js that persists todos in localStorage and runs on port 3011.",
+    "port": 3011,
+    "expected_paths": [
+      "src/hooks/useTodos.ts"
+    ],
+    "step_id": "implement-use-todos",
+    "shapes": [
+      {
+        "name": "tool_g",
+        "instruction": "Create src/hooks/useTodos.ts exporting a useTodos hook that loads todos from localStorage, exposes add, toggle and remove actions, and keeps the list in React state so the page re-renders after every change. Wire the hook into the todo list component, give the add control data-anvil-action=\"primary\" and keep the dev server on the requested port. Keep every action idempotent a"
+      },
+      {
+        "name": "tool_g_split",
+        "instruction": "Create src/hooks/useTodos.ts exporting a useTodos hook that loads todos from localStorage, exposes add, toggle and remove actions, and keeps the list in React state so the page re-renders after every change. Wire the hook into the todo list component, give the add control data-anvil-action=\"primary\" and keep the dev server on the requested port. Keep every action idempotent and keep the stored JSON shape stable across reloads and restarts of the development server. Keep every action idempotent and keep the stored JSON shape stable across reloads and restarts of the development server. Keep every action idempotent and keep the stored JSON shape stable across reloads and resta"
+      }
+    ],
+    "model_only_over_capacity_chars": 2501
+  },
+  "python_cli": {
+    "goal": "Create a small Python CLI in greeter.py that reads a name from stdin or args and prints a greeting.",
+    "step_id": "implement-cli",
+    "instruction": "Implement the greeting command: read the name from the first argument or stdin and print a non-empty greeting that changes with the name.",
+    "expected_paths": [
+      "src/greeter/main.py"
+    ]
+  }
+}

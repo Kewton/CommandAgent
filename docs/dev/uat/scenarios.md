@@ -277,8 +277,14 @@ Expected capability profile:
 
 Final acceptance requires:
 
-- The dependency lifecycle completes, including venv creation and pip
-  installation.
+- When `pyproject.toml` declares dependencies, the dependency lifecycle
+  completes, including venv creation and pip installation. A stdlib-only
+  package that declares no dependencies records `setup_status: not_required`
+  and has no setup stage.
+- In events, `requires_dependency_setup` is a property of the oracle kind (this
+  command may need setup), while `setup_status` is what that run observed, so
+  `requires_dependency_setup: true` with `setup_status: not_required` is not a
+  contradiction.
 - The Python compile oracle passes with `python3 -m compileall -q src`.
 - The profile behavior probe runs the CLI against generated fixture CSV input,
   passes the CSV path as an argument, observes exit 0, observes non-empty stdout,
@@ -291,8 +297,8 @@ Final acceptance requires:
 
 Partial means:
 
-- Dependency setup is blocked or unavailable, so venv/pip lifecycle completion
-  is unverified.
+- Dependencies are declared but dependency setup is blocked or unavailable, so
+  venv/pip lifecycle completion is unverified.
 - Compile passes but the behavior probe is unavailable or fails, so CSV argv
   handling, aggregate stdout, or input variation remains unverified.
 - The valid CSV behavior passes but missing/invalid file handling is only
@@ -347,7 +353,10 @@ Expected trajectory:
 5. Full-assurance terminal: the promoted profile reaches
    `ultra_final_acceptance` / `ultra_plan_complete` with full assurance and
    behavioral verification, including browser readiness and interaction
-   evidence for web profiles.
+   evidence for web profiles. Only an admitted profile can: since #985 both
+   events cap a draft profile (an external manifest profile or an overlay) at
+   `static` with `profile_not_admitted`, so `full` on either event under a
+   draft profile is a defect, not a pass.
 
 Events runbook:
 
@@ -372,7 +381,7 @@ Closure checklist:
   `interaction_evidence_status` or `interaction_evidence_execution_status`.
   `not_applicable` is disqualifying for promoted interactive web runs.
 - Quote the earned-assurance line from `ultra_final_acceptance` or
-  `ultra_plan_complete`, including `assurance_level`,
+  `ultra_plan_complete` (both carry the admission cap), including `assurance_level`,
   `final_acceptance_status`, `release_gate_status`, and the gate-status fields
   used to earn it.
 

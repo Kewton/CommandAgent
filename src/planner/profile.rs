@@ -228,6 +228,12 @@ pub trait DomainProfile: Sync {
         VerificationReport::pass()
     }
 
+    /// True only when `behavior_probe` observes real behavior. The default
+    /// probe passes unconditionally and must not count as an oracle.
+    fn has_behavior_oracle(&self) -> bool {
+        false
+    }
+
     fn verify_final_with_events(
         &self,
         root: &Path,
@@ -480,7 +486,7 @@ fn run_profile_fix_regression<P: DomainProfile + ?Sized>(
                         };
                     }
                 };
-            match crate::minimal_loop::verifier_env::run_structured_for_verify_with_profile(
+            match crate::planner::verify::host_check_segment::run_for_verify(
                 &normalized,
                 root,
                 Some(profile.id()),
@@ -553,14 +559,26 @@ impl ProfileRuntime for crate::planner::profiles::nextjs::NextjsProfile {
             interaction_evidence_path,
         )?;
         crate::planner::profiles::nextjs::testimony_binding::write_evidence(root, &report)?;
+        let reachability = crate::planner::profiles::nextjs::route_reachability::evaluate(root);
+        crate::planner::profiles::nextjs::route_reachability::write_evidence(root, &reachability)?;
+        let (status, reasons) =
+            crate::planner::profiles::nextjs::route_reachability::merge_with_testimony(
+                report.failed(),
+                report.violations,
+                &reachability,
+            );
         Ok(Some(ProfileBehaviorProbeReport {
-            status: if report.failed() { "failed" } else { "pass" },
-            reasons: report.violations,
+            status,
+            reasons,
             evidence_path: Some(
                 crate::planner::profiles::nextjs::testimony_binding::EVIDENCE_RELATIVE_PATH
                     .to_string(),
             ),
         }))
+    }
+
+    fn early_static_repair_guidance(&self, root: &Path) -> Vec<String> {
+        crate::planner::profiles::nextjs::route_reachability::early_static_repair_guidance(root)
     }
 
     fn invariant_setup_paths(&self, root: &Path) -> Vec<String> {
@@ -1093,6 +1111,48 @@ impl ProfileRuntimeRegistry {
                     .map(|profile| profile.profile_id()),
             )
     }
+}
+
+/// Static repair guidance for a final acceptance whose runtime did not pass.
+/// Empty when the runtime passed (the release gate already carries the check)
+/// or when the production build failed (a compile repair gets no other task).
+pub fn early_static_repair_lines(
+    runtime: &dyn ProfileRuntime,
+    root: &Path,
+    runtime_passed: bool,
+    build_failed: bool,
+) -> Vec<String> {
+    if runtime_passed || build_failed {
+        return Vec::new();
+    }
+    (runtime.early_static_repair_guidance(root).into_iter())
+        .map(|guidance| format!("repair guidance: {guidance}"))
+        .collect()
+}
+
+/// Static repair guidance for a final acceptance whose runtime passed but
+/// whose release gate failed (IC-40). Only guidance for a target the gate
+/// itself names (`<reason> (<page>): <repair>`) is kept, so the lines never
+/// add a target the gate did not fail on. Empty when the runtime did not pass
+/// (`early_static_repair_lines` covers that round) or the build failed.
+pub fn release_gate_static_repair_lines(
+    runtime: &dyn ProfileRuntime,
+    root: &Path,
+    runtime_passed: bool,
+    build_failed: bool,
+    release_gate_reasons: &[String],
+) -> Vec<String> {
+    if !runtime_passed || build_failed || release_gate_reasons.is_empty() {
+        return Vec::new();
+    }
+    (runtime.early_static_repair_guidance(root).into_iter())
+        .filter(|guidance| {
+            release_gate_reasons
+                .iter()
+                .any(|reason| guidance.starts_with(&format!("{reason} (")))
+        })
+        .map(|guidance| format!("repair guidance: {guidance}"))
+        .collect()
 }
 
 pub fn resolve_profile_runtime(profile: &str) -> &'static dyn ProfileRuntime {

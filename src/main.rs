@@ -1,4 +1,5 @@
 fn main() {
+    commandagent::startup_credentials::bootstrap_cli();
     clap_complete::CompleteEnv::with_factory(commandagent::provider_cli::command).complete();
     let parsed = commandagent::provider_cli::parse();
     if let Err(err) = commandagent::run_with_provider_options(parsed.cli, parsed.provider_options) {

@@ -39,6 +39,13 @@ The schema identifier is `commandagent.headless-summary/v1`. Existing scalar
 keys are always present; unavailable measurements are JSON `null`. The
 additive `provider_usage_by_role` object is empty when the event stream has no
 provider turns. The additive `pack` object is omitted when no pack was selected.
+The additive `run_budget` and `structured_stages` objects are omitted when the
+run declared neither; the summary reads them only from the run's own events and
+never from a ledger, so a run recorded before they existed has neither. Only the
+current run counts: the events from the last `run_start` on, so a run that
+reuses an events path never shows an earlier run's objects. They are recorded
+for direct-command runs only; a REPL session shows neither the fields nor the
+`summary.md` section.
 
 | Field | Source and meaning |
 | --- | --- |
@@ -52,6 +59,9 @@ provider turns. The additive `pack` object is omitted when no pack was selected.
 | `events_path` | Exact event-stream path used by the run. |
 | `duration_secs` | Existing terminal `time_profile_total_ms`, converted from milliseconds to seconds; not a new wall-clock estimate. |
 | `provider_cost_usd` | Persisted provider/run cost when one exists; CommandAgent does not invent prices from tokens. |
+| `provider_billed_cost_usd_total` | Sum of the amounts the provider reported as billed, one per provider call (the `provider_turn_duration` event), as a decimal string; `null` when no call reported an amount. Each amount finer than 18 decimal places is rounded up; if the sum overflows, the total is `null` and `provider_billed_cost_complete` is `false` even when every call reported, and `summary.md` has no billed line. It is never computed from a price table, and a Responses run reports none. |
+| `provider_billed_cost_complete` | `true` when every provider call reported an amount, `false` when some or all did not (or the sum overflowed), `null` when the run made no provider call. |
+| `provider_billed_cost_calls` | Number of provider calls that reported an amount; `0` when none did. |
 | `provider_usage_by_role` | Provider wall time and provider-reported prompt, generation, thinking-token, and prefill-ratio measurements grouped as `planner`, `executor`, `repair`, and `acceptance-repair`. Missing provider-reported measurements are `null`; the ratio is a fraction from `0.0` to `1.0`. |
 | `stop_class` | Failed terminal event `failure_kind`; `null` for a successful terminal. |
 | `directive_round` | Latest persisted directive round, or `0` for an ordinary non-directive run. |
@@ -63,6 +73,8 @@ provider turns. The additive `pack` object is omitted when no pack was selected.
 | `verify_commands` | Verification command strings projected from run evidence. Each executed plan verify step records an execution observation with its declared and effective command; a command that was only declared and never executed stays not-recorded and is never reported as passed. |
 | `exit_code` | Projected process exit code (`0`, `1`, or `130`) for a known terminal status; `null` when unavailable. |
 | `pack` | Selected pack `id`, exact `version`, verified exact-byte `hash`, and winning `source` (`extension_root` or `repository`). Omitted when no pack is active. |
+| `run_budget` | The run budget (wallet) as the run recorded it at its end, in the `run_budget_summary` event. Omitted when no run budget was selected. `record` is `observed` or `unavailable`; `accounting_basis` is `provider_billed` (v1) or `usage_tariff` (v2); `stop` is `null` or the wallet's own refusal in this command (`kind` `limit` with the declaration's `limit` name, or `refused`, and the `refusal` words), kept in both records because the handle holds it outside the ledger. An observed record adds `budget_id`, `policy_sha256`, `workspace_sha256`, the decimal strings `limit_usd`, `spent_usd`, and `held_usd`, `sends` (counts of `settled`, `reserved`, `started`, `unknown`), `unknown` (each unknown send's `physical` number and `cause` in the ledger's words), and `latch` (`null` or its `cause` and `physical`). A v2 record adds `declared_tariff_charge_usd_total`: your declared tariff applied to the verified usage, summed; it is not a provider bill, and under v2 it equals `spent_usd`. An `unavailable` record has no amount at all, never `0`. It is given when the ledger lock was not free before the end-of-run deadline (1 s in all, shared with the stages; for example a send held it on `SIGINT`), the lock was poisoned, the ledger file was no longer what the run wrote, a sum overflowed, or the recorded event could not be read back (an `observed` record whose body does not decode is reported as `unavailable`). |
+| `structured_stages` | The declared stages as the run recorded them at its end, in the `structured_stages_summary` event. Omitted when no stages were declared. `record` is `observed` or `unavailable`. `unavailable` carries nothing else; it is given when the run never opened the stage record (it ended before its first stage call and any stage gate), no session bound the stages, a lock was not free before the shared deadline or was poisoned, or the recorded event could not be read back. An observed record has `complete` and `ledger_intact` from the one stage verdict, `contract_sha256`, `run_nonce`, and `stages`: per target its `stage`, `target`, `phase`, `sealed`, `attempts` (`used` and `limit`), `artifact` (`path` and the adopted `committed_sha256`, or `null`), and `failed_checks` when an attempt's checks failed in this run (`attempt`, `code`, the required `checks` with their `status`, `missing` required IDs, and the count of `unrequested` results). `assurance` is not raised by any of this. |
 
 Builder Plane and similar callers should gate on both `verdict` and `assurance`,
 then use `artifacts_dir`, `acceptance_sheet_path`, and `events_path` as the

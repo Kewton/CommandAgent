@@ -46,6 +46,10 @@ jobs:
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           sysctl -n kernel.apparmor_restrict_unprivileged_userns
       - name: Repository acceptance suite
+        env:
+          # The step above set the AppArmor userns sysctl to 0, so the Linux strict isolation
+          # (#982) must work here, as in ci.yml. Tests read this, never production.
+          COMMANDAGENT_TEST_LINUX_STRICT: available
         run: bash scripts/ci.sh
       - name: scrub changed files
         run: |

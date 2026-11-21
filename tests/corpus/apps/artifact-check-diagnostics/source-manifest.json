@@ -1,0 +1,13 @@
+{
+  "issue": "#955",
+  "kind": "synthetic",
+  "owner": "src/planner/artifact_contract_checks/diagnostics.rs (accepted diagnostics projection), src/planner/final_acceptance/artifact_diagnostics.rs (repair-context section)",
+  "base_sha": "20b549fc6269217bd0161d2038326480c7605d5f",
+  "base_note": "develop 20b549fc is the approved base; every base_sequence and base_events entry in fixtures/events.json was observed by running tests/artifact_check_diagnostics.rs against the unchanged sources of that commit",
+  "recorded_source": null,
+  "derived_fixture": "fixtures/events.json lists hand-authored synthetic cases only. Each names the test that builds it at run time: generic draft profiles, a POSIX shell adapter run by the operator-pinned /bin/sh whose rows come from scenario files the test writes outside the workspace, and scripted fake planner and executor clients, all in temporary directories. No external smoke task, grader input, expected value, model output, generated code, host path, or credential is stored or copied here.",
+  "regenerate_digests": "sha256 of fixtures/events.json",
+  "fixture_sha256": {
+    "events.json": "367e5f71af223455a422404678707003d0b6340a83003fbed27ab74cf715f766"
+  }
+}

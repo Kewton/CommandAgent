@@ -1,0 +1,11 @@
+{
+  "source": "<user>/share/work/gen-eval-1022/campaign-G1-3a4/stage3a/content-q/work/.commandagent/runs/<run-id>/events.jsonl",
+  "source_sha256": "c6182e97ab22e72af9a90c6d2b7f82b8fee41af20b66225a3e0970d9c36683d1",
+  "campaign": "campaign-G1-3a4",
+  "develop_commit": "d72fb320",
+  "capture": "L-104 content-q phase 2 api-routes planner_raw_output_shape (attempt 2 preview) and planner_plan_sanitized",
+  "derived_fixture": "planner-output.json step inspect-storage-lib is the verbatim instruction from the recorded preview (it has no verify and the old default gave it fail, which lint rejected). Step implement-notes-collection-route is host-authored because the recorded preview truncates the original instructions; it adds a step with verify whose instruction contains the substring fail.",
+  "fixture_sha256": {
+    "planner-output.json": "cf726d3fa32d937881ec717900b19c7b56a9ef0a34787359763a8a9f1ea92840"
+  }
+}

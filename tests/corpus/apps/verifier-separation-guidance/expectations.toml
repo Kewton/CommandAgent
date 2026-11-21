@@ -1,0 +1,55 @@
+case_id = "verifier-separation-guidance"
+source = "Issue #906 / IC-47: five generic runs mixed app files and their own verifier script in one Implement step, re-split without the complete original instruction, and exhausted the 3-attempt planner budget; the guidance shows the accepted owner split without changing admission"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["recovery_verifier_plan_admission", "Original requirement context:"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/recorded-attempts.jsonl = [
+  "\"kind\":\"recorded\"",
+  "\"class\":\"quality\"",
+  "\"class\":\"policy\"",
+  "verifier producer mixes application/configuration scope",
+  "lost original requirements/expected result",
+  "verifier plan admission exhausted existing 3-attempt planner budget"
+]
+fixtures/recorded-admissions.jsonl = [
+  "\"kind\":\"recorded\"",
+  "\"original_scope\":",
+  "\"model_proposal\":",
+  "\"host_augmented_proposal\":",
+  "\"status\":\"exhausted\""
+]
+fixtures/synthetic-cases.json = [
+  "\"kind\": \"synthetic\"",
+  "\"id\": \"paraphrase-split\"",
+  "\"id\": \"reversed-check\"",
+  "\"id\": \"unrelated-report\"",
+  "\"id\": \"shared-budget\""
+]
+
+[fixture_ordered]
+fixtures/recorded-attempts.jsonl = [
+  "\"class\":\"quality\"",
+  "verifier producer mixes application/configuration scope",
+  "lost original requirements/expected result",
+  "verifier plan admission exhausted existing 3-attempt planner budget",
+  "\"class\":\"run_stop\""
+]

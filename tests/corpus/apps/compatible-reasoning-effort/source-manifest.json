@@ -1,0 +1,22 @@
+{
+  "issue": "#931",
+  "owner": "providers compatible_effort and the shared OpenAI-compatible transport (lm_studio) request builders",
+  "base_sha": "f9103ce6ad184319f0cc17de11ce0b78d0e1a885",
+  "recorded_source": {
+    "record": "S-161a GLM probe (workspace/tmp/1007/wave1/results/S-161a/glm.md, sections 0 and 2)",
+    "probe_run": "glm-probe/S-161a-20261030T105829157330Z",
+    "endpoint": "a local OpenAI-compatible server, synthetic prompt unrelated to any task; the endpoint, host path, prompt, tools, and schema are not copied",
+    "excerpt": "only the request model and the presence and position of the effort field (top-level reasoning_effort for Chat Completions, reasoning.effort for Responses); no message, input, instruction, tool, schema, header, credential, response, or host path is copied",
+    "requests": {
+      "01-chat-tools-default.request.json": "1dc5aede2076e971fe77121f3db42d288c2b5fe31b2aabdb59833db6c2d5716e",
+      "04-chat-tools-low.request.json": "d317930b70070910d4b3e812078b3209254aae2ae69b9912b1ec2e06f2ba963e",
+      "05-responses-schema-low.request.json": "a2e4baf3d9cfac7d22e7ca13d2e1b4b00afbca0057a9a2773eaba8a1d3ed9251",
+      "12-responses-schema-high.request.json": "7e8a2ef2f73d8527bce053f1795eb325708660349fcbc49d3e895a3fc5323350"
+    }
+  },
+  "derived_fixture": "fixtures/cases.json: cases of kind recorded reproduce the effort placement of the four probe requests above through CommandAgent's own builders, keyed by their source file; cases of kind synthetic are hand-authored unset, empty, whitespace, invalid, role-layout, mixed-provider, HTTP 400, and retry cases. tests/compatible_reasoning_effort.rs runs each case in a child process against loopback stand-ins and asserts the received body; no case reaches a real provider. No benchmark task, grader input, expected answer, or past run record is stored or amended here.",
+  "regenerate_digests": "shasum -a 256 fixtures/cases.json",
+  "fixture_sha256": {
+    "cases.json": "864aec7eaefe13630877bd64c381890d475be3e579a4e2d994db332c0cafce20"
+  }
+}

@@ -36,7 +36,7 @@ mod moved {
         )
         .unwrap();
 
-        assert_eq!(result, "required artifacts satisfied: a.txt");
+        assert_eq!(result, "done");
         assert_eq!(
             std::fs::read_to_string(dir.path().join("a.txt")).unwrap(),
             "ok"
@@ -74,13 +74,14 @@ mod moved {
             }),
         ]);
         let mut session = SessionSnapshot::new();
-        let outcome = run_session_with_outcome_with_ui(
+        let outcome = run_session_with_outcome_with_options(
             &mut fake,
             &mut session,
             "create a page",
             &["src/app/page.tsx".to_string()],
             &config(dir.path().to_path_buf()),
             &NOOP_UI,
+            RunSessionOptions::plan_step(RunSessionStepKind::Implement),
         )
         .unwrap();
 
@@ -363,6 +364,7 @@ mod moved {
 
     #[test]
     fn artifact_stagnation_feedback_then_write_succeeds() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         let contract = dir.path().join("contract.json");
         std::fs::write(
@@ -400,6 +402,7 @@ mod moved {
                 prompt_tokens: None,
                 completion_tokens: None,
             }),
+            Ok(AssistantReply::text("done")),
         ]);
         let mut session = SessionSnapshot::new();
         let outcome = run_session_with_outcome_with_ui(
@@ -411,10 +414,7 @@ mod moved {
             &NOOP_UI,
         )
         .unwrap();
-        assert_eq!(
-            outcome.stop_reason,
-            RunStopReason::RequiredArtifactsSatisfiedAfterTool
-        );
+        assert_eq!(outcome.stop_reason, RunStopReason::AssistantFinal);
         assert!(dir.path().join("date-helper.js").is_file());
     }
 
@@ -591,6 +591,7 @@ mod moved {
 
     #[test]
     fn ingest_successful_pipeline_execution_without_diff_completes_step() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         // uat-test0726-ingest-elev-001/list_cloud_002 events 138-161:
         // `python3 pipeline/main.py` exited successfully, produced no new diff, and was
         // repeated until the runtime emitted model_stagnation:no_progress_recorded.
@@ -648,6 +649,7 @@ mod moved {
 
     #[test]
     fn repeated_successful_command_still_exhausts_as_no_progress() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         let events = dir.path().join("events.jsonl");
         let mut cfg = config(dir.path().to_path_buf());
@@ -698,6 +700,7 @@ mod moved {
 
     #[test]
     fn direct_prompt_write_then_confirming_reads_completes_unverified() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("README.md"), "# Example\n").unwrap();
         let events = dir.path().join("events.jsonl");
@@ -834,6 +837,7 @@ mod moved {
 
     #[test]
     fn verify_failure_requires_edit_after_repeated_no_change() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         let contract = dir.path().join("contract.json");
         let events = dir.path().join("events.jsonl");

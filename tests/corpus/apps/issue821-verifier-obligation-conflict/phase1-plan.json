@@ -1,0 +1,41 @@
+{
+  "goal": "Original ultra goal: ちょっとしたメモアプリを作って。ブラウザで使えるようにしてください。\nProfile: generic\nStyle: default\nIntent: create\nPhase id: project-setup\nPhase task: Set up the basic project structure including index.html, style.css, and script.js. Create a simple HTML layout with a text input area and a save button.\n\nWorkspace snapshot:\n- empty or metadata-only\n\nPrior ultra context:\n- none yet\n\nUnmet final requirements from earlier phases:\n- none\n\nRequested features not yet detected:\n- ability\n- accordingly\n- after\n- appealing\n- apply\n- area\n- … and 35 more\n\nProfile generation rules:\n- none\n\nProfile runtime contract:\n- Keep changes scoped to the current phase and workspace.Deterministic verification preference:\n- none\n\n\nRequired final capabilities:\n- generic_interactive_contract\n\nRequired final evidence:\n- user_input_handler_evidence\n- stateful_update_evidence\n- visible_interactive_surface_evidence",
+  "steps": [
+    {
+      "id": "create-base-files",
+      "kind": "implement",
+      "expected_result": "pass",
+      "instruction": "Create a basic HTML layout with a text input and save button in index.html, basic styling in style.css, and a script.js that handles the save button click and updates the DOM to show the saved note.",
+      "expected_paths": [
+        "index.html",
+        "style.css",
+        "script.js"
+      ],
+      "verify": [
+        "grep -E 'input|button|script src=\"script.js\"' index.html"
+      ]
+    },
+    {
+      "id": "create-smoke-test",
+      "kind": "implement",
+      "expected_result": "pass",
+      "instruction": "Create a smoke-check.js file that uses a headless environment or simple node logic to verify the content of the files contains the necessary logic for stateful updates and user input handling.",
+      "expected_paths": [
+        "smoke-check.js"
+      ],
+      "verify": [
+        "node smoke-check.js"
+      ]
+    },
+    {
+      "id": "verify-interactive-logic",
+      "kind": "verify",
+      "expected_result": "pass",
+      "instruction": "Run the smoke check to ensure the HTML, CSS, and JS are correctly linked and the JS contains the logic to handle input and state updates.",
+      "expected_paths": [],
+      "verify": [
+        "node smoke-check.js"
+      ]
+    }
+  ]
+}

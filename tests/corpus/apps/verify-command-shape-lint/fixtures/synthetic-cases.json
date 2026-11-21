@@ -1,0 +1,30 @@
+{
+  "kind": "synthetic",
+  "note": "Hand-written cases, kept apart from the recorded rows. Attempts 2 and 3 of the c-mid replay are not recorded plans: the run log keeps only their lint messages (events 51 and 57), so the replay substitutes one plan with another lint error of the same class.",
+  "c_mid_other_lint_error": {
+    "step": "implement-converter",
+    "verify": "grep -q \"def main csv2jsonl.py"
+  },
+  "c_mid_corrected": {
+    "step": "implement-converter",
+    "verify": "python3 csv2jsonl.py products.csv out.jsonl"
+  },
+  "a_mid_corrected": ["[ -f index.html ]", "test -f index.html"],
+  "positive": [
+    {"id": "planned-python-script", "producer_paths": ["check.py"], "verify": "python3 check.py"},
+    {"id": "planned-node-script", "producer_paths": ["smoke-check.js"], "verify": "node smoke-check.js"},
+    {"id": "existing-shell-script", "existing": "run_tests.sh", "producer_paths": ["out.txt"], "verify": "./run_tests.sh"},
+    {"id": "custom-executable", "producer_paths": ["bin/check"], "verify": "bin/check --strict"},
+    {"id": "npm-build", "producer_paths": ["package.json"], "verify": "npm run build"},
+    {"id": "non-ascii-path", "producer_paths": ["docs/日本語.py"], "verify": "python3 docs/日本語.py"},
+    {"id": "pytest-on-path", "producer_paths": ["tests/test_app.py"], "verify": "pytest -q"},
+    {"id": "test-size", "producer_paths": ["out.json"], "verify": "[ -s out.json ]"}
+  ],
+  "negative": [
+    {"id": "recorded-sentence", "verify": "スクリプトを指定仕様に沿って実装できたことを確認する。", "reason": "is not a shell builtin, a command on PATH, or a workspace path"},
+    {"id": "short-sentence", "verify": "確認する", "reason": "is not a shell builtin, a command on PATH, or a workspace path"},
+    {"id": "missing-operand", "verify": "[ -f ]", "reason": "file operator `-f` has no operand"},
+    {"id": "operand-first", "verify": "[ x -f ]", "reason": "operand `x` comes before file operator `-f`"},
+    {"id": "missing-bracket", "verify": "[ -f x", "reason": "`[` has no closing `]`"}
+  ]
+}

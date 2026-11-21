@@ -1,12 +1,13 @@
 use super::edit_anchor_recovery::EditAnchorRecovery;
 mod path_feedback;
+mod schema_feedback;
 
 pub(crate) fn recoverable_tool_feedback(
     name: &str,
     err: &anyhow::Error,
     edit_anchor_recovery: Option<&EditAnchorRecovery>,
 ) -> String {
-    if let Some(feedback) = path_feedback::missing_read(name, err) {
+    if let Some(feedback) = schema_feedback::missing_read_or_schema(name, err) {
         return feedback;
     }
     let err_text = err.to_string();

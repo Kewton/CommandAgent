@@ -1,0 +1,38 @@
+case_id = "issue820-model-verifier-oracle-disagreement"
+source = "Issue #820 generality G1 IC-15 (2026-10-23) a model-written verifier that fails while the host's python-cli oracles pass is a distinct handoff failure kind"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["python-cli", "model verifier", "host oracle"]
+acceptance_passed = true
+primary_reason = "pass"
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/cases.json = [
+  "\"id\": \"positive-no-shim\"",
+  "\"id\": \"recorded-cli-q-with-shim\"",
+  "\"id\": \"verifier-not-produced-by-earlier-implement\"",
+  "\"id\": \"generic-profile-without-behavior-oracle\"",
+  "\"id\": \"report-with-dependency-or-compile-entry\"",
+  "\"id\": \"behavior-probe-fails\"",
+  "\"id\": \"failed-command-is-host-oracle\"",
+  "\"expect\": \"model_verifier_disagrees_with_host_oracle\"",
+  "\"expect\": \"verify_repair_progress_unchanged\"",
+  "\"verifier_command\": \"python3 verify_output.py\""
+]

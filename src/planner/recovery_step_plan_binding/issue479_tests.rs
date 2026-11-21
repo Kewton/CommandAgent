@@ -239,7 +239,17 @@ fn issue479_final_inventory_preserves_all_five_checks_and_full_issue478_duties()
         "../../../tests/corpus/apps/issue478-model-host-obligations/package-checks.json"
     ))
     .unwrap();
-    assert_eq!(formed.steps[3].verify, package);
+    // Issue #879: the host declares these checks as tokens; the fixture keeps the inline
+    // text it once declared, which names the same check byte for byte.
+    assert_eq!(formed.steps[3].verify.len(), package.len());
+    for (formed, original) in formed.steps[3].verify.iter().zip(&package) {
+        assert!(
+            crate::planner::profiles::nextjs::package_script_check::same_declared_check(
+                formed, original
+            ),
+            "{formed} vs {original}"
+        );
+    }
     assert_eq!(formed.steps[3].step_kind(), StepKind::Implement);
     assert!(
         formed.steps[3]
@@ -302,7 +312,17 @@ fn issue479_attached_weak_inline_cannot_close_with_app_edits() {
             [command]
         );
         let mut admission = admission::Admission::default();
-        for attempt in 1..=3 {
+        // No formation shape fits this inline check and it is frozen at the
+        // first rejection, so no later proposal can replace it: stop at once
+        // instead of spending the 3-attempt budget (#884).
+        std::fs::write(root.path().join("app.js"), "export const value=1;").unwrap();
+        let result = admission.check(&c, None, &original, &mut original.clone(), 1);
+        assert!(
+            result.is_err_and(|e| format!("{e:#}").contains("no acceptable form and is frozen")),
+            "{command}"
+        );
+        // App edits still cannot close it if the budget is walked anyway.
+        for attempt in 2..=3 {
             std::fs::write(
                 root.path().join("app.js"),
                 format!("export const value={attempt};"),

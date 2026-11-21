@@ -1,0 +1,30 @@
+{
+  "source_run": "generic comparison L-154 (S-154a RCA, 2026-10-30), parallel-4 C4off arm, task c-t4, repetition r1; built from develop 332bb56245c5db9407c473a1ddc6d0e78c3df047",
+  "source_sha": "332bb56245c5db9407c473a1ddc6d0e78c3df047",
+  "run_dir": "<generic-bench>/runs-v6/C4off/c-t4/r1",
+  "files": [
+    {
+      "file": "fixtures/cases.json",
+      "entry": "recorded[0] recorded-l154-plain-cat-json-body",
+      "source": "<generic-bench>/runs-v6/C4off/c-t4/r1/state/sessions/01a18b87-bdd3-7750-a9fa-24170615ed55/session.json",
+      "lines": "59-66 (assistant Bash call at 59, tool rejection at 65)",
+      "sha256": "5ce4a1a1faf576fb36d9fa770c477028bb75ee51bd62a8d8ee60af46035a23b9",
+      "processing": "measured, not copied: the command's first line was reduced to its shape (reader, operator, delimiter, redirect with the file name replaced by <file>.jsonl); the 716-byte body was measured for byte length, UTF-8, and the absence of `$`, backtick, and backslash, and its text omitted; the single command after the terminator was counted and its text omitted; the misread fragment was copied from the rejection message with the workspace root removed"
+    },
+    {
+      "file": "fixtures/cases.json",
+      "entry": "recorded[0].observed_before_fix",
+      "source": "<generic-bench>/runs-v6/C4off/c-t4/r1/work/.commandagent/runs/01a18b87-bd7c-7450-b043-1dafc3982398/events.jsonl",
+      "lines": "20-22 (tool_policy_error at 21, tool_validation_error at 22)",
+      "sha256": "52e85f57fa3f77ca08085ab26c2167b8219ef0076a1d4ca286d0f48372672649",
+      "processing": "copied the policy_error_kind and verify_command_violation_kind values only; command_summary text omitted"
+    },
+    {
+      "file": "fixtures/cases.json",
+      "entry": "synthetic[*]",
+      "source": "synthetic: minimal shell forms and expected guard decisions written for Issue #924 from the shell/guard contract; no recorded body, follow-up command, task text, grader expectation, model name, secret, or absolute path is copied",
+      "sha256": null,
+      "note": "the post-fix allowance is shown only by synthetic rows; the recorded row carries the pre-fix rejection and no success result"
+    }
+  ]
+}

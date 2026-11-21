@@ -1,11 +1,16 @@
 //! A conservative recognizer for direct checks in a Node script, not a JS
 //! interpreter. Opaque control flow cannot establish a failing execution path.
 
+use rejection::{scan, unsupported_construct};
 use std::ops::ControlFlow;
-use tokens::{branch, closing, has_unsupported_construct, scan, statement_end, tokenize};
+use tokens::{branch, closing, statement_end, tokenize};
 
+#[path = "node_checks/rejection.rs"]
+mod rejection;
 #[path = "node_checks/tokens.rs"]
 mod tokens;
+
+pub(super) use rejection::repair_guidance;
 
 const ASSERT_METHODS: [&str; 15] = [
     "ok",
@@ -25,21 +30,39 @@ const ASSERT_METHODS: [&str; 15] = [
     "fail",
 ];
 
+#[cfg(test)]
 pub(super) fn has_failure_check(source: &str) -> bool {
-    let Some(scan) = scan(source) else {
-        return false;
+    assertion_rejection(source).is_none()
+}
+
+/// The first reason the script is not accepted as assertion evidence, in the
+/// order the recognizer applies its screens; `None` when it is accepted.
+pub(super) fn assertion_rejection(source: &str) -> Option<String> {
+    let scan = match scan(source) {
+        Ok(scan) => scan,
+        Err(detail) => return Some(detail),
     };
     let tokens = tokenize(&scan);
-    if has_unsupported_construct(&tokens) {
-        return false;
+    if let Some(detail) = unsupported_construct(&tokens) {
+        return Some(detail);
     }
     let Some(direct_assert) = assert_binding(&tokens) else {
-        return false;
+        return Some("assert_binding_unsupported".into());
     };
     if overrides_assert(&tokens) {
-        return false;
+        return Some("assert_overridden".into());
     }
-    checks_in_statements(&tokens, false, direct_assert)
+    if checks_in_statements(&tokens, false, direct_assert) {
+        return None;
+    }
+    Some(
+        if direct_assert {
+            "no_reachable_top_level_check"
+        } else {
+            "no_assert_binding"
+        }
+        .into(),
+    )
 }
 
 fn is_assert_module(token: &str) -> bool {
@@ -205,3 +228,7 @@ fn is_assert_check(rest: &[&str]) -> bool {
 #[cfg(test)]
 #[path = "node_checks/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "node_checks/rejection_tests.rs"]
+mod rejection_tests;

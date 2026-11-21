@@ -1,0 +1,15 @@
+case_id = "nextjs-planner-inline-node-frozen"
+source = "synthetic, derived from the shape of campaign-G1-3a10 content-q events 49-58 and campaign-G1-3a8 game-g step planning (a behavior inline node -e frozen at the first admission, then smoke-check.js proposals refused as a lost original check); no recorded text, secret or absolute path"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+proposals.json = ["synthetic", "content_q", "game_g", "formable", "expected_status", "smoke-check.js"]

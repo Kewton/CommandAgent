@@ -11,6 +11,7 @@ use crate::minimal_loop::dependency_setup::{
 };
 use crate::minimal_loop::verifier_env;
 use crate::planner::expected_result_observation::record_python_traceback as rt;
+use crate::planner::profiles::nextjs::{package_script_check, source_checks};
 use crate::planner::profiles::step_checks;
 use crate::planner::step_plan::{ExpectedResult, PlanStep};
 use crate::planner::verify_semantics::checked_runtime_repair as cr;
@@ -22,6 +23,9 @@ mod cli_documented_input;
 mod command_observation;
 mod dependency_classification;
 mod failure_classification;
+pub(crate) mod host_check_segment;
+#[cfg(test)]
+mod issue832_tests;
 mod shell_control;
 mod shell_rewrite;
 
@@ -207,6 +211,7 @@ pub enum RuntimeNormalizedCommand {
         command: String,
         family: VerifyInstallCommandFamily,
     },
+    HostCheck(host_check_segment::HostCheckSegment),
 }
 
 impl RuntimeNormalizedCommand {
@@ -214,13 +219,14 @@ impl RuntimeNormalizedCommand {
         match self {
             Self::Verify(command) => command.as_str(),
             Self::DependencyInstall { command, .. } => command.as_str(),
+            Self::HostCheck(check) => check.as_str(),
         }
     }
 
     pub fn verify_command(&self) -> Option<&NormalizedVerifyCommand> {
         match self {
             Self::Verify(command) => Some(command),
-            Self::DependencyInstall { .. } => None,
+            Self::DependencyInstall { .. } | Self::HostCheck(_) => None,
         }
     }
 
@@ -228,6 +234,7 @@ impl RuntimeNormalizedCommand {
         match self {
             Self::Verify(_) => None,
             Self::DependencyInstall { family, .. } => Some(*family),
+            Self::HostCheck(check) => check.runtime_owned_family(),
         }
     }
 }
@@ -480,6 +487,7 @@ fn verify_step_with_setup_observed_with_options(
             continue;
         }
         if setup_authority == NodeDependencySetupAuthority::PlanSetupStep
+            && !package_script_check::is_check_command(command)
             && let Some(requirement) = build_verifier::requirement_from_dependency_state(
                 root,
                 command,
@@ -827,7 +835,7 @@ fn run_verify_command_with_runtime_oracle(
     offline: bool,
     eval_events_path: Option<&Path>,
 ) -> VerifyCommandRunResult {
-    match verifier_env::run_structured_for_verify_with_profile(command, root, profile, offline) {
+    match host_check_segment::run_for_verify(command, root, profile, offline) {
         Ok(outcome) if outcome.is_success() => VerifyCommandRunResult::Passed {
             output: verifier_env::format_verify_outcome(&outcome),
             normalization: None,
@@ -907,12 +915,7 @@ fn handle_failed_verify_command(
             };
         }
     };
-    match verifier_env::run_structured_for_verify_with_profile(
-        &repaired_command,
-        root,
-        profile,
-        offline,
-    ) {
+    match host_check_segment::run_for_verify(&repaired_command, root, profile, offline) {
         Ok(repaired_outcome) if repaired_outcome.is_success() => {
             eval_events::emit(
                 eval_events_path,
@@ -1441,6 +1444,7 @@ pub fn normalize_runtime_bash_command_for_boundary(
         kinds.push(repair.kind);
     }
     if !has_multiple_command_lines(&current)
+        && !host_check_segment::names_check(&current)
         && let Ok(normalized) = normalize_verify_command(&current)
     {
         let normalized_command = normalized.as_str().to_string();
@@ -1477,8 +1481,15 @@ pub fn normalize_runtime_bash_command_for_boundary(
 }
 
 fn normalize_runtime_shell_segment(segment: &str) -> anyhow::Result<RuntimeNormalizedCommand> {
+    if let Some(check) = host_check_segment::recognize(segment) {
+        return Ok(RuntimeNormalizedCommand::HostCheck(check));
+    }
     match normalize_verify_command(segment) {
-        Ok(command) => Ok(RuntimeNormalizedCommand::Verify(command)),
+        // A grep the shared rewrite turned into a host check token is judged by the host.
+        Ok(command) => Ok(match host_check_segment::recognize(command.as_str()) {
+            Some(check) => RuntimeNormalizedCommand::HostCheck(check),
+            None => RuntimeNormalizedCommand::Verify(command),
+        }),
         Err(err) => {
             if let Some(family) = dependency_install_verify_segment(segment) {
                 Ok(RuntimeNormalizedCommand::DependencyInstall {
@@ -1505,7 +1516,7 @@ pub fn diagnose_verify_command(command: &str) -> VerifyCommandDiagnosis {
             normalized,
             VerifyCommandViolationKind::ShellControlSyntax,
             Some(
-                "verify command has unbalanced shell quotes; fix quoting by closing the node -p expression, e.g. `node -p \"require('./package.json').scripts.dev\"`"
+                "verify command has unbalanced shell quotes; fix quoting by closing the quoted pattern, e.g. `grep -q \"next dev\" package.json`"
                     .to_string(),
             ),
         );
@@ -2291,7 +2302,7 @@ fn parse_data_anvil_state_grep(pattern: &str) -> bool {
     rest.is_empty() || rest == "=" || rest.starts_with('=')
 }
 
-fn safe_hook_action_value(value: &str) -> bool {
+pub(crate) fn safe_hook_action_value(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 64
         && value
@@ -2311,7 +2322,7 @@ fn single_hook_grep_source_path(tokens: &[ShellWord]) -> Option<String> {
     hook_source_path(&path.value)
 }
 
-fn hook_source_path(path: &str) -> Option<String> {
+pub(crate) fn hook_source_path(path: &str) -> Option<String> {
     let rel = path.trim().trim_start_matches("./").replace('\\', "/");
     if rel.is_empty()
         || rel.starts_with('/')
@@ -2353,40 +2364,9 @@ fn hook_source_path(path: &str) -> Option<String> {
 fn hook_attribute_check_command(assertion: &HookGrepAssertion, source_path: &str) -> String {
     match assertion {
         HookGrepAssertion::Action { value } => {
-            format!(
-                concat!(
-                    "node -p '",
-                    "(function(s,w,d,q,b){{return [",
-                    "new RegExp(\"data-anvil-action\"+w+\"=\"+w+d+\"{value}\"+d),",
-                    "new RegExp(\"data-anvil-action\"+w+\"=\"+w+q+\"{value}\"+q),",
-                    "new RegExp(\"data-anvil-action\"+w+\"=\"+w+\"[{{]\"+w+d+\"{value}\"+d+w+\"[}}]\"),",
-                    "new RegExp(\"data-anvil-action\"+w+\"=\"+w+\"[{{]\"+w+q+\"{value}\"+q+w+\"[}}]\"),",
-                    "new RegExp(\"data-anvil-action\"+w+\"=\"+w+\"[{{]\"+w+b+\"{value}\"+b+w+\"[}}]\")",
-                    "].some(function(r){{return r.test(s)}})?true:process.exit(1)}})",
-                    "(String(require(\"fs\").readFileSync(\"{source_path}\")),",
-                    "String.fromCharCode(92)+\"s*\",String.fromCharCode(34),",
-                    "String.fromCharCode(39),String.fromCharCode(96))",
-                    "'"
-                ),
-                value = value,
-                source_path = source_path
-            )
+            source_checks::hook_action_command(value, source_path)
         }
-        HookGrepAssertion::State => {
-            format!(
-                concat!(
-                    "node -p '",
-                    "(function(s,w,b){{return [",
-                    "new RegExp(\"data-anvil-state\"+w+\"=\"),",
-                    "new RegExp(\"data-anvil-state\"+b)",
-                    "].some(function(r){{return r.test(s)}})?true:process.exit(1)}})",
-                    "(String(require(\"fs\").readFileSync(\"{source_path}\")),",
-                    "String.fromCharCode(92)+\"s*\",String.fromCharCode(92)+\"b\")",
-                    "'"
-                ),
-                source_path = source_path
-            )
-        }
+        HookGrepAssertion::State => source_checks::hook_state_command(source_path),
     }
 }
 
@@ -2395,30 +2375,7 @@ pub fn package_json_script_check_command(pattern: &str) -> Option<String> {
         return Some(package_json_port_script_check_command(&port));
     }
 
-    let lower = pattern.to_ascii_lowercase();
-    let script = if lower.contains("next build") || lower.contains("scripts.build") {
-        Some("build")
-    } else if lower.contains("next dev")
-        || lower.contains("scripts.dev")
-        || lower.contains("\"dev\"")
-        || lower.contains("'dev'")
-    {
-        Some("dev")
-    } else if lower.contains("next start")
-        || lower.contains("scripts.start")
-        || lower.contains("\"start\"")
-        || lower.contains("'start'")
-    {
-        Some("start")
-    } else {
-        None
-    }?;
-    if pattern.contains('\'') || pattern.contains('\\') {
-        return None;
-    }
-    Some(format!(
-        "node -p \"String(require('./package.json').scripts.{script}).includes('{pattern}') ? true : process.exit(1)\""
-    ))
+    source_checks::script_includes_command(pattern)
 }
 
 fn package_json_port_only_pattern(pattern: &str) -> Option<String> {
@@ -2434,28 +2391,8 @@ fn package_json_port_only_pattern(pattern: &str) -> Option<String> {
 }
 
 pub fn package_json_port_script_check_command(port: &str) -> String {
-    // Keep the expression free of shell-control bytes so repaired commands can be revalidated.
-    format!(
-        concat!(
-            "node -p \"",
-            "['dev','start'].some(function(k){{",
-            "return String(Object(require('./package.json').scripts)[k]).split(' ')",
-            ".some(function(t,i,a){{",
-            "return t=='next' ? a.slice(i+1).find(function(x){{return x}})==k : false",
-            "}}) ? ",
-            "String(Object(require('./package.json').scripts)[k]).split(' ')",
-            ".some(function(t,i,a){{",
-            "return t=='--port={port}' ? true : ",
-            "t=='-p' ? a.slice(i+1).find(function(x){{return x}})=='{port}' : ",
-            "t=='-p{port}' ? true : ",
-            "t=='--port' ? a.slice(i+1).find(function(x){{return x}})=='{port}' : ",
-            "false",
-            "}}) : false",
-            "}}) ? true : process.exit(1)",
-            "\""
-        ),
-        port = port
-    )
+    // The dev-required host check token (Issues #832, #879); an unparsable port fails closed.
+    crate::planner::profiles::nextjs::package_script_check::dev_port_check_command_for(port)
 }
 
 pub fn dependency_install_verify_segment(command: &str) -> Option<VerifyInstallCommandFamily> {
@@ -2853,6 +2790,7 @@ mod tests {
     use super::*;
     use crate::minimal_loop::repair_target::{RepairTarget, classify_repair_target};
     use crate::planner::step_plan::PlanStep;
+    use crate::tools::os_sandbox::SandboxTestState;
     use std::path::Path;
 
     fn write_executable(path: &Path, contents: &str) {
@@ -2886,6 +2824,10 @@ mod tests {
         .unwrap();
     }
 
+    fn sandbox_guard_and_tempdir() -> (SandboxTestState, tempfile::TempDir) {
+        (SandboxTestState::acquire(), tempfile::tempdir().unwrap())
+    }
+
     fn write_page(root: &Path, source: &str) {
         std::fs::create_dir_all(root.join("src/app")).unwrap();
         std::fs::write(root.join("src/app/page.tsx"), source).unwrap();
@@ -2901,13 +2843,13 @@ mod tests {
             "{diagnosis:?}"
         );
         let normalized = normalize_verify_command(command).unwrap();
-        crate::tools::bash::run_checked(normalized.as_str(), dir.path(), false)
+        source_checks::evaluate(dir.path(), normalized.as_str())
             .unwrap_or_else(|err| panic!("normalized hook grep failed: {err}"));
     }
 
     #[test]
     fn missing_path_before_evidence() {
-        let dir = tempfile::tempdir().unwrap();
+        let (_sandbox, dir) = sandbox_guard_and_tempdir();
         let step = PlanStep {
             id: "s".to_string(),
             kind: "work".to_string(),
@@ -3006,7 +2948,7 @@ mod tests {
         );
         assert_eq!(
             diagnosis.normalized,
-            r#"node -p "String(require('./package.json').scripts.dev).includes('next dev -p 3011') ? true : process.exit(1)""#
+            "anvil-nextjs-check:script_includes:dev:next%20dev%20-p%203011"
         );
     }
 
@@ -3024,15 +2966,12 @@ mod tests {
                 Some(VerifyCommandViolationKind::PackageJsonScriptGrep),
                 "{command}: {diagnosis:?}"
             );
-            assert!(
-                diagnosis.normalized.starts_with("node -p "),
+            // Issue #879: the repair is the dev port host check token, judged in Rust
+            // (`--port=3011`, `-p 3011`, `-p3011`, `--port 3011` are its accepted forms).
+            assert_eq!(
+                diagnosis.normalized, "anvil-nextjs-check:package_script_port:dev:3011",
                 "{diagnosis:?}"
             );
-            assert!(
-                diagnosis.normalized.contains("'--port=3011'"),
-                "{diagnosis:?}"
-            );
-            assert!(diagnosis.normalized.contains("'-p'"), "{diagnosis:?}");
             assert!(
                 validate_verify_command(&diagnosis.normalized).is_ok(),
                 "{diagnosis:?}"
@@ -3058,7 +2997,7 @@ mod tests {
         );
         assert_eq!(
             diagnosis.normalized,
-            r#"node -p "String(require('./package.json').scripts.dev).includes('next dev -p 3011') ? true : process.exit(1)""#
+            "anvil-nextjs-check:script_includes:dev:next%20dev%20-p%203011"
         );
     }
 
@@ -3096,7 +3035,7 @@ mod tests {
 
     #[test]
     fn verify_command_hook_grep_still_fails_when_hook_absent() {
-        let dir = tempfile::tempdir().unwrap();
+        let (_sandbox, dir) = sandbox_guard_and_tempdir();
         write_page(
             dir.path(),
             r#"export default function Page(){return <main>Missing hook</main>}"#,
@@ -3135,7 +3074,7 @@ mod tests {
             "{diagnosis:?}"
         );
         let normalized = normalize_verify_command(command).unwrap();
-        crate::tools::bash::run_checked(normalized.as_str(), dir.path(), false)
+        source_checks::evaluate(dir.path(), normalized.as_str())
             .unwrap_or_else(|err| panic!("normalized source assertion failed: {err}"));
     }
 
@@ -3367,7 +3306,7 @@ mod tests {
         let reason = diagnosis.reason.as_deref().unwrap_or_default();
         assert!(reason.contains("unbalanced shell quotes"), "{diagnosis:?}");
         assert!(
-            reason.contains(r#"node -p "require('./package.json').scripts.dev""#),
+            reason.contains(r#"grep -q "next dev" package.json"#),
             "{diagnosis:?}"
         );
     }
@@ -3600,7 +3539,7 @@ mod tests {
 
     #[test]
     fn verify_command_nonzero_fails() {
-        let dir = tempfile::tempdir().unwrap();
+        let (_sandbox, dir) = sandbox_guard_and_tempdir();
         let step = PlanStep {
             id: "s".to_string(),
             kind: "work".to_string(),
@@ -4182,10 +4121,12 @@ EOF\n\
     fn package_port_token_report(command: &str, dev: &str, start: &str) -> VerificationReport {
         let dir = tempfile::tempdir().unwrap();
         write_package_scripts(dir.path(), dev, start);
-        verify_step_with_setup_observed_with_offline_and_events(
+        verify_step_with_setup_observed_with_options(
             dir.path(),
             &package_port_token_verify_step(command),
+            (Some("nextjs"), None),
             NodeDependencySetupAuthority::None,
+            Path::new("npm"),
             false,
             None,
         )
@@ -4280,7 +4221,9 @@ EOF\n\
             assert!(!failing.is_pass(), "{command}: {failing:?}");
             assert_eq!(failing.command_failures.len(), 1, "{command}: {failing:?}");
             assert!(
-                failing.command_failures[0].command.starts_with("node -p "),
+                failing.command_failures[0]
+                    .command
+                    .starts_with("anvil-nextjs-check:package_script_port:dev:3011"),
                 "{command}: {failing:?}"
             );
             assert!(
@@ -4305,15 +4248,23 @@ EOF\n\
 
         let spaced_report = package_port_token_report(
             r#"grep -q '"3011"' package.json"#,
+            "next dev --port 3011",
+            "next start",
+        );
+        assert!(spaced_report.is_pass(), "{spaced_report:?}");
+
+        // #832: the dev script must carry the port; a start-only port no longer passes.
+        let start_only = package_port_token_report(
+            r#"grep -q '"3011"' package.json"#,
             "next dev",
             "next start --port 3011",
         );
-        assert!(spaced_report.is_pass(), "{spaced_report:?}");
+        assert!(!start_only.is_pass(), "{start_only:?}");
     }
 
     #[test]
     fn unrepairable_usage_error_is_verifier_command_false_negative() {
-        let dir = tempfile::tempdir().unwrap();
+        let (_sandbox, dir) = sandbox_guard_and_tempdir();
         std::fs::write(
             dir.path().join("usage_error.py"),
             "import sys\nsys.stderr.write('usage: fake\\ninvalid option\\n')\nsys.exit(2)\n",
@@ -4359,7 +4310,7 @@ EOF\n\
 
     #[test]
     fn verify_timeout_is_oracle_error_false_negative_not_implementation() {
-        let dir = tempfile::tempdir().unwrap();
+        let (_sandbox, dir) = sandbox_guard_and_tempdir();
         let events = dir.path().join("events.jsonl");
         let outcome = verifier_env::run_structured_for_verify_with_timeout(
             "sleep 5",
@@ -4447,7 +4398,7 @@ EOF\n\
 
     #[test]
     fn raw_cannot_find_module_without_authority_reports_setup_authority_required() {
-        let dir = tempfile::tempdir().unwrap();
+        let (_sandbox, dir) = sandbox_guard_and_tempdir();
         let failing = dir.path().join("missing-module.sh");
         write_executable(
             &failing,
@@ -4504,7 +4455,7 @@ EOF\n\
 
     #[test]
     fn verify_step_aggregates_missing_paths_and_command_failures() {
-        let dir = tempfile::tempdir().unwrap();
+        let (_sandbox, dir) = sandbox_guard_and_tempdir();
         let step = PlanStep {
             id: "s".to_string(),
             kind: "verify".to_string(),
@@ -4521,7 +4472,7 @@ EOF\n\
 
     #[test]
     fn verify_expected_result_fail_accepts_nonzero_command() {
-        let dir = tempfile::tempdir().unwrap();
+        let (_sandbox, dir) = sandbox_guard_and_tempdir();
         let step = PlanStep {
             id: "s".to_string(),
             kind: "verify".to_string(),
@@ -4535,7 +4486,7 @@ EOF\n\
 
     #[test]
     fn verify_expected_result_fail_accepts_python_traceback_and_records_event() {
-        let dir = tempfile::tempdir().unwrap();
+        let (_sandbox, dir) = sandbox_guard_and_tempdir();
         std::fs::write(dir.path().join("crash.py"), "raise KeyError('expected')\n").unwrap();
         let events = dir.path().join("events.jsonl");
         let step = PlanStep {
@@ -4564,7 +4515,7 @@ EOF\n\
 
     #[test]
     fn verify_expected_result_pass_rejects_nonzero_command() {
-        let dir = tempfile::tempdir().unwrap();
+        let (_sandbox, dir) = sandbox_guard_and_tempdir();
         let step = PlanStep {
             id: "s".to_string(),
             kind: "verify".to_string(),

@@ -1,8 +1,9 @@
 use serde_json::{Value, json};
 
-use crate::providers::{AssistantReply, ProviderResponseMetadata};
+use crate::providers::{AssistantReply, BilledCostUsd, ProviderResponseMetadata};
 use crate::state::{ConversationMessage, ToolCall};
 use crate::tools::args_recovery::recover_tool_arguments;
+use crate::tools::profile_tools::schema::invocation;
 use crate::tools::registry::ToolSpec;
 
 use super::parsing::sanitize_schema;
@@ -43,6 +44,27 @@ pub(crate) fn build_lm_studio_request(
         native_tools_enabled,
         max_predict,
         None,
+        "max_tokens",
+    )
+}
+
+/// The compatible request with an explicitly declared reasoning effort as the
+/// top-level `reasoning_effort`; the token field stays `max_tokens`.
+pub(crate) fn build_lm_studio_request_with_effort(
+    model: &str,
+    messages: &[ConversationMessage],
+    tools: &[ToolSpec],
+    native_tools_enabled: bool,
+    max_predict: usize,
+    reasoning_effort: &str,
+) -> Value {
+    build_request_with_token_field(
+        model,
+        messages,
+        tools,
+        native_tools_enabled,
+        max_predict,
+        Some(reasoning_effort),
         "max_tokens",
     )
 }
@@ -129,6 +151,10 @@ fn chat_message(message: &ConversationMessage, native_tools_enabled: bool) -> Va
 pub(crate) fn parse_response(
     body: &str,
 ) -> anyhow::Result<(AssistantReply, ProviderResponseMetadata)> {
+    // Issue #1006: the cache write at the table's Chat paths only, read before anything else of
+    // the reply, so a reply that then fails to parse still has it. Telemetry only.
+    let cache_write = crate::providers::usage_observation::observe_chat_cache_write(body);
+    crate::provider_call::note_cache_write(cache_write);
     let value: Value = serde_json::from_str(body)?;
     let message = value
         .get("choices")
@@ -141,22 +167,30 @@ pub(crate) fn parse_response(
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_string();
+    let usage = value.get("usage");
+    let completion_tokens = usage
+        .and_then(|usage| usage.get("completion_tokens"))
+        .and_then(Value::as_u64);
+    let envelope_clean = invocation::envelope_is_clean(body);
     let tool_calls = message
         .get("tool_calls")
         .and_then(Value::as_array)
-        .map(|calls| calls.iter().map(parse_tool_call).collect())
-        .transpose()?
+        .map(|calls| {
+            calls
+                .iter()
+                .map(|call| parse_tool_call(call, completion_tokens, envelope_clean))
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .transpose()
+        .map_err(anyhow::Error::new)?
         .unwrap_or_default();
-    let usage = value.get("usage");
     let reply = AssistantReply {
         content,
         tool_calls,
         prompt_tokens: usage
             .and_then(|usage| usage.get("prompt_tokens"))
             .and_then(Value::as_u64),
-        completion_tokens: usage
-            .and_then(|usage| usage.get("completion_tokens"))
-            .and_then(Value::as_u64),
+        completion_tokens,
     };
     let metadata = ProviderResponseMetadata {
         response_id: optional_string(&value, "id"),
@@ -164,45 +198,641 @@ pub(crate) fn parse_response(
         system_fingerprint: optional_string(&value, "system_fingerprint"),
         created_epoch: value.get("created").and_then(Value::as_i64),
         service_tier: optional_string(&value, "service_tier"),
-        cached_input_tokens: None,
-        reasoning_tokens: None,
+        cached_input_tokens: cached_input_tokens(usage, reply.prompt_tokens),
+        reasoning_tokens: reasoning_tokens(usage, reply.completion_tokens),
         total_tokens: None,
+        billed_cost_usd: billed_cost_usd(body),
+        cache_write,
     };
     Ok((reply, metadata))
+}
+
+/// The raw members of a JSON object, borrowed before any number in them
+/// becomes an `f64`. Only an object deserializes into it (an array does not),
+/// and a repeated key keeps its last value, as `serde_json::Value` does.
+type RawMembers<'a> = std::collections::HashMap<String, &'a serde_json::value::RawValue>;
+
+/// The provider-reported billed amount in `usage.cost` (Issue #947), kept as
+/// optional provider metadata only; no amount is derived from token counts,
+/// model, or provider. It is read from the raw number token of the body that
+/// already parsed as a whole, so `1e-400` is not underflowed to zero and
+/// `1.00000000000000001` is not rounded. Anything but an unsigned, in-range
+/// number token is unreported (`None`) and changes no other field; an explicit
+/// zero stays a value.
+fn billed_cost_usd(body: &str) -> Option<BilledCostUsd> {
+    let response: RawMembers<'_> = serde_json::from_str(body).ok()?;
+    let usage: RawMembers<'_> = serde_json::from_str(response.get("usage")?.get()).ok()?;
+    BilledCostUsd::from_json_token(usage.get("cost")?.get())
+}
+
+/// The provider-reported cached share of the prompt, already included in
+/// `prompt_tokens`. A missing or malformed count, or one above a known prompt
+/// total, is unreported (`None`); an explicit zero stays `Some(0)`.
+fn cached_input_tokens(usage: Option<&Value>, prompt_tokens: Option<u64>) -> Option<u64> {
+    let cached = usage?
+        .get("prompt_tokens_details")?
+        .get("cached_tokens")?
+        .as_u64()?;
+    match prompt_tokens {
+        Some(total) if cached > total => None,
+        _ => Some(cached),
+    }
+}
+
+/// Issue #958: the provider-reported reasoning share of the completion
+/// (`usage.completion_tokens_details.reasoning_tokens`), already included in
+/// `completion_tokens`. The same rule as the cached count (#928): only an
+/// unsigned integer that fits in `u64` is kept, an explicit zero stays
+/// `Some(0)`, and a missing, null, negative, fractional, string, or
+/// out-of-range count, or one above a known completion total, is unreported
+/// (`None`). Nothing is clamped or estimated, and no value fails the parse.
+fn reasoning_tokens(usage: Option<&Value>, completion_tokens: Option<u64>) -> Option<u64> {
+    let reasoning = usage?
+        .get("completion_tokens_details")?
+        .get("reasoning_tokens")?
+        .as_u64()?;
+    match completion_tokens {
+        Some(total) if reasoning > total => None,
+        _ => Some(reasoning),
+    }
 }
 
 fn optional_string(value: &Value, key: &str) -> Option<String> {
     value.get(key).and_then(Value::as_str).map(str::to_string)
 }
 
-fn parse_tool_call(value: &Value) -> anyhow::Result<ToolCall> {
+/// Issue #958: how the parse of one native tool call failed. Only a JSON
+/// syntax error that `serde_json` classifies as the input ending early is
+/// [`Self::EndOfInput`]; every other failure (another syntax error, a missing
+/// `function`, `function.name`, or `function.arguments`, arguments that are
+/// not an object) is [`Self::Other`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ToolArgumentsParseFailure {
+    EndOfInput,
+    Other,
+}
+
+/// Issue #958: the error a Chat Completions body fails with when one of its
+/// native tool calls does not parse. It displays exactly the message the
+/// parser always used, so the failure, its text, and whether the loop retries
+/// it stay as before; it adds, as typed context, the response's
+/// `usage.completion_tokens` when the body reported it and the
+/// [`ToolArgumentsParseFailure`]. Nothing is read back out of the message,
+/// and the broken arguments are neither repaired nor kept.
+#[derive(Debug)]
+pub(crate) struct ToolArgumentsParseError {
+    message: String,
+    completion_tokens: Option<u64>,
+    failure: ToolArgumentsParseFailure,
+}
+
+impl ToolArgumentsParseError {
+    fn new(
+        message: String,
+        completion_tokens: Option<u64>,
+        failure: ToolArgumentsParseFailure,
+    ) -> Self {
+        Self {
+            message,
+            completion_tokens,
+            failure,
+        }
+    }
+
+    /// A context with any message, for tests of its consumers outside this
+    /// module.
+    #[cfg(test)]
+    pub(crate) fn for_test(
+        message: &str,
+        completion_tokens: Option<u64>,
+        failure: ToolArgumentsParseFailure,
+    ) -> Self {
+        Self::new(message.to_string(), completion_tokens, failure)
+    }
+
+    /// The response's `usage.completion_tokens`, when it was reported.
+    pub(crate) fn completion_tokens(&self) -> Option<u64> {
+        self.completion_tokens
+    }
+
+    pub(crate) fn failure(&self) -> ToolArgumentsParseFailure {
+        self.failure
+    }
+}
+
+impl std::fmt::Display for ToolArgumentsParseError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for ToolArgumentsParseError {}
+
+fn parse_tool_call(
+    value: &Value,
+    completion_tokens: Option<u64>,
+    envelope_clean: bool,
+) -> Result<ToolCall, ToolArgumentsParseError> {
+    let other = |message: &str| {
+        ToolArgumentsParseError::new(
+            message.to_string(),
+            completion_tokens,
+            ToolArgumentsParseFailure::Other,
+        )
+    };
     let function = value
         .get("function")
-        .ok_or_else(|| anyhow::anyhow!("OpenAI chat tool_call missing function"))?;
+        .ok_or_else(|| other("OpenAI chat tool_call missing function"))?;
     let name = function
         .get("name")
         .and_then(Value::as_str)
-        .ok_or_else(|| anyhow::anyhow!("OpenAI chat tool_call missing function.name"))?
+        .ok_or_else(|| other("OpenAI chat tool_call missing function.name"))?
         .to_string();
+    if let Some(call) = invocation::receive_native(
+        &name,
+        || tool_call_id(value),
+        function.get("arguments"),
+        envelope_clean,
+    ) {
+        return Ok(call);
+    }
     let raw_arguments = function
         .get("arguments")
         .and_then(Value::as_str)
-        .ok_or_else(|| anyhow::anyhow!("OpenAI chat tool_call missing function.arguments"))?;
+        .ok_or_else(|| other("OpenAI chat tool_call missing function.arguments"))?;
     let arguments: Value = serde_json::from_str(raw_arguments).map_err(|error| {
-        anyhow::anyhow!("OpenAI chat tool_call arguments are not valid JSON: {error}")
+        let failure = if error.classify() == serde_json::error::Category::Eof {
+            ToolArgumentsParseFailure::EndOfInput
+        } else {
+            ToolArgumentsParseFailure::Other
+        };
+        ToolArgumentsParseError::new(
+            format!("OpenAI chat tool_call arguments are not valid JSON: {error}"),
+            completion_tokens,
+            failure,
+        )
     })?;
     if !arguments.is_object() {
-        anyhow::bail!("OpenAI chat tool_call arguments must decode to object");
+        return Err(other(
+            "OpenAI chat tool_call arguments must decode to object",
+        ));
     }
     Ok(ToolCall {
-        id: value
-            .get("id")
-            .and_then(Value::as_str)
-            .map(str::to_string)
-            .unwrap_or_else(|| uuid::Uuid::now_v7().to_string()),
+        id: tool_call_id(value),
         name: name.clone(),
         arguments: recover_tool_arguments(&name, arguments).arguments,
     })
+}
+
+fn tool_call_id(value: &Value) -> String {
+    value
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| uuid::Uuid::now_v7().to_string())
+}
+
+#[cfg(test)]
+mod cache_usage_tests;
+
+/// Issue #947: `usage.cost` reaches `ProviderResponseMetadata.billed_cost_usd`
+/// as the exact decimal text of the number token in the raw body. An explicit
+/// zero is a value; a missing, null, non-number, negative, or out-of-range
+/// amount is unreported. Every body here is raw text, never a `Value`, so a
+/// lost digit cannot hide behind an `f64` on both sides.
+#[cfg(test)]
+mod billed_cost_tests {
+    use super::parse_response;
+    use crate::providers::{AssistantReply, BilledCostUsd, ProviderResponseMetadata};
+
+    const USAGE_TOKENS: &str = r#""prompt_tokens":5361,"completion_tokens":2,"total_tokens":5363,"prompt_tokens_details":{"cached_tokens":5344}"#;
+
+    /// A raw response body; `usage` is the raw text of the usage member, or
+    /// `None` for no usage at all.
+    fn body(usage: Option<&str>) -> String {
+        let usage = usage.map_or_else(String::new, |usage| format!(r#","usage":{usage}"#));
+        format!(
+            r#"{{"id":"chatcmpl-947","model":"compatible-model","created":1790000000,"system_fingerprint":"fp_947","service_tier":"default","choices":[{{"message":{{"content":"reading","tool_calls":[{{"id":"call-947","type":"function","function":{{"name":"Read","arguments":"{{\"path\":\"README.md\"}}"}}}}]}}}}]{usage}}}"#
+        )
+    }
+
+    /// The raw usage member with `cost` set to the raw token `cost`.
+    fn usage_with_cost(cost: &str) -> String {
+        format!(r#"{{{USAGE_TOKENS},"cost":{cost}}}"#)
+    }
+
+    fn parse(usage: Option<&str>) -> (AssistantReply, ProviderResponseMetadata) {
+        parse_response(&body(usage)).expect("a malformed amount must not fail the parse")
+    }
+
+    fn cost(usage: Option<&str>) -> Option<BilledCostUsd> {
+        parse(usage).1.billed_cost_usd
+    }
+
+    /// The kept decimal text for the raw cost token `sent`.
+    fn cost_text(sent: &str) -> Option<String> {
+        cost(Some(&usage_with_cost(sent))).map(|cost| cost.as_decimal_str().to_string())
+    }
+
+    #[test]
+    fn positive_amounts_are_kept_as_sent_without_rounding() {
+        for sent in [
+            "0.012345",
+            "0.000123",
+            "1.5e-7",
+            "12.5",
+            "2",
+            "1E+2",
+            "1.00000000000000001",
+            "0.123456789012345678901234567890",
+            "123456.000000000000000000000001",
+        ] {
+            assert_eq!(cost_text(sent).as_deref(), Some(sent), "{sent}");
+        }
+        let kept = cost(Some(&usage_with_cost("0.012345"))).unwrap();
+        assert_eq!(kept.as_decimal_str(), "0.012345");
+        assert_eq!(kept.event_value(None).unwrap().to_string(), r#""0.012345""#);
+    }
+
+    #[test]
+    fn a_tiny_positive_amount_is_not_underflowed_to_zero() {
+        for sent in ["1e-400", "5E-324", "0.1e-1000", "1e-99999999999999999999"] {
+            assert_eq!(cost_text(sent).as_deref(), Some(sent), "{sent}");
+        }
+        let kept = cost(Some(&usage_with_cost("1e-400"))).unwrap();
+        assert_eq!(kept.event_value(None).unwrap().to_string(), r#""1e-400""#);
+    }
+
+    #[test]
+    fn explicit_zero_is_a_value_not_unknown() {
+        for sent in ["0", "0.0", "0e5", "0.000E-3"] {
+            assert_eq!(cost_text(sent).as_deref(), Some(sent), "{sent}");
+        }
+        let zero = cost(Some(&usage_with_cost("0"))).unwrap();
+        assert_eq!(zero.event_value(None).unwrap().to_string(), r#""0""#);
+    }
+
+    #[test]
+    fn surrounding_whitespace_is_not_part_of_the_amount() {
+        assert_eq!(cost_text(" 0.012345 ").as_deref(), Some("0.012345"));
+        assert_eq!(cost_text("\n1e-400\t").as_deref(), Some("1e-400"));
+    }
+
+    #[test]
+    fn missing_amounts_stay_unreported() {
+        let without_cost = format!("{{{USAGE_TOKENS}}}");
+        for (label, usage) in [
+            ("no usage", None),
+            ("usage without cost", Some(without_cost.as_str())),
+            ("usage is null", Some("null")),
+            ("usage is a number", Some("1")),
+            ("usage is an array", Some("[0.012345]")),
+        ] {
+            assert_eq!(cost(usage), None, "{label}");
+        }
+        assert_eq!(cost_text("null"), None, "cost null");
+    }
+
+    #[test]
+    fn a_repeated_key_keeps_its_last_value_as_the_other_fields_do() {
+        let last_null = format!(r#"{{{USAGE_TOKENS},"cost":0.5,"cost":null}}"#);
+        let last_amount = format!(r#"{{{USAGE_TOKENS},"cost":null,"cost":0.5}}"#);
+        assert_eq!(cost(Some(&last_null)), None);
+        assert_eq!(
+            cost(Some(&last_amount)).map(|cost| cost.as_decimal_str().to_string()),
+            Some("0.5".to_string())
+        );
+        let repeated_usage = body(Some(&usage_with_cost("0.25"))).replacen(
+            r#""id":"chatcmpl-947""#,
+            r#""usage":{"cost":7},"id":"chatcmpl-947""#,
+            1,
+        );
+        let (_, metadata) = parse_response(&repeated_usage).unwrap();
+        assert_eq!(metadata.billed_cost_usd.unwrap().as_decimal_str(), "0.25");
+        assert_eq!(metadata.cached_input_tokens, Some(5344));
+    }
+
+    #[test]
+    fn non_number_amounts_stay_unreported() {
+        for sent in [
+            r#""0.012345""#,
+            r#""""#,
+            "true",
+            "false",
+            "[0.012345]",
+            r#"{"usd":0.012345}"#,
+        ] {
+            assert_eq!(cost_text(sent), None, "{sent}");
+        }
+    }
+
+    #[test]
+    fn negative_amounts_stay_unreported() {
+        for sent in ["-0.012345", "-1", "-0", "-0.0", "-0e5", "-1e-400"] {
+            assert_eq!(cost_text(sent), None, "{sent}");
+        }
+    }
+
+    #[test]
+    fn the_upper_bound_is_exact_in_decimal() {
+        for sent in [
+            "9007199254740991",
+            "9007199254740991.0",
+            "9.007199254740991e15",
+            "900719925474099.1E1",
+            "0.9007199254740991e16",
+            "9007199254740990.99999999999999999999",
+        ] {
+            assert_eq!(cost_text(sent).as_deref(), Some(sent), "{sent}");
+        }
+        for sent in [
+            "9007199254740992",
+            "9007199254740991.000000000000000001",
+            "9.007199254740992e15",
+            "9.0071992547409910001E15",
+            "1e16",
+            "18446744073709551616",
+            "1e300",
+            "1.7976931348623157e308",
+        ] {
+            assert_eq!(cost_text(sent), None, "{sent}");
+        }
+    }
+
+    #[test]
+    fn a_number_beyond_f64_still_fails_the_whole_body_as_at_base() {
+        // serde_json rejects `1e400` (number out of range) while parsing the
+        // whole body, before the amount is read; the base commit fails the same
+        // way, and this change keeps that honest failure.
+        for sent in ["1e400", "1e99999999999999999999"] {
+            let error = parse_response(&body(Some(&usage_with_cost(sent))))
+                .expect_err("the whole body fails to parse");
+            assert!(
+                error.to_string().contains("out of range"),
+                "{sent}: {error}"
+            );
+        }
+        for broken in ["{", "", r#"{"choices":[]}"#] {
+            assert!(parse_response(broken).is_err(), "{broken}");
+        }
+    }
+
+    #[test]
+    fn reply_tokens_and_cached_count_are_unchanged_by_the_amount() {
+        let legacy = format!("{{{USAGE_TOKENS}}}");
+        let (legacy_reply, legacy_metadata) = parse(Some(&legacy));
+        assert_eq!(legacy_metadata.billed_cost_usd, None);
+        assert_eq!(legacy_metadata.cached_input_tokens, Some(5344));
+        assert_eq!(legacy_metadata.total_tokens, None);
+        assert_eq!(legacy_metadata.reasoning_tokens, None);
+        assert_eq!(legacy_reply.prompt_tokens, Some(5361));
+        assert_eq!(legacy_reply.completion_tokens, Some(2));
+        for (sent, reported) in [
+            ("0.012345", true),
+            ("0", true),
+            ("1e-400", true),
+            ("null", false),
+            (r#""0.012345""#, false),
+            ("-1", false),
+            ("-0", false),
+            ("1e300", false),
+        ] {
+            let (reply, metadata) = parse(Some(&usage_with_cost(sent)));
+            assert_eq!(reply, legacy_reply, "cost {sent}");
+            assert_eq!(metadata.billed_cost_usd.is_some(), reported, "cost {sent}");
+            let mut without_cost = metadata.clone();
+            without_cost.billed_cost_usd = None;
+            assert_eq!(without_cost, legacy_metadata, "cost {sent}");
+        }
+    }
+
+    #[test]
+    fn an_amount_overlapping_a_registered_secret_is_left_out_of_the_event() {
+        use crate::sensitive_data::{SecretCatalog, install_scope, set_current};
+
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join("events.jsonl");
+        let mut catalog = SecretCatalog::new();
+        // Fake credentials only: one equal to an amount, one inside another.
+        catalog
+            .register_credential("COMPAT_API_KEY", "0.012345")
+            .unwrap();
+        catalog
+            .register_credential("OTHER_API_KEY", "12345678")
+            .unwrap();
+        install_scope(catalog, None, Some(&events));
+        set_current(None);
+        let amount = |sent: &str| cost(Some(&usage_with_cost(sent))).unwrap();
+        for sent in ["0.012345", "0.12345678", "12345678", "1.123456789e-3"] {
+            assert_eq!(amount(sent).event_value(Some(&events)), None, "{sent}");
+        }
+        for (sent, kept) in [("0.000123", r#""0.000123""#), ("0", r#""0""#)] {
+            let value = amount(sent).event_value(Some(&events)).unwrap();
+            assert_eq!(value.to_string(), kept, "{sent}");
+        }
+        let other = dir.path().join("other-events.jsonl");
+        assert_eq!(
+            amount("0.012345")
+                .event_value(Some(&other))
+                .unwrap()
+                .to_string(),
+            r#""0.012345""#,
+            "a run without that secret keeps the amount"
+        );
+    }
+
+    #[test]
+    fn metadata_equality_compares_the_amount() {
+        let first = parse(Some(&usage_with_cost("0.012345"))).1;
+        let same = parse(Some(&usage_with_cost("0.012345"))).1;
+        let other = parse(Some(&usage_with_cost("0.012346"))).1;
+        let beyond_f64 = parse(Some(&usage_with_cost("1.00000000000000001"))).1;
+        let one = parse(Some(&usage_with_cost("1"))).1;
+        assert_eq!(first, same);
+        assert_ne!(first, other);
+        assert_ne!(beyond_f64, one);
+    }
+}
+
+/// Issue #958: `usage.completion_tokens_details.reasoning_tokens` reaches
+/// `ProviderResponseMetadata.reasoning_tokens` under the #928 rule, and a
+/// value that is not kept changes nothing else.
+#[cfg(test)]
+mod reasoning_usage_tests {
+    use super::parse_response;
+    use crate::providers::{AssistantReply, ProviderResponseMetadata};
+
+    fn body(details: Option<&str>) -> String {
+        let details = details.map_or_else(String::new, |raw| {
+            format!(r#","completion_tokens_details":{raw}"#)
+        });
+        format!(
+            r#"{{"id":"chatcmpl-958","model":"compatible-model","created":1790000000,"choices":[{{"message":{{"content":"reading","tool_calls":[{{"id":"call-958","type":"function","function":{{"name":"Read","arguments":"{{\"path\":\"notes.md\"}}"}}}}]}}}}],"usage":{{"prompt_tokens":40,"completion_tokens":120,"prompt_tokens_details":{{"cached_tokens":8}}{details}}}}}"#
+        )
+    }
+
+    fn parse(details: Option<&str>) -> (AssistantReply, ProviderResponseMetadata) {
+        parse_response(&body(details)).expect("a reasoning value never fails the parse")
+    }
+
+    fn reasoning(raw: &str) -> Option<u64> {
+        parse(Some(&format!(r#"{{"reasoning_tokens":{raw}}}"#)))
+            .1
+            .reasoning_tokens
+    }
+
+    #[test]
+    fn unsigned_counts_up_to_the_completion_total_are_kept() {
+        assert_eq!(reasoning("96"), Some(96));
+        assert_eq!(reasoning("0"), Some(0), "an explicit zero is a value");
+        assert_eq!(reasoning("120"), Some(120), "equal to the completion total");
+    }
+
+    #[test]
+    fn missing_or_malformed_counts_are_unreported() {
+        assert_eq!(parse(None).1.reasoning_tokens, None, "no details");
+        assert_eq!(parse(Some("{}")).1.reasoning_tokens, None, "no count");
+        assert_eq!(parse(Some("null")).1.reasoning_tokens, None, "details null");
+        for raw in [
+            "null",
+            "-1",
+            "1.5",
+            "96.0",
+            r#""96""#,
+            "true",
+            "[96]",
+            "18446744073709551616",
+            "1e3",
+            "121",
+        ] {
+            assert_eq!(reasoning(raw), None, "{raw}");
+        }
+    }
+
+    #[test]
+    fn a_count_above_an_unknown_total_is_kept_without_a_completion_total() {
+        let body = r#"{"choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":4,"completion_tokens_details":{"reasoning_tokens":7}}}"#;
+        let (reply, metadata) = parse_response(body).unwrap();
+        assert_eq!(reply.completion_tokens, None);
+        assert_eq!(metadata.reasoning_tokens, Some(7));
+    }
+
+    #[test]
+    fn the_reply_and_other_metadata_do_not_depend_on_the_count() {
+        let (base_reply, base_metadata) = parse(None);
+        assert_eq!(base_metadata.reasoning_tokens, None);
+        assert_eq!(base_metadata.cached_input_tokens, Some(8));
+        assert_eq!(base_reply.completion_tokens, Some(120));
+        assert_eq!(base_reply.prompt_tokens, Some(40));
+        for raw in [
+            "96",
+            "0",
+            "-1",
+            "1.5",
+            r#""96""#,
+            "121",
+            "18446744073709551616",
+        ] {
+            let (reply, metadata) = parse(Some(&format!(r#"{{"reasoning_tokens":{raw}}}"#)));
+            assert_eq!(reply, base_reply, "{raw}");
+            let mut without = metadata.clone();
+            without.reasoning_tokens = None;
+            assert_eq!(without, base_metadata, "{raw}");
+        }
+    }
+}
+
+/// Issue #958: a tool call that does not parse fails the body with the
+/// message it always had, now carrying the typed context: the reported
+/// completion count and whether the arguments ended early.
+#[cfg(test)]
+mod tool_arguments_context_tests {
+    use super::{ToolArgumentsParseError, ToolArgumentsParseFailure, parse_response};
+
+    fn body(function: &str, usage: &str) -> String {
+        format!(
+            r#"{{"choices":[{{"message":{{"content":"","tool_calls":[{{"id":"call-958","type":"function","function":{function}}}]}}}}]{usage}}}"#
+        )
+    }
+
+    fn failure(function: &str, usage: &str) -> (String, Option<u64>, ToolArgumentsParseFailure) {
+        let error = parse_response(&body(function, usage)).expect_err("the body fails");
+        let context = error
+            .downcast_ref::<ToolArgumentsParseError>()
+            .expect("typed context");
+        (
+            error.to_string(),
+            context.completion_tokens(),
+            context.failure(),
+        )
+    }
+
+    const USAGE: &str = r#","usage":{"prompt_tokens":10,"completion_tokens":100,"completion_tokens_details":{"reasoning_tokens":90}}"#;
+
+    #[test]
+    fn arguments_cut_off_are_classified_as_end_of_input_with_the_count() {
+        let (message, completion, kind) = failure(
+            r#"{"name":"Write","arguments":"{\"path\":\"notes.md\",\"content\":\"abc"}"#,
+            USAGE,
+        );
+        assert_eq!(
+            message,
+            "OpenAI chat tool_call arguments are not valid JSON: EOF while parsing a string at line 1 column 33"
+        );
+        assert_eq!(completion, Some(100));
+        assert_eq!(kind, ToolArgumentsParseFailure::EndOfInput);
+        let (_, completion, kind) = failure(r#"{"name":"Write","arguments":"{\"path\":"}"#, "");
+        assert_eq!(completion, None, "no usage, no count");
+        assert_eq!(kind, ToolArgumentsParseFailure::EndOfInput);
+    }
+
+    #[test]
+    fn every_other_failure_keeps_its_message_and_is_classified_other() {
+        for (function, message) in [
+            (
+                r#"{"name":"Write","arguments":"{\"path\":}"}"#,
+                "OpenAI chat tool_call arguments are not valid JSON: expected value at line 1 column 9",
+            ),
+            (
+                r#"{"arguments":"{}"}"#,
+                "OpenAI chat tool_call missing function.name",
+            ),
+            (
+                r#"{"name":"Write"}"#,
+                "OpenAI chat tool_call missing function.arguments",
+            ),
+            (
+                r#"{"name":"Write","arguments":"[1,2]"}"#,
+                "OpenAI chat tool_call arguments must decode to object",
+            ),
+            (
+                r#"{"name":"Write","arguments":"\"text\""}"#,
+                "OpenAI chat tool_call arguments must decode to object",
+            ),
+        ] {
+            let (shown, completion, kind) = failure(function, USAGE);
+            assert_eq!(shown, message, "{function}");
+            assert_eq!(completion, Some(100), "{function}");
+            assert_eq!(kind, ToolArgumentsParseFailure::Other, "{function}");
+        }
+        let missing_function = r#"{"choices":[{"message":{"content":"","tool_calls":[{"id":"c"}]}}],"usage":{"completion_tokens":100}}"#;
+        let error = parse_response(missing_function).unwrap_err();
+        assert_eq!(error.to_string(), "OpenAI chat tool_call missing function");
+        assert_eq!(
+            error
+                .downcast_ref::<ToolArgumentsParseError>()
+                .map(ToolArgumentsParseError::failure),
+            Some(ToolArgumentsParseFailure::Other)
+        );
+    }
+
+    #[test]
+    fn a_failure_outside_the_tool_calls_has_no_tool_context() {
+        for broken in ["{", r#"{"choices":[]}"#] {
+            let error = parse_response(broken).unwrap_err();
+            assert!(error.downcast_ref::<ToolArgumentsParseError>().is_none());
+        }
+    }
 }
 
 #[cfg(test)]

@@ -35,7 +35,7 @@ fn complete_preset_names_from_root(
         .collect()
 }
 
-fn complete_model_ids_from_hosts(
+pub(crate) fn complete_model_ids_from_hosts(
     current: &OsStr,
     ollama_host: &str,
     lm_studio_host: &str,
@@ -43,6 +43,17 @@ fn complete_model_ids_from_hosts(
     let Some(prefix) = current.to_str() else {
         return Vec::new();
     };
+    // A model list is a send no run budget counts: under one, there is nothing to complete from.
+    // Nor is there when the start of this command line took a control of the run budget out of
+    // the environment as a key's variable, so that a selection there is not seen.
+    if crate::structured_budget::entry::refuse(
+        crate::structured_budget::entry::Unmetered::ModelCompletion,
+    )
+    .and_then(|()| crate::structured_budget::entry::refuse_a_control_the_start_takes())
+    .is_err()
+    {
+        return Vec::new();
+    }
     let Ok(client) = Client::builder()
         .connect_timeout(COMPLETION_TIMEOUT)
         .timeout(COMPLETION_TIMEOUT)

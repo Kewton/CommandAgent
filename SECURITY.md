@@ -290,6 +290,39 @@ The applied write-probe record is under
 applied read-probe record is under
 `tests/corpus/apps/issue502-indirect-read/fixtures/macos-probe-results.md`.
 
+## Operator-Pinned Processes (`propose-artifacts`)
+
+A profile tool with the `propose-artifacts` effect runs a process the operator pinned (Issues #974
+and #982). It does not use the `--sandbox` backends above and has no `off` or `auto`: it runs only
+under a strict isolation, and where that isolation is missing every entry refuses it as
+`unavailable` before any provider call. The process gets its request on stdin and gives a
+candidate on stdout; only the host writes, after checking the candidate. Details are in
+`docs/dev/profile-tools.md`.
+
+- macOS: a `deny default` Seatbelt policy through `sandbox-exec`.
+- Linux (x86_64 and aarch64): new user, mount, network, IPC, and UTS namespaces; an empty
+  read-only root holding only the pinned executable, its ELF interpreter and libraries (each
+  an ELF object, bound at its real path, and only when that path lies in a system library
+  directory or a pinned directory), the
+  pinned directories, and three devices, with no `/proc`; Landlock (ABI 6 or later) allowing
+  only reads of what is pinned, an exec of the executable and its interpreter, and a write to
+  `/dev/null`, and scoped so that no signal and no abstract unix socket leaves the tool's
+  domain; and a seccomp filter that refuses every socket, every new process, every call on
+  another process (a call that names a pid passes only for 0 or the tool's own; `F_SETOWN` only
+  to itself; no priority of a group or a user), and every namespace and mount call, answers
+  `ENOSYS` above the highest number it names, and kills any other ABI. A probe runs the whole
+  sequence before the first provider call, and a launch stopped at a step after it is
+  `unavailable` with the step named. An Ubuntu with
+  `kernel.apparmor_restrict_unprivileged_userns=1` (ubuntu-24.04's default), Docker's default
+  seccomp profile, and a kernel below Landlock ABI 6 (ubuntu-22.04) are `unavailable`.
+- Linux limits: no `/proc`, so runtimes that need it (some JVMs, Node's `process.memoryUsage()`)
+  fail inside; no temporary directory, no `/etc/passwd`, and no name resolution; a pinned
+  executable on a FUSE-like file system (for example Docker Desktop's shared folder) is refused at
+  its exec, failing closed; the ELF interpreter could map any library the root holds, inside the
+  same boundary; a call on another thread of the tool by its tid is refused; `sysinfo` values
+  (uptime, load, memory), the parent's pid, and the metadata of the pinned paths stay visible.
+- Windows and any other OS: `unavailable`.
+
 ## Child Process Environment
 
 Bounded child processes start from `env_clear` and receive only a small

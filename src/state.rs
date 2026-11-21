@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
+pub(crate) mod tool_history;
+
 pub const SESSION_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -66,11 +68,12 @@ impl ConversationMessage {
         tool_call_id: Option<impl Into<String>>,
         content: impl Into<String>,
     ) -> Self {
-        let content = crate::eval_events::body_snippet_whole_tokens(&content.into());
+        let name = name.into();
+        let content = tool_history::history_content(Some(&name), &content.into());
         Self {
             role: "tool".to_string(),
             content,
-            name: Some(name.into()),
+            name: Some(name),
             tool_call_id: tool_call_id.map(Into::into),
             tool_calls: Vec::new(),
         }

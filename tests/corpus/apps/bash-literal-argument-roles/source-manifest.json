@@ -1,0 +1,259 @@
+{
+  "source_run": "generic comparison L-162 (S-163a reclassification of all 33 bash_path_confinement_error events, 2026-10-30), arms G0 and GLMlow; observed with a binary built from 7504009b, whose src/tools tree equals the base",
+  "source_sha": "f9103ce6ad184319f0cc17de11ce0b78d0e1a885",
+  "run_dir": "<generic-bench>/runs-v10",
+  "counts": {
+    "rejections": 33,
+    "type_b_program_pattern": 7,
+    "type_c_argv_stdin_data": 16,
+    "type_d_kept": 10,
+    "first_version_shape": {
+      "type_b": 5,
+      "type_c": 11
+    },
+    "first_version_unresolved": {
+      "type_b": 2,
+      "type_c": 5
+    }
+  },
+  "accuracy_note": "the first-version shape is a chance to remove a misreading; no change in task accuracy was measured or is claimed",
+  "files": [
+    {
+      "file": "fixtures/cases.json",
+      "entry": "recorded[0] recorded-glmlow-a-mid-r1-29-sed-range-pipeline",
+      "source": "<generic-bench>/runs-v10/GLMlow/a-mid/r1/work/.commandagent/runs/01a18cbe-63ce-78b1-8822-c3c18ee27ab2/events.jsonl",
+      "lines": "29 (runtime_bash_policy, blocked)",
+      "sha256": "13fcc13a3f948d818bd72916545d87bef68b7dc43cdb978b8a6994727a1e467e",
+      "sha256_of": "the event's command_summary string (141 UTF-8 bytes)",
+      "event_line_sha256": "570037cf011fc17b1c1cf3d645fd04835ea801f50cea2de7c1d39d5d6090421b",
+      "processing": "excerpted: the single misread command (with its pipeline partner and redirect) was copied from command_summary; the commands after it were dropped; the misread fragment was copied from the rejection reason with the workspace root removed"
+    },
+    {
+      "file": "fixtures/cases.json",
+      "entry": "recorded[1] recorded-glmlow-a-mid-r1-36-awk-flag-range",
+      "source": "<generic-bench>/runs-v10/GLMlow/a-mid/r1/work/.commandagent/runs/01a18cbe-63ce-78b1-8822-c3c18ee27ab2/events.jsonl",
+      "lines": "36 (runtime_bash_policy, blocked)",
+      "sha256": "8f98a9afe413cffb5d14a83e02b6a165353471dd7a255eaba18976c1312aa9df",
+      "sha256_of": "the event's command_summary string (140 UTF-8 bytes)",
+      "event_line_sha256": "b5a7441e49bc5958643e98edf60a77ee764de34155b9c51d6f7ec148df8f4d2b",
+      "processing": "excerpted: the single misread command (with its pipeline partner and redirect) was copied from command_summary; the commands after it were dropped; the misread fragment was copied from the rejection reason with the workspace root removed"
+    },
+    {
+      "file": "fixtures/cases.json",
+      "entry": "recorded[2] recorded-glmlow-a-t3-r2-22-sed-range-pipeline",
+      "source": "<generic-bench>/runs-v10/GLMlow/a-t3/r2/work/.commandagent/runs/01a18cc0-d05a-7c71-ba50-d179eb7811bf/events.jsonl",
+      "lines": "22 (runtime_bash_policy, blocked)",
+      "sha256": "705bf0ef0240e30ce03b08364924ac60ae41ec554c2f23b5f9f11cabe9359603",
+      "sha256_of": "the event's command_summary string (120 UTF-8 bytes)",
+      "event_line_sha256": "546ef90937fe2ca7cd27293c97efc7d7c00f4ca7054210eae92901c0c7b8b988",
+      "processing": "excerpted: the single misread command (with its pipeline partner and redirect) was copied from command_summary; the commands after it were dropped; the misread fragment was copied from the rejection reason with the workspace root removed"
+    },
+    {
+      "file": "fixtures/cases.json",
+      "entry": "recorded[3] recorded-glmlow-a-t3-r2-29-awk-print-flag",
+      "source": "<generic-bench>/runs-v10/GLMlow/a-t3/r2/work/.commandagent/runs/01a18cc0-d05a-7c71-ba50-d179eb7811bf/events.jsonl",
+      "lines": "29 (runtime_bash_policy, blocked)",
+      "sha256": "66bbdc167ff513dc7de0b88a97d8db10015eafd056a02ead1d5edbcb617f4235",
+      "sha256_of": "the event's command_summary string (129 UTF-8 bytes)",
+      "event_line_sha256": "584c50196adc78292cd103275b83d0ae30f2664bc3f2fbf0500d45ee9d8c7117",
+      "processing": "excerpted: the single misread command (with its pipeline partner and redirect) was copied from command_summary; the commands after it were dropped; the misread fragment was copied from the rejection reason with the workspace root removed"
+    },
+    {
+      "file": "fixtures/cases.json",
+      "entry": "recorded[4] recorded-glmlow-a-t3-r2-36-grep-closing-tag",
+      "source": "<generic-bench>/runs-v10/GLMlow/a-t3/r2/work/.commandagent/runs/01a18cc0-d05a-7c71-ba50-d179eb7811bf/events.jsonl",
+      "lines": "36 (runtime_bash_policy, blocked)",
+      "sha256": "722bc04baa28096ce2dc771be296904dd6e97213edcdb79fcf539f2556f1b77f",
+      "sha256_of": "the event's command_summary string (83 UTF-8 bytes)",
+      "event_line_sha256": "8ef463b5d19d381edcb7662673b5610bc8fd733daf9a0b86c820dd6fe380188d",
+      "processing": "excerpted: the single misread command (with its pipeline partner and redirect) was copied from command_summary; the commands after it were dropped; the misread fragment was copied from the rejection reason with the workspace root removed"
+    },
+    {
+      "file": "fixtures/cases.json",
+      "entry": "recorded[5] recorded-g0-c-t4-r1-64-echo-json-pipe",
+      "source": "<generic-bench>/runs-v10/G0/c-t4/r1/work/.commandagent/runs/01a18cbf-f5fe-70c3-be6d-70c5bb07adc6/events.jsonl",
+      "lines": "64 (runtime_bash_policy, blocked)",
+      "sha256": "82f4d154134131917c9284d507813860c3b1770827c3504dacbd981b6109ca0e",
+      "sha256_of": "the event's command_summary string (95 UTF-8 bytes)",
+      "event_line_sha256": "21eb28bb7371864ca686ec8fbe0cd2393607a65c22a25f8cf6c2609faf6f78c6",
+      "processing": "measured, not copied: the reader, its options, the data role, the pipeline partner and redirect shape were read from command_summary; the JSON data was measured for byte length and omitted; the misread fragment was copied from the rejection reason only when it is a short pointer, with the workspace root removed; the follow-up commands were dropped"
+    },
+    {
+      "file": "fixtures/cases.json",
+      "entry": "recorded[6] recorded-glmlow-c-t4-r2-25-printf-json-lines",
+      "source": "<generic-bench>/runs-v10/GLMlow/c-t4/r2/work/.commandagent/runs/01a18cbf-343d-7d60-ad9c-b62b8667d08f/events.jsonl",
+      "lines": "25 (runtime_bash_policy, blocked)",
+      "sha256": "4751d70468de62b0cb2c017ab3707e71abc627206ff650ce7be2327cb35db857",
+      "sha256_of": "the event's command_summary string (500 UTF-8 bytes)",
+      "event_line_sha256": "9a8d43099b27366f61b0b38846ace481f22990a07a96d9dfb980a5a1d5dff305",
+      "processing": "measured, not copied: the reader, its options, the data role, the pipeline partner and redirect shape were read from command_summary; the JSON data was measured for byte length and omitted; the misread fragment was copied from the rejection reason only when it is a short pointer, with the workspace root removed; the follow-up commands were dropped"
+    },
+    {
+      "file": "fixtures/cases.json",
+      "entry": "recorded[7] recorded-glmlow-d-t4-r1-21-printf-long-json",
+      "source": "<generic-bench>/runs-v10/GLMlow/d-t4/r1/work/.commandagent/runs/01a18cc0-089e-7da0-a528-e977f9d6ab1e/events.jsonl",
+      "lines": "21 (runtime_bash_policy, blocked)",
+      "sha256": "e533a2ed3641289a7020c2af9490b18cf922864964480d361f73d3aa7c4fdd8a",
+      "sha256_of": "the event's command_summary string (321 UTF-8 bytes)",
+      "event_line_sha256": "2e6746ee06056ad27882cf4fd0a1c6379de46dd65e208e773ffc796c23cc909b",
+      "processing": "measured, not copied: the reader, its options, the data role, the pipeline partner and redirect shape were read from command_summary; the JSON data was measured for byte length and omitted; the misread fragment was copied from the rejection reason only when it is a short pointer, with the workspace root removed; the follow-up commands were dropped"
+    },
+    {
+      "file": "fixtures/cases.json",
+      "entry": "recorded[8] recorded-glmlow-d-t4-r1-28-printf-long-json",
+      "source": "<generic-bench>/runs-v10/GLMlow/d-t4/r1/work/.commandagent/runs/01a18cc0-089e-7da0-a528-e977f9d6ab1e/events.jsonl",
+      "lines": "28 (runtime_bash_policy, blocked)",
+      "sha256": "e533a2ed3641289a7020c2af9490b18cf922864964480d361f73d3aa7c4fdd8a",
+      "sha256_of": "the event's command_summary string (321 UTF-8 bytes)",
+      "event_line_sha256": "2e6746ee06056ad27882cf4fd0a1c6379de46dd65e208e773ffc796c23cc909b",
+      "processing": "measured, not copied: the reader, its options, the data role, the pipeline partner and redirect shape were read from command_summary; the JSON data was measured for byte length and omitted; the misread fragment was copied from the rejection reason only when it is a short pointer, with the workspace root removed; the follow-up commands were dropped"
+    },
+    {
+      "file": "fixtures/cases.json",
+      "entry": "recorded[9] recorded-glmlow-e-t3-r1-49-printf-json-format",
+      "source": "<generic-bench>/runs-v10/GLMlow/e-t3/r1/work/.commandagent/runs/01a18cc1-43ed-7290-b817-7b842333d360/events.jsonl",
+      "lines": "49 (runtime_bash_policy, blocked)",
+      "sha256": "aa4b9859ee70633884eabef5f85670c7f2fecc8e10171a407e4516b86014e715",
+      "sha256_of": "the event's command_summary string (500 UTF-8 bytes)",
+      "event_line_sha256": "c6f085566edc3ad221e1d4a3c3ff99225888846537c5bef41656eba91632e147",
+      "processing": "measured, not copied: the reader, its options, the data role, the pipeline partner and redirect shape were read from command_summary; the JSON data was measured for byte length and omitted; the misread fragment was copied from the rejection reason only when it is a short pointer, with the workspace root removed; the follow-up commands were dropped"
+    },
+    {
+      "file": "fixtures/cases.json",
+      "entry": "recorded[10] recorded-glmlow-e-t3-r2-49-printf-long-json",
+      "source": "<generic-bench>/runs-v10/GLMlow/e-t3/r2/work/.commandagent/runs/01a18cc2-1740-78f0-968b-12e1b3380c44/events.jsonl",
+      "lines": "49 (runtime_bash_policy, blocked)",
+      "sha256": "a1ca9f5dbe77314109b659b94b0f796ae89e28dccf6b369dd92ee137442f77b5",
+      "sha256_of": "the event's command_summary string (500 UTF-8 bytes)",
+      "event_line_sha256": "49501436339f88382f85968174b02ffe7dc212e641f1d8e8c82403dd93e737d4",
+      "processing": "measured, not copied: the reader, its options, the data role, the pipeline partner and redirect shape were read from command_summary; the JSON data was measured for byte length and omitted; the misread fragment was copied from the rejection reason only when it is a short pointer, with the workspace root removed; the follow-up commands were dropped"
+    },
+    {
+      "file": "fixtures/cases.json",
+      "entry": "recorded[11] recorded-glmlow-e-t3-r2-63-printf-long-json",
+      "source": "<generic-bench>/runs-v10/GLMlow/e-t3/r2/work/.commandagent/runs/01a18cc2-1740-78f0-968b-12e1b3380c44/events.jsonl",
+      "lines": "63 (runtime_bash_policy, blocked)",
+      "sha256": "a1ca9f5dbe77314109b659b94b0f796ae89e28dccf6b369dd92ee137442f77b5",
+      "sha256_of": "the event's command_summary string (500 UTF-8 bytes)",
+      "event_line_sha256": "49501436339f88382f85968174b02ffe7dc212e641f1d8e8c82403dd93e737d4",
+      "processing": "measured, not copied: the reader, its options, the data role, the pipeline partner and redirect shape were read from command_summary; the JSON data was measured for byte length and omitted; the misread fragment was copied from the rejection reason only when it is a short pointer, with the workspace root removed; the follow-up commands were dropped"
+    },
+    {
+      "file": "fixtures/cases.json",
+      "entry": "recorded[12] recorded-glmlow-e-t3-r2-81-printf-json-format-redirect",
+      "source": "<generic-bench>/runs-v10/GLMlow/e-t3/r2/work/.commandagent/runs/01a18cc2-1740-78f0-968b-12e1b3380c44/events.jsonl",
+      "lines": "81 (runtime_bash_policy, blocked)",
+      "sha256": "237610f5f3cc793caf0fe9adb152198c2198d0da9d0fc2d40c97cd439ad358ec",
+      "sha256_of": "the event's command_summary string (341 UTF-8 bytes)",
+      "event_line_sha256": "41f50292ba9732eae9c07e1ee14b4b3cf574838c7152278ca88cc1be35db0f0d",
+      "processing": "measured, not copied: the reader, its options, the data role, the pipeline partner and redirect shape were read from command_summary; the JSON data was measured for byte length and omitted; the misread fragment was copied from the rejection reason only when it is a short pointer, with the workspace root removed; the follow-up commands were dropped"
+    },
+    {
+      "file": "fixtures/cases.json",
+      "entry": "recorded[13] recorded-glmlow-e-t4-r1-61-printf-long-json",
+      "source": "<generic-bench>/runs-v10/GLMlow/e-t4/r1/work/.commandagent/runs/01a18cc0-c159-74c2-84dd-11ff21364e98/events.jsonl",
+      "lines": "61 (runtime_bash_policy, blocked)",
+      "sha256": "be4c3e443edc71bff8575cdfdbb3ac06dfe7f264c1ce85c329f6128007c7d94e",
+      "sha256_of": "the event's command_summary string (500 UTF-8 bytes)",
+      "event_line_sha256": "4a16faf18bd6bb8cb6cbc88d6e301a0d5b84577ea82b8721c6b9736819483c01",
+      "processing": "measured, not copied: the reader, its options, the data role, the pipeline partner and redirect shape were read from command_summary; the JSON data was measured for byte length and omitted; the misread fragment was copied from the rejection reason only when it is a short pointer, with the workspace root removed; the follow-up commands were dropped"
+    },
+    {
+      "file": "fixtures/cases.json",
+      "entry": "recorded[14] recorded-glmlow-e-t4-r2-64-printf-long-json",
+      "source": "<generic-bench>/runs-v10/GLMlow/e-t4/r2/work/.commandagent/runs/01a18cc1-c65e-75d1-a95f-31b8b61764cb/events.jsonl",
+      "lines": "64 (runtime_bash_policy, blocked)",
+      "sha256": "a2618dceca62d368aa0a7396d4266125b29bb8900fc316689dcecd504b67a58c",
+      "sha256_of": "the event's command_summary string (500 UTF-8 bytes)",
+      "event_line_sha256": "340478833f025600082c40d2a5b1438a8c5b4500efc46cc97c9d6b8e316eb9da",
+      "processing": "measured, not copied: the reader, its options, the data role, the pipeline partner and redirect shape were read from command_summary; the JSON data was measured for byte length and omitted; the misread fragment was copied from the rejection reason only when it is a short pointer, with the workspace root removed; the follow-up commands were dropped"
+    },
+    {
+      "file": "fixtures/cases.json",
+      "entry": "recorded[15] recorded-glmlow-e-t4-r2-71-printf-long-json",
+      "source": "<generic-bench>/runs-v10/GLMlow/e-t4/r2/work/.commandagent/runs/01a18cc1-c65e-75d1-a95f-31b8b61764cb/events.jsonl",
+      "lines": "71 (runtime_bash_policy, blocked)",
+      "sha256": "a2618dceca62d368aa0a7396d4266125b29bb8900fc316689dcecd504b67a58c",
+      "sha256_of": "the event's command_summary string (500 UTF-8 bytes)",
+      "event_line_sha256": "340478833f025600082c40d2a5b1438a8c5b4500efc46cc97c9d6b8e316eb9da",
+      "processing": "measured, not copied: the reader, its options, the data role, the pipeline partner and redirect shape were read from command_summary; the JSON data was measured for byte length and omitted; the misread fragment was copied from the rejection reason only when it is a short pointer, with the workspace root removed; the follow-up commands were dropped"
+    },
+    {
+      "file": "fixtures/cases.json",
+      "entry": "unresolved[0] GLMlow/a-mid/r1:15",
+      "source": "<generic-bench>/runs-v10/GLMlow/a-mid/r1/work/.commandagent/runs/01a18cbe-63ce-78b1-8822-c3c18ee27ab2/events.jsonl",
+      "lines": "15 (runtime_bash_policy, blocked)",
+      "sha256": "7b8bd3ca3c8a97702bb52e33f0668f212b3d9d35ec05d84f2a62537244e98fbe",
+      "sha256_of": "the event's command_summary string (245 UTF-8 bytes)",
+      "event_line_sha256": "2d3e59e254bb62ad1623aeee63319a288f54387c9a4555fb7a12e39100183002",
+      "processing": "classified only: the form named in the S-163a index; no command text copied"
+    },
+    {
+      "file": "fixtures/cases.json",
+      "entry": "unresolved[1] GLMlow/a-mid/r1:22",
+      "source": "<generic-bench>/runs-v10/GLMlow/a-mid/r1/work/.commandagent/runs/01a18cbe-63ce-78b1-8822-c3c18ee27ab2/events.jsonl",
+      "lines": "22 (runtime_bash_policy, blocked)",
+      "sha256": "a6bffd92130566352ccebee3b83d26495b5253dd75465fb3fc972de6f8cf5780",
+      "sha256_of": "the event's command_summary string (94 UTF-8 bytes)",
+      "event_line_sha256": "8a03cbe7bfaec0e38b9807b18b739fb5083c696c5cf81ee4ee6f040a1d991367",
+      "processing": "classified only: the form named in the S-163a index; no command text copied"
+    },
+    {
+      "file": "fixtures/cases.json",
+      "entry": "unresolved[2] G0/c-t4/r1:26",
+      "source": "<generic-bench>/runs-v10/G0/c-t4/r1/work/.commandagent/runs/01a18cbf-f5fe-70c3-be6d-70c5bb07adc6/events.jsonl",
+      "lines": "26 (runtime_bash_policy, blocked)",
+      "sha256": "321b5fc52fe5b4483f990903c34b1329c9b3324364a08445a958f2b4a324df66",
+      "sha256_of": "the event's command_summary string (500 UTF-8 bytes)",
+      "event_line_sha256": "6f9df1b648499a4bc76839a7a6328a2c1e9a9fc18da2c292680d955c7bb994d9",
+      "processing": "classified only: the form named in the S-163a index; no command text copied"
+    },
+    {
+      "file": "fixtures/cases.json",
+      "entry": "unresolved[3] G0/c-t4/r1:33",
+      "source": "<generic-bench>/runs-v10/G0/c-t4/r1/work/.commandagent/runs/01a18cbf-f5fe-70c3-be6d-70c5bb07adc6/events.jsonl",
+      "lines": "33 (runtime_bash_policy, blocked)",
+      "sha256": "cab19fc6f44cbd110a03e1d14e5f35d96cb7cd7ac15c9df4425720b68e08a9e7",
+      "sha256_of": "the event's command_summary string (500 UTF-8 bytes)",
+      "event_line_sha256": "dde09b7a276eb2b4dcc0593cfdaf8c1eb1d9d776e46b2032efb918cd2e34b94a",
+      "processing": "classified only: the form named in the S-163a index; no command text copied"
+    },
+    {
+      "file": "fixtures/cases.json",
+      "entry": "unresolved[4] G0/c-t4/r1:57",
+      "source": "<generic-bench>/runs-v10/G0/c-t4/r1/work/.commandagent/runs/01a18cbf-f5fe-70c3-be6d-70c5bb07adc6/events.jsonl",
+      "lines": "57 (runtime_bash_policy, blocked)",
+      "sha256": "f1147b9e3049c0cd439339d1a0ecea8105e2a752ccae2755465c1eeeefcd39e4",
+      "sha256_of": "the event's command_summary string (96 UTF-8 bytes)",
+      "event_line_sha256": "0ae2bdd34986303700b5494f1baa4e097e27f5d68f112c1e670330169519d005",
+      "processing": "classified only: the form named in the S-163a index; no command text copied"
+    },
+    {
+      "file": "fixtures/cases.json",
+      "entry": "unresolved[5] G0/c-t4/r1:71",
+      "source": "<generic-bench>/runs-v10/G0/c-t4/r1/work/.commandagent/runs/01a18cbf-f5fe-70c3-be6d-70c5bb07adc6/events.jsonl",
+      "lines": "71 (runtime_bash_policy, blocked)",
+      "sha256": "00d8595628776d7cf7b17388372a041e222fe49b5a476e68c67ca60426341d52",
+      "sha256_of": "the event's command_summary string (500 UTF-8 bytes)",
+      "event_line_sha256": "0ccefa615d3c5f910dc3a4d6bb17654349e04e7e06c4aef22455bf4d66f5de0c",
+      "processing": "classified only: the form named in the S-163a index; no command text copied"
+    },
+    {
+      "file": "fixtures/cases.json",
+      "entry": "unresolved[6] GLMlow/c-t4/r1:28",
+      "source": "<generic-bench>/runs-v10/GLMlow/c-t4/r1/work/.commandagent/runs/01a18cc0-1b9d-7280-8840-29db85b607c1/events.jsonl",
+      "lines": "28 (runtime_bash_policy, blocked)",
+      "sha256": "38801deaa5f108b1e6cc6b522e4998dce59724c40996015a9d186454e4973233",
+      "sha256_of": "the event's command_summary string (500 UTF-8 bytes)",
+      "event_line_sha256": "f79c665b565041f0f9880a9ff418460fe2ad46689258a6d0b15c325615d324e9",
+      "processing": "classified only: the form named in the S-163a index; no command text copied"
+    },
+    {
+      "file": "fixtures/cases.json",
+      "entry": "synthetic[*]",
+      "source": "synthetic: minimal shell forms and expected guard decisions written for Issue #930 from the shell/guard contract; no recorded command text, task text, grader expectation, hidden test, model name, secret, or absolute path is copied. The sed w/r/e, s///w, s///e, awk getline/redirect/pipe/system rows are counterexamples that never occurred in a recorded run.",
+      "sha256": null,
+      "note": "the post-fix allowance is shown only by synthetic rows; the recorded rows carry the pre-fix rejection and no success result"
+    }
+  ]
+}

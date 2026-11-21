@@ -303,6 +303,7 @@ mod issue420 {
 
     #[test]
     fn bash_page_change_is_preserved_without_write_edit_observation() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let (_dir, cfg, _) = setup();
         std::fs::write(cfg.workspace_root.join("replacement.tsx"), IMPLEMENTED).unwrap();
         let bash = AssistantReply {

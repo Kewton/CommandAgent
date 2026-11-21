@@ -1,0 +1,38 @@
+# CommandAgent editable plan YAML. Comments are ignored.
+# Edit values, add or remove list items, then validate before execution.
+# Validation never executes the plan: commandagent --validate-plan <path>
+# goal: overall outcome; steps run in order.
+# kind: inspect, setup, implement, verify, or report.
+# expected_result: pass or fail; paths and verify commands are optional lists.
+# Run only after validation: commandagent --run-plan <path>
+goal: "Implement a server-side file-based persistence layer in src/app/api/notes/route.ts and src/app/api/notes/[id]/route.ts."
+steps:
+  - id: "inspect-workspace"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Check existing files in src/app/api and src/lib to determine current state of persistence layer and types."
+    expected_paths:
+    verify:
+  - id: "implement-api-routes"
+    kind: "implement"
+    expected_result: "pass"
+    instruction: "Implement file-based persistence in src/app/api/notes/route.ts and src/app/api/notes/[id]/route.ts. Use a JSON file for storage. Implement GET (list), POST (create), PUT (update), and DELETE. Ensure atomic writes by writing to a temporary file and using fs.renameSync. Handle ENOENT for missing data files. Use types from src/lib/types.ts.\n\nProfile contract:\nThis step owns the active profile contract, which is given in full under Profile guidance in the system prompt; satisfy every requirement in it."
+    expected_paths:
+      - "src/app/api/notes/route.ts"
+      - "src/app/api/notes/[id]/route.ts"
+      - "package.json"
+    verify:
+  - id: "verify-api-logic"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Run the listed deterministic verification commands without changing files."
+    expected_paths:
+    verify:
+      - "node smoke-check.js"
+  - id: "verify-build"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Run the Next.js build command to ensure no TypeScript or routing errors were introduced."
+    expected_paths:
+    verify:
+      - "npm run build"

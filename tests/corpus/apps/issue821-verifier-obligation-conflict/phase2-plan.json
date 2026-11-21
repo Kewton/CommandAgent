@@ -1,0 +1,47 @@
+{
+  "goal": "Original ultra goal: ちょっとしたメモアプリを作って。ブラウザで使えるようにしてください。\nProfile: generic\nStyle: default\nIntent: create\nPhase id: implement-memo-logic\nPhase task: Implement the JavaScript logic to handle saving notes to localStorage and rendering the list of saved notes on the page. Ensure notes persist after page refresh.\n\nWorkspace snapshot:\n- index.html\n- script.js\n- smoke-check.js\n- style.css\n\nPrior ultra context:\n- Completed phases:\n  - project-setup (3/3)\n- Created or changed paths:\n  - index.html\n  - style.css\n  - script.js\n  - smoke-check.js\n- Pending capability/evidence:\n  - generic_fail_open_unsupported_language_co_signal_absent:user_input_handler_evidence\n  - remedy: generic_fail_open_unsupported_language_co_signal_absent:user_input_handler_evidence: add concrete route-bound implementation evidence for this pending contract key\n\nUnmet final requirements from earlier phases:\n- generic_fail_open_unsupported_language_co_signal_absent:user_input_handler_evidence\n- remedy: generic_fail_open_unsupported_language_co_signal_absent:user_input_handler_evidence: add concrete route-bound implementation evidence for this pending contract key\n- Close these requirements when they are in scope for this phase.\n\nRequested features not yet detected:\n- ability\n- accordingly\n- after\n- appealing\n- apply\n- area\n- … and 21 more\n\nProfile generation rules:\n- none\n\nProfile runtime contract:\n- Keep changes scoped to the current phase and workspace.Deterministic verification preference:\n- none\n\n\nRequired final capabilities:\n- generic_interactive_contract\n\nRequired final evidence:\n- user_input_handler_evidence\n- stateful_update_evidence\n- visible_interactive_surface_evidence",
+  "steps": [
+    {
+      "id": "inspect-current-files",
+      "kind": "inspect",
+      "expected_result": "pass",
+      "instruction": "Read index.html and script.js to understand the current DOM structure and existing boilerplate code.",
+      "expected_paths": [],
+      "verify": []
+    },
+    {
+      "id": "implement-memo-logic",
+      "kind": "implement",
+      "expected_result": "pass",
+      "instruction": "Update script.js to implement the following: 1. A function to save notes to localStorage. 2. A function to load and render notes from localStorage on page load. 3. An event listener for the save button to capture input and trigger the save/render cycle. 4. A function to delete notes.",
+      "expected_paths": [
+        "script.js"
+      ],
+      "verify": [
+        "grep -q \"localStorage\" script.js"
+      ]
+    },
+    {
+      "id": "update-smoke-check",
+      "kind": "implement",
+      "expected_result": "pass",
+      "instruction": "Update smoke-check.js to simulate adding a note to localStorage and verifying that the rendered output would reflect this change, providing evidence for user_input_handler_evidence and stateful_update_evidence.",
+      "expected_paths": [
+        "smoke-check.js"
+      ],
+      "verify": [
+        "node smoke-check.js"
+      ]
+    },
+    {
+      "id": "verify-persistence-logic",
+      "kind": "verify",
+      "expected_result": "pass",
+      "instruction": "Run the smoke check script to ensure the logic for localStorage interaction is functionally correct.",
+      "expected_paths": [],
+      "verify": [
+        "node smoke-check.js"
+      ]
+    }
+  ]
+}

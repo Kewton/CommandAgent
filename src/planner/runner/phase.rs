@@ -82,6 +82,10 @@ mod effects;
 mod flow;
 #[path = "phase/intent_completion.rs"]
 mod intent_completion;
+#[path = "phase/model_verifier_disagreement.rs"]
+mod model_verifier_disagreement;
+#[path = "phase/model_verifier_edit.rs"]
+mod model_verifier_edit;
 #[path = "phase/plan_step_events.rs"]
 mod plan_step_events;
 #[path = "phase/recovery_fix.rs"]
@@ -1354,6 +1358,9 @@ pub(super) fn run_step(
         );
     }
     if report.is_pass() {
+        if let Some(err) = model_verifier_edit::reject(config, plan, step, overall_goal, &outcome) {
+            return Err(err);
+        }
         if production_build_lifecycle_passed(&build_lifecycles) {
             snapshot_last_known_good_sources(
                 config,
@@ -1417,11 +1424,14 @@ pub(super) fn run_step(
         ..RepairContext::default()
     };
     recovery_fix.merge_verify_commands(&mut context.verify_commands);
+    context.model_verifier_edit_path =
+        model_verifier_edit::authority(config, plan, step, overall_goal, &report);
     let mut current_report = report;
     let mut previous_missing = current_report.missing_paths.len();
     let mut repair_stop_reason = None;
     let mut terminal_repair_failure_kind: Option<String> = None;
     let mut terminal_blocked_requirements: Vec<String> = Vec::new();
+    let mut disagreement = None;
     let mut no_change_repairs = 0usize;
     let mut target_not_followed_repairs = 0usize;
     let mut identical_no_change_repairs = 0usize;
@@ -1703,7 +1713,11 @@ pub(super) fn run_step(
                     "target_not_followed_repairs": target_not_followed_repairs,
                     "identical_no_change_repairs": identical_no_change_repairs,
                     "report_signature_unchanged": report_signature_unchanged,
-                    "allowed_action": previous_target.allowed_action(),
+                    "allowed_action": if context.model_verifier_edit_path.is_some() {
+                        RepairTarget::ModelVerifierEdit.allowed_action()
+                    } else {
+                        previous_target.allowed_action()
+                    },
                     "repair_stop_reason": repair_stop_reason.clone().unwrap_or_default(),
                     "repair_session_mode": repair_session_mode.as_str(),
                     "compile_reanchored_retry": context.compile_reanchored_retry,
@@ -1716,6 +1730,11 @@ pub(super) fn run_step(
                 }),
             );
             if retry.is_pass() {
+                if let Some(err) =
+                    model_verifier_edit::reject(config, plan, step, overall_goal, &outcome)
+                {
+                    return Err(err);
+                }
                 if production_build_lifecycle_passed(&retry_lifecycles) {
                     snapshot_last_known_good_sources(
                         config,
@@ -1794,6 +1813,15 @@ pub(super) fn run_step(
                         if restored_retry.is_pass() {
                             outcome.primary_failure = None;
                             outcome.stop_reason = Some("hook_snapshot_restore_applied".to_string());
+                            if let Some(err) = model_verifier_edit::reject(
+                                config,
+                                plan,
+                                step,
+                                overall_goal,
+                                &outcome,
+                            ) {
+                                return Err(err);
+                            }
                             return Ok(outcome);
                         }
                         let restored_reachability = repair_policy.assess(
@@ -1992,6 +2020,15 @@ pub(super) fn run_step(
                                 outcome.primary_failure = None;
                                 outcome.stop_reason =
                                     Some("compile_regeneration_applied".to_string());
+                                if let Some(err) = model_verifier_edit::reject(
+                                    config,
+                                    plan,
+                                    step,
+                                    overall_goal,
+                                    &outcome,
+                                ) {
+                                    return Err(err);
+                                }
                                 return Ok(outcome);
                             }
                             let regenerated_reachability = repair_policy.assess(
@@ -2100,8 +2137,17 @@ pub(super) fn run_step(
                 if RepairTarget::reclassify_no_change(config, &step.id, &mut current_report) {
                     continue;
                 }
+                disagreement = model_verifier_disagreement::detect(
+                    config,
+                    plan,
+                    step,
+                    &prompt_context.overall_goal,
+                    &current_report,
+                );
                 terminal_repair_failure_kind = Some(if !current_report.compile_errors.is_empty() {
                     "compile_repair_no_source_change".to_string()
+                } else if disagreement.is_some() {
+                    model_verifier_disagreement::FAILURE_KIND.to_string()
                 } else {
                     "verify_repair_progress_unchanged".to_string()
                 });
@@ -2112,7 +2158,10 @@ pub(super) fn run_step(
     let final_failure_kind =
         terminal_repair_failure_kind.unwrap_or_else(|| "bounded_repair_exhausted".to_string());
     context.repair_stop_reason = Some(final_failure_kind.to_string());
-    let final_repair_target = classify_repair_target(&current_report);
+    let final_repair_target = match disagreement {
+        Some(_) => RepairTarget::ModelVerifier,
+        None => classify_repair_target(&current_report),
+    };
     if !current_report.compile_errors.is_empty() {
         match try_compile_rollback_after_repair_exhaustion(
             config,
@@ -2128,6 +2177,11 @@ pub(super) fn run_step(
                 outcome.stop_reason = Some("compile_rollback_applied".to_string());
                 outcome.partial = true;
                 outcome.compile_rollbacks.push(rollback);
+                if let Some(err) =
+                    model_verifier_edit::reject(config, plan, step, overall_goal, &outcome)
+                {
+                    return Err(err);
+                }
                 return Ok(outcome);
             }
             Ok(None) => {}
@@ -2150,6 +2204,7 @@ pub(super) fn run_step(
         repair_target: final_repair_target,
         repair_stop_reason: repair_stop_reason.as_deref(),
         blocked_requirements: &terminal_blocked_requirements,
+        extra_evidence: disagreement.as_ref().map_or(&[][..], |d| &d.evidence),
     }
     .into_error(outcome))
 }
@@ -2275,6 +2330,12 @@ pub(super) fn merge_verification_report(
     for reason in extra.profile_failures {
         report.push_profile_failure(reason);
     }
+    report
+        .artifact_repair_paths
+        .merge(extra.artifact_repair_paths);
+    report
+        .artifact_diagnostics
+        .merge(extra.artifact_diagnostics);
     report.refresh_status();
 }
 

@@ -5,8 +5,14 @@ use serde_json::Value;
 
 use crate::config::Config;
 use crate::eval_events::terminal_report;
+use crate::providers::BilledCostUsd;
+use crate::providers::compatible_effort::CompatibleEffortSetting;
+use crate::structured_budget::reservation::Money;
 
 pub(crate) use crate::eval_events::terminal_report::TerminalStatus;
+pub(crate) use declarations::{emit_end_of_run, markdown_sections as declaration_sections};
+
+mod declarations;
 
 const SCHEMA_VERSION: &str = "commandagent.headless-summary/v1";
 
@@ -25,6 +31,18 @@ impl Source {
         config: &Config,
         pack: Option<&crate::cli_pack::ResolvedPack>,
     ) -> Self {
+        Self::from_config_with_compatible_effort(
+            config,
+            pack,
+            CompatibleEffortSetting::from_process_env(),
+        )
+    }
+
+    fn from_config_with_compatible_effort(
+        config: &Config,
+        pack: Option<&crate::cli_pack::ResolvedPack>,
+        compatible_effort: CompatibleEffortSetting,
+    ) -> Self {
         Self {
             events_path: config.eval_events_path.clone(),
             workspace_root: Some(config.workspace_root.clone()),
@@ -41,6 +59,10 @@ impl Source {
                 planner_model: config.planner_model.clone(),
                 ollama_think: config.ollama_think.map(crate::config::OllamaThink::as_str),
                 ollama_think_request_field_present: config.ollama_think.is_some(),
+                compatible_reasoning_effort: crate::providers::compatible_effort::declaration(
+                    config,
+                    compatible_effort,
+                ),
             }),
             pack: pack.cloned(),
         }
@@ -92,6 +114,10 @@ struct ModelMetadata {
     planner_model: String,
     ollama_think: Option<&'static str>,
     ollama_think_request_field_present: bool,
+    /// Issue #931: the per-role declaration of the OpenAI-compatible reasoning
+    /// effort. It records what was configured to be sent, not what the server
+    /// applied; the `provider_request` event is the evidence of a send.
+    compatible_reasoning_effort: Value,
 }
 
 #[derive(Debug, Serialize)]
@@ -106,6 +132,11 @@ struct HeadlessSummary {
     events_path: Option<String>,
     duration_secs: Option<f64>,
     provider_cost_usd: Option<f64>,
+    /// Issue #1003: the sum of the amounts the provider reported it billed, one
+    /// per `provider_turn_duration`. A decimal string, never a float.
+    provider_billed_cost_usd_total: Option<String>,
+    provider_billed_cost_complete: Option<bool>,
+    provider_billed_cost_calls: u64,
     provider_usage_by_role: Value,
     stop_class: Option<String>,
     directive_round: u64,
@@ -120,6 +151,12 @@ struct HeadlessSummary {
     model_metadata: Option<ModelMetadata>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pack: Option<crate::cli_pack::ResolvedPack>,
+    /// Issue #1015: the wallet at the end of the run, only for a run that selected one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    run_budget: Option<crate::structured_budget::summary::RunBudgetSummary>,
+    /// Issue #1015: the declared stages at the end of the run, only for a run that declared them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    structured_stages: Option<crate::planner::structured_stages::summary::StagesSummary>,
 }
 
 pub(crate) fn render(source: &Source) -> String {
@@ -174,6 +211,7 @@ fn project(source: &Source) -> HeadlessSummary {
         .filter(|path| path.is_file());
     let provider_usage_by_role =
         crate::time_profile::aggregate_events(&events).provider_usage_by_role_json();
+    let billed = billed_cost_total(&events);
 
     HeadlessSummary {
         schema_version: SCHEMA_VERSION,
@@ -190,6 +228,9 @@ fn project(source: &Source) -> HeadlessSummary {
         events_path: persisted_events_path.map(display_path),
         duration_secs,
         provider_cost_usd: latest_number(&events, &["provider_cost_usd", "cost_usd"]),
+        provider_billed_cost_usd_total: billed.total,
+        provider_billed_cost_complete: billed.complete,
+        provider_billed_cost_calls: billed.reported_calls,
         provider_usage_by_role,
         stop_class: failed
             .then(|| {
@@ -228,7 +269,81 @@ fn project(source: &Source) -> HeadlessSummary {
         exit_code: report.exit_code,
         model_metadata: source.model_metadata.clone(),
         pack: source.pack.clone(),
+        run_budget: declarations::run_budget(&events),
+        structured_stages: declarations::structured_stages(&events),
     }
+}
+
+/// The provider-billed amounts of one run (Issue #1003).
+///
+/// An amount is counted once per `provider_turn_duration`; the `provider_response`
+/// of the same turn carries the same value and is never added. A value that is
+/// not a string holding an unsigned decimal within `BilledCostUsd::MAX` is
+/// "not reported", never zero.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct BilledCostTotal {
+    /// Decimal text of the sum, or `None` when nothing was reported or the sum overflowed.
+    pub(crate) total: Option<String>,
+    /// `None` without any provider call; `true` only when every call reported an amount.
+    pub(crate) complete: Option<bool>,
+    pub(crate) reported_calls: u64,
+    pub(crate) provider_calls: u64,
+}
+
+pub(crate) fn billed_cost_total(events: &[Value]) -> BilledCostTotal {
+    let mut provider_calls = 0_u64;
+    let mut reported_calls = 0_u64;
+    // `None` once the sum has overflowed.
+    let mut sum = Some(Money::ZERO);
+    for event in events {
+        if event.get("event").and_then(Value::as_str) != Some("provider_turn_duration") {
+            continue;
+        }
+        provider_calls += 1;
+        let Some(billed) = event
+            .get("provider_billed_cost_usd")
+            .and_then(Value::as_str)
+            .and_then(BilledCostUsd::from_json_token)
+        else {
+            continue;
+        };
+        reported_calls += 1;
+        sum = Money::from_billed(&billed)
+            .ok()
+            .and_then(|amount| sum.and_then(|current| current.checked_add(amount)));
+    }
+    let (total, complete) = if provider_calls == 0 {
+        (None, None)
+    } else if reported_calls == 0 {
+        (None, Some(false))
+    } else {
+        (
+            sum.map(Money::decimal_text),
+            Some(sum.is_some() && reported_calls == provider_calls),
+        )
+    };
+    BilledCostTotal {
+        total,
+        complete,
+        reported_calls,
+        provider_calls,
+    }
+}
+
+/// The `Provider billed cost` line of `summary.md`, only when at least one
+/// amount was reported and the sum did not overflow.
+pub(crate) fn billed_cost_summary_line(events: &[Value]) -> Option<String> {
+    let billed = billed_cost_total(events);
+    let total = billed.total?;
+    let incomplete = if billed.complete == Some(true) {
+        ""
+    } else {
+        " (incomplete)"
+    };
+    Some(format!(
+        "Provider billed cost: ${total} ({}/{} calls reported){incomplete}",
+        billed.reported_calls, billed.provider_calls
+    ))
 }
 
 fn latest_terminal(events: &[Value]) -> Option<&Value> {
@@ -299,6 +414,9 @@ fn number(value: &Value, key: &str) -> Option<f64> {
 fn display_path(path: impl AsRef<Path>) -> String {
     path.as_ref().display().to_string()
 }
+
+#[cfg(test)]
+mod golden_tests;
 
 #[cfg(test)]
 mod tests {
@@ -393,6 +511,136 @@ mod tests {
         assert_eq!(value["exit_code"], 0);
     }
 
+    fn billed_fields(value: &Value) -> (Value, Value, Value) {
+        (
+            value["provider_billed_cost_usd_total"].clone(),
+            value["provider_billed_cost_complete"].clone(),
+            value["provider_billed_cost_calls"].clone(),
+        )
+    }
+
+    #[test]
+    fn billed_fixture_sums_once_per_turn_without_float_error() {
+        let value = summary("billed");
+        assert_eq!(
+            billed_fields(&value),
+            (
+                serde_json::json!("0.50154"),
+                serde_json::json!(true),
+                serde_json::json!(3)
+            )
+        );
+        assert!(value["provider_cost_usd"].is_null());
+    }
+
+    #[test]
+    fn billed_incomplete_fixture_sums_the_known_calls() {
+        assert_eq!(
+            billed_fields(&summary("billed-incomplete")),
+            (
+                serde_json::json!("0.00154"),
+                serde_json::json!(false),
+                serde_json::json!(2)
+            )
+        );
+    }
+
+    #[test]
+    fn calls_without_a_billed_amount_are_not_reported_as_zero() {
+        for case in ["billed-none", "full"] {
+            let value = summary(case);
+            assert_eq!(
+                billed_fields(&value),
+                (Value::Null, serde_json::json!(false), serde_json::json!(0)),
+                "{case}"
+            );
+        }
+        assert_eq!(summary("full")["provider_cost_usd"], 0.0123);
+    }
+
+    #[test]
+    fn a_run_without_provider_calls_has_no_billed_verdict() {
+        assert_eq!(
+            billed_fields(&summary("static")),
+            (Value::Null, Value::Null, serde_json::json!(0))
+        );
+    }
+
+    fn turn(billed: Value) -> Value {
+        serde_json::json!({"event": "provider_turn_duration", "provider_billed_cost_usd": billed})
+    }
+
+    #[test]
+    fn unacceptable_billed_values_are_not_reported() {
+        let events = vec![
+            turn(serde_json::json!("0.25")),
+            turn(serde_json::json!("-0.25")),
+            turn(serde_json::json!("-0")),
+            turn(serde_json::json!(0.5)),
+            turn(serde_json::json!("9007199254740992")),
+            turn(serde_json::json!("1e400")),
+            turn(serde_json::json!("0x10")),
+            turn(Value::Null),
+        ];
+        let billed = billed_cost_total(&events);
+        assert_eq!(billed.total.as_deref(), Some("0.25"));
+        assert_eq!(billed.complete, Some(false));
+        assert_eq!(billed.reported_calls, 1);
+        assert_eq!(billed.provider_calls, 8);
+    }
+
+    #[test]
+    fn the_largest_accepted_amount_and_explicit_zero_are_reported() {
+        let events = vec![
+            turn(serde_json::json!(BilledCostUsd::MAX)),
+            turn(serde_json::json!("0")),
+        ];
+        let billed = billed_cost_total(&events);
+        assert_eq!(billed.total.as_deref(), Some(BilledCostUsd::MAX));
+        assert_eq!(billed.complete, Some(true));
+        assert_eq!(billed.reported_calls, 2);
+    }
+
+    #[test]
+    fn a_provider_response_alone_is_never_counted() {
+        let events = vec![serde_json::json!(
+            {"event": "provider_response", "provider_billed_cost_usd": "1"}
+        )];
+        let billed = billed_cost_total(&events);
+        assert_eq!(billed.total, None);
+        assert_eq!(billed.complete, None);
+        assert_eq!(billed.reported_calls, 0);
+    }
+
+    #[test]
+    fn an_overflowing_sum_gives_a_null_total_and_an_incomplete_verdict() {
+        // Each amount is within `BilledCostUsd::MAX` (~9.0e33 units), and u128 holds ~3.4e38, so
+        // 40,000 of them overflow the sum.
+        let events = (0..40_000)
+            .map(|_| turn(serde_json::json!(BilledCostUsd::MAX)))
+            .collect::<Vec<_>>();
+        let billed = billed_cost_total(&events);
+        assert_eq!(billed.total, None);
+        assert_eq!(billed.complete, Some(false));
+        assert_eq!(billed.reported_calls, 40_000);
+        assert_eq!(billed_cost_summary_line(&events), None);
+    }
+
+    #[test]
+    fn money_decimal_text_has_no_trailing_zeros_or_float() {
+        let text = |amount: &str| {
+            Money::from_billed(&BilledCostUsd::from_json_token(amount).unwrap())
+                .unwrap()
+                .decimal_text()
+        };
+        assert_eq!(text("0"), "0");
+        assert_eq!(text("0.50"), "0.5");
+        assert_eq!(text("12"), "12");
+        assert_eq!(text("1.000000000000000001"), "1.000000000000000001");
+        assert_eq!(text("1e-400"), "0.000000000000000001");
+        assert_eq!(text("5e-3"), "0.005");
+    }
+
     #[test]
     fn issue500_unverified_run_keeps_process_status_and_names_next_action() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(
@@ -480,6 +728,7 @@ mod tests {
                 planner_model: "qwen3.8:27b-mlx".to_string(),
                 ollama_think: Some("medium"),
                 ollama_think_request_field_present: true,
+                compatible_reasoning_effort: Value::Null,
             }),
             pack: None,
         };
@@ -491,6 +740,80 @@ mod tests {
             true
         );
         assert_eq!(value["model_metadata"]["planner_model"], "qwen3.8:27b-mlx");
+    }
+
+    fn compatible_effort_metadata(
+        extra: &[&str],
+        setting: CompatibleEffortSetting,
+    ) -> (Value, String) {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_string_lossy().into_owned();
+        let state = dir.path().join("state").to_string_lossy().into_owned();
+        let mut arguments = vec!["commandagent", "--cwd", &root, "--state-dir", &state];
+        arguments.extend_from_slice(extra);
+        let parsed = crate::provider_cli::parse_from(arguments).unwrap();
+        let config =
+            Config::from_cli_with_provider_options(parsed.cli, parsed.provider_options).unwrap();
+        let source = Source::from_config_with_compatible_effort(&config, None, setting);
+        let rendered = render(&source);
+        let value: Value = serde_json::from_str(&rendered).unwrap();
+        (value["model_metadata"].clone(), rendered)
+    }
+
+    #[test]
+    fn compatible_reasoning_effort_is_declared_per_role_without_touching_ollama_think() {
+        let mixed = [
+            "--provider",
+            "openai-compatible",
+            "--base-url",
+            "http://127.0.0.1:9/v1",
+            "--model",
+            "served",
+            "--planner-provider",
+            "ollama",
+            "--planner-model",
+            "planner",
+            "--think=high",
+        ];
+        let (metadata, _) = compatible_effort_metadata(
+            &mixed,
+            CompatibleEffortSetting::parse(Some(std::ffi::OsStr::new(" low "))),
+        );
+        let effort = &metadata["compatible_reasoning_effort"];
+        assert_eq!(effort["status"], "declared");
+        assert_eq!(effort["requested_value"], "low");
+        assert_eq!(effort["source"], "env");
+        assert_eq!(effort["server_support_verified"], false);
+        assert_eq!(effort["roles"][0]["role"], "executor");
+        assert_eq!(effort["roles"][0]["status"], "declared");
+        assert_eq!(effort["roles"][1]["role"], "planner");
+        assert_eq!(effort["roles"][1]["status"], "not_applicable");
+        assert!(effort["roles"][1]["requested_value"].is_null());
+        assert_eq!(metadata["ollama_think"], "high");
+        assert_eq!(metadata["ollama_think_request_field_present"], true);
+
+        let (metadata, _) = compatible_effort_metadata(&mixed, CompatibleEffortSetting::Omitted);
+        assert_eq!(metadata["compatible_reasoning_effort"]["status"], "omitted");
+        assert!(metadata["compatible_reasoning_effort"]["requested_value"].is_null());
+
+        let (metadata, rendered) =
+            compatible_effort_metadata(&mixed, CompatibleEffortSetting::Invalid);
+        assert_eq!(metadata["compatible_reasoning_effort"]["status"], "invalid");
+        assert!(metadata["compatible_reasoning_effort"]["requested_value"].is_null());
+        assert!(
+            !rendered.contains("\"requested_value\":\"low\""),
+            "{rendered}"
+        );
+
+        let (metadata, _) = compatible_effort_metadata(
+            &["--provider", "ollama", "--model", "m"],
+            CompatibleEffortSetting::parse(Some(std::ffi::OsStr::new("low"))),
+        );
+        assert_eq!(
+            metadata["compatible_reasoning_effort"]["status"],
+            "not_applicable"
+        );
+        assert!(metadata["compatible_reasoning_effort"]["requested_value"].is_null());
     }
 
     #[test]
@@ -551,6 +874,7 @@ mod tests {
                 planner_model: canary.to_string(),
                 ollama_think: None,
                 ollama_think_request_field_present: false,
+                compatible_reasoning_effort: Value::Null,
             }),
             pack: None,
         };

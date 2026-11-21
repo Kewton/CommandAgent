@@ -1,5 +1,6 @@
 use super::super::formation_scope::{FormationScope, ProfileAddition};
 use super::super::package_script_formation::{CapturedSources, PackageScripts, hash};
+use super::super::profile_contract_reference::PROFILE_CONTRACT_REFERENCE;
 use super::*;
 use crate::minimal_loop::evidence::package_script_check as grammar;
 
@@ -19,6 +20,19 @@ fn saved(formed: bool) -> StepPlan {
         "original-plan.json"
     }))
     .unwrap()
+}
+
+/// The recorded formed plan without its split host owner (#810). The package
+/// owner is a closed saved template that cannot grow, and the reference now
+/// fits beside it, so the host duty rides on the unchanged model owner and the
+/// recorded full-guidance owner is not needed. The overflow-to-split path stays
+/// covered by issue478_saved_split_preserves_executable_model_and_host_duties,
+/// which grows the model text instead.
+fn saved_formed_without_split_owner() -> StepPlan {
+    let mut plan = saved(true);
+    assert_eq!(plan.steps[5].id, "preserve-profile-package-duty");
+    plan.steps.remove(5);
+    plan
 }
 
 fn check() -> String {
@@ -44,7 +58,7 @@ fn issue484_saved_runner_forms_exact_literal_and_records_both_sources() {
     let root = tempfile::tempdir().unwrap();
     let c = super::issue478::nextjs_config(root.path());
     let before = saved(false);
-    let after = saved(true);
+    let after = saved_formed_without_split_owner();
     // Control for the pre-fix equivalence path: pure-import projection cannot
     // discharge this saved value display, even though the candidate is valid.
     let (unformed, records) = super::super::verifier_formation::project(&before, &after, None, &[]);
@@ -60,7 +74,7 @@ fn issue484_saved_runner_forms_exact_literal_and_records_both_sources() {
         panic!("{e:#}\n{}", json!(reasons))
     });
     assert_eq!(client.requests.lock().unwrap().len(), 2);
-    assert!(formed.steps[6].verify.contains(&check()));
+    assert!(formed.steps[5].verify.contains(&check()));
     let log = events(&c);
     let rejected = log
         .iter()
@@ -128,11 +142,18 @@ fn issue484_saved_runner_forms_exact_literal_and_records_both_sources() {
             source["instruction_sha256"],
             hash(step.instruction.as_bytes())
         );
+        // #810: the host reference is appended to the model owner exactly once.
+        let model_text = &before.steps[4].instruction;
+        let expected = format!("{model_text}\n\nProfile contract:\n{PROFILE_CONTRACT_REFERENCE}");
+        match source["kind"].as_str().unwrap() {
+            "model" => assert_eq!(step.instruction, *model_text),
+            _ => assert_eq!(step.instruction, PROFILE_CONTRACT_REFERENCE),
+        }
         assert!(
             formed
                 .steps
                 .iter()
-                .any(|owner| owner.instruction == step.instruction
+                .any(|owner| owner.instruction == expected
                     && owner.expected_paths == ["package.json"]
                     && owner.step_kind() == StepKind::Implement)
         );
@@ -254,6 +275,30 @@ fn direct(
     )
 }
 
+// No saved literal exists, so no later proposal can form the frozen weak
+// command: the first admission stops (#884) instead of retrying.
+fn stops_at_first(c: &Config, before: &StepPlan) -> admission::Admission {
+    let mut admission = admission::Admission::default();
+    match admission.check(c, None, before, &mut before.clone(), 1) {
+        Err(error) => assert!(
+            format!("{error:#}").contains("no acceptable form and is frozen"),
+            "{error:#}"
+        ),
+        Ok(_) => panic!("the first admission did not stop"),
+    }
+    // A formed command with the saved literal still cannot be admitted later.
+    let mut after = before.clone();
+    after.steps[0].verify = vec![check()];
+    assert!(
+        matches!(
+            admission.check(c, None, &after, &mut after.clone(), 2),
+            Ok(admission::Decision::Retry(_))
+        ),
+        "a formed proposal was not refused with a retry after the stop"
+    );
+    admission
+}
+
 #[test]
 fn issue484_unsupported_commands_and_unsafe_literals_never_gain_admission() {
     let controls: serde_json::Value =
@@ -263,12 +308,7 @@ fn issue484_unsupported_commands_and_unsafe_literals_never_gain_admission() {
     for command in controls["commands"].as_array().unwrap() {
         let mut before = single_owner(&saved(false).steps[4].instruction);
         before.steps[0].verify = vec![command.as_str().unwrap().into()];
-        let mut after = before.clone();
-        after.steps[0].verify = vec![check()];
-        assert!(
-            matches!(direct(&c, &before, &after).0, admission::Decision::Retry(_)),
-            "{command}"
-        );
+        stops_at_first(&c, &before);
     }
     for value in controls["unsafe_literals"].as_array().unwrap() {
         let value = value.as_str().unwrap();
@@ -278,12 +318,8 @@ fn issue484_unsupported_commands_and_unsafe_literals_never_gain_admission() {
         ));
         let mut after = before.clone();
         after.steps[0].verify = vec![check()];
-        let (decision, admission) = direct(&c, &before, &after);
-        assert!(
-            matches!(decision, admission::Decision::Retry(_)),
-            "{value:?}"
-        );
-        assert!(admission.finish(&c, None, after).is_err());
+        let admission = stops_at_first(&c, &before);
+        assert!(admission.finish(&c, None, after).is_err(), "{value:?}");
     }
     for instruction in [
         "Maintain package.json.",
@@ -293,12 +329,7 @@ fn issue484_unsupported_commands_and_unsafe_literals_never_gain_admission() {
         "Set dev to the currently generated value.",
     ] {
         let before = single_owner(instruction);
-        let mut after = before.clone();
-        after.steps[0].verify = vec![check()];
-        assert!(
-            matches!(direct(&c, &before, &after).0, admission::Decision::Retry(_)),
-            "{instruction}"
-        );
+        stops_at_first(&c, &before);
     }
 }
 

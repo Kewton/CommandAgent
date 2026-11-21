@@ -1263,6 +1263,78 @@ fn c28_fixed_identifiers_cover_every_source_literal() {
     );
 }
 
+/// Issue #970: c28 sees only `"event": "<literal>"`. The speculative phase plan
+/// emitter receives its event name as an argument and writes `"event": event`,
+/// so every name passed to it is read from its call sites here instead.
+#[test]
+fn c28c_speculative_phase_plan_emitter_arguments_are_fixed_identifiers() {
+    let source = include_str!("../planner/pipeline.rs");
+    let product = &source[..source
+        .find("\n#[cfg(test)]\nmod tests {")
+        .expect("pipeline.rs has a test module")];
+    let definition = "fn emit_pipeline_event(";
+    assert_eq!(product.matches(definition).count(), 1, "one shared emitter");
+    let body = &product[product.find(definition).unwrap()..];
+    let body = &body[..body.find("\n}\n").expect("the emitter body ends")];
+    assert!(
+        body.contains("event: &'static str") && body.contains("\"event\": event,"),
+        "the emitter writes its event argument as the event: {body}"
+    );
+
+    let mut names = Vec::new();
+    let mut unreadable = Vec::new();
+    for (offset, call) in product.match_indices("emit_pipeline_event(") {
+        if product[..offset].ends_with("fn ") {
+            continue;
+        }
+        let line = product[..offset].matches('\n').count() + 1;
+        let arguments = &product[offset + call.len()..];
+        // The first argument is the config; the event name is the second.
+        let event = arguments
+            .split_once(',')
+            .map(|(_, rest)| rest.trim_start())
+            .and_then(|rest| rest.strip_prefix('"'))
+            .and_then(|rest| rest.split_once('"'))
+            .map(|(name, _)| name);
+        match event {
+            Some(name) => names.push((line, name)),
+            None => unreadable.push(line),
+        }
+    }
+    assert!(
+        unreadable.is_empty(),
+        "pass the event name to emit_pipeline_event as a literal so it can be checked: lines {unreadable:?}"
+    );
+    assert!(names.len() >= 7, "the call sites were not found: {names:?}");
+    for expected in [
+        "speculative_phase_plan_not_started",
+        "speculative_phase_plan_started",
+        "speculative_phase_plan_adopted",
+        "speculative_phase_plan_discarded",
+    ] {
+        assert!(
+            names.iter().any(|(_, name)| *name == expected),
+            "{expected} was not found: {names:?}"
+        );
+    }
+
+    let provider_call = regex::Regex::new(r#"const PROVIDER_CALL_EVENT: &str = "([a-z0-9_]+)";"#)
+        .unwrap()
+        .captures(product)
+        .expect("the provider call event constant")[1]
+        .to_string();
+    let missing = names
+        .iter()
+        .map(|(line, name)| (*line, *name))
+        .chain([(0, provider_call.as_str())])
+        .filter(|(_, name)| !is_fixed_identifier(name))
+        .collect::<Vec<_>>();
+    assert!(
+        missing.is_empty(),
+        "speculative phase plan events are missing from FIXED_IDENTIFIERS (pipeline.rs line, name): {missing:?}"
+    );
+}
+
 #[test]
 fn c28b_forced_registration_is_not_called_from_product_code() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");

@@ -1,0 +1,19 @@
+[metadata]
+id = "cap-python-cli"
+display_name = "Assurance cap Python CLI overlay"
+schema_version = "v1"
+status = "draft"
+
+[overlay]
+base_profile = "python-cli"
+mode = "additive"
+
+[artifacts]
+required = ["docs/usage.md"]
+groups = []
+
+[guidance.variants.usage]
+triggers = [{ condition = "always" }]
+
+[guidance.variants.usage.messages]
+instruction = "Add docs/usage.md without changing the base profile obligations."

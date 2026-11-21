@@ -1,0 +1,20 @@
+case_id = "issue817-package-script-predicate-formation"
+source = "G1 stage 3a first proposals and Node controls; the strict predicate is structural, not implementation evidence"
+required_paths = []
+verify_commands = ["node -e \"const actual=require('./package.json').scripts.dev;require('node:assert/strict').strictEqual(typeof actual,'string');require('node:assert/strict').ok(actual.includes(\\\"3011\\\"));console.log(true)\""]
+required_capabilities = []
+required_evidence = ["implementation_artifact"]
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+acceptance_passed = false
+primary_reason = "missing_required_evidence:implementation_artifact"
+
+[weak_evidence]
+absent = ["node_smoke_without_assertion"]
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+source-manifest.json = ["01a1621e-7b92-79e2-812f-f9c961c614d6", "01a1621a-5663-72d0-9f89-b20fc1744ea3", "build-todo-ui"]

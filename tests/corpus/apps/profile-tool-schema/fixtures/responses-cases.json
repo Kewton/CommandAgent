@@ -1,0 +1,27 @@
+{
+  "issue": "#1005",
+  "kind": "synthetic",
+  "note": "The API and the tool protocol are two axes: every row here is api=responses on tool_protocol=native. The rows of cases.json keep their wires; none of them is read as a Responses tool protocol. Each row's expectation is the same calls on Chat Completions, run in the same test as the control, or a golden recorded before this feature; nothing here is generated from the Responses implementation.",
+  "rows": [
+    {"id": "responses-config-object-profile", "api": "responses", "tool_protocol": "native", "chat_control": "config-object-profile", "expect": "the request's parameters are the adopted schema and the Chat Completions parameters, strict=false on the schema tool only; the executor receives the raw value unchanged"},
+    {"id": "responses-document-index-profile", "api": "responses", "tool_protocol": "native", "chat_control": "document-index-profile", "expect": "as config-object-profile"},
+    {"id": "responses-rejected-rows", "api": "responses", "tool_protocol": "native", "chat_control_section": "rejected", "expect": "every rejected row of cases.json and one past each limit: zero executions, the Chat Completions refusal text, arguments \"{}\" on the next request, and the raw text nowhere in it"},
+    {"id": "responses-repeated-key-outside-the-calls", "api": "responses", "tool_protocol": "native", "expect": "every schema call of the reply is refused as duplicate_key"},
+    {"id": "responses-several-calls-in-one-reply", "api": "responses", "tool_protocol": "native", "expect": "outputs in the reply's order, each call with its own receipt, as on Chat Completions"},
+    {"id": "responses-safe-turn-replay", "api": "responses", "tool_protocol": "native", "expect": "reasoning, preamble, unknown item, and call go back once in their order"},
+    {"id": "responses-turn-rebuilt-from-the-host", "api": "responses", "tool_protocol": "native", "expect": "a refused call, a reshaped call, or a dummy secret in the preamble, the reasoning summary, or an unknown item: the turn is the host's call alone, and the dummy secret is in no request"},
+    {"id": "responses-bad-call-ids-in-a-row", "api": "responses", "tool_protocol": "native", "expect": "the retry feedback up to the existing limit, then the error; the same event names as malformed native calls on Chat Completions; never XML"}
+  ],
+  "id_errors": [
+    "missing",
+    "empty",
+    "not a string",
+    "twice in the reply",
+    "a schema call and another call in the reply",
+    "two other calls in the reply",
+    "a missing one after a good one",
+    "a schema call held before",
+    "another call held before, then a schema call",
+    "another call held before, then another call"
+  ]
+}

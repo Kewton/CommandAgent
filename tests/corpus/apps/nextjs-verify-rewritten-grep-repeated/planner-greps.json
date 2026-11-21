@@ -1,0 +1,10 @@
+{
+  "synthetic": "the greps a contract-wiring step declares for a Next.js game page; derived from the shape of campaign-G1-3a9 game-q (a hook attribute grep that a Verify step repeated), not recorded text",
+  "greps": [
+    { "family": "hook_action", "command": "grep -q 'data-anvil-action=\"primary\"' src/app/page.tsx" },
+    { "family": "hook_state", "command": "grep -q 'data-anvil-state' src/app/page.tsx" },
+    { "family": "script_includes", "command": "grep -q \"next dev\" package.json" },
+    { "family": "source_token", "command": "grep -q \"useState\" src/app/page.tsx" },
+    { "family": "source_keydown", "command": "grep -q 'onKeyDown' src/app/page.tsx" }
+  ]
+}

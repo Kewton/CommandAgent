@@ -1,0 +1,44 @@
+# CommandAgent editable plan YAML. Comments are ignored.
+# Edit values, add or remove list items, then validate before execution.
+# Validation never executes the plan: commandagent --validate-plan <path>
+# goal: overall outcome; steps run in order.
+# kind: inspect, setup, implement, verify, or report.
+# expected_result: pass or fail; paths and verify commands are optional lists.
+# Run only after validation: commandagent --run-plan <path>
+goal: "Original ultra goal: 作業ディレクトリの直下に、ブラウザで動くメモ帳の画面を作ってください。\n\n仕様:\n- ビルド不要の静的なファイルだけで作る。入口は `index.html`（作業ディレクトリの直下）。JavaScript・CSS は `index.html` の中に書いても、別のファイルに分けてもよい。外部の CDN やネットワーク上のライブラリは使わない。\n- 画面には次の要素を置く（採点はこの id・class で操作する）:\n  - メモを入力する 1 行の入力欄 `<input id=\"memo-input\">`\n  - 追加ボタン `<button id=\"add-button\">`\n  - メモの一覧 `<ul id=\"memo-list\">`\n- 入力欄に文字を入れて追加ボタンを押すと、一覧の末尾にメモが 1 件加わり、入力欄は空になる。\n- 一覧のメモは 1 件ごとに `<li>` とし、その中に\n  - `class=\"memo-text\"` の要素（メモの文字列をそのまま表示）と\n  - `class=\"delete-button\"` の削除ボタン（押すとそのメモを一覧から消す）\n  を置く（例: `<li><span class=\"memo-text\">牛乳を買う</span><button class=\"delete-button\">削除</button></li>`）。\n- メモはブラウザの localStorage に保存し、ページを再読み込みしても一覧（追加の順序を含む）が残る。削除も再読み込みの後まで反映される。\n- 最初に開いたとき（保存されたメモが無いとき）、一覧は空。\n- JavaScript のエラーを出さないこと。\n\n確認は `index.html` を HTTP で配信して（例: `python3 -m http.server`）ブラウザで開いて行えます。\nProfile: generic\nStyle: default\nIntent: create\nPhase id: html-skeleton-setup\nPhase task: Create index.html structure containing required DOM elements: input field id=memo-input, button id=add-button, unordered list id=memo-list; verify all three ids exist in the HTML document source\n\nWorkspace snapshot:\n- empty or metadata-only\n\nPrior ultra context:\n- none yet\n\nUnmet final requirements from earlier phases:\n- none\n\nRequested features not yet detected:\n- across\n- adds\n- after\n- alignment\n- before\n- browser\n- … and 74 more\n\nProfile generation rules:\n- none\n\nProfile runtime contract:\n- Keep changes scoped to the current phase and workspace.Deterministic verification preference:\n- none\n"
+steps:
+  - id: "work-html-implementation"
+    kind: "implement"
+    expected_result: "pass"
+    instruction: "Create index.html with: head containing CSS styles, body with input id=\"memo-input\", button id=\"add-button\", ul id=\"memo-list\"; include inline JS for localStorage load/save/delete operations to maintain state across page reloads without external dependencies"
+    expected_paths:
+      - "index.html"
+    verify:
+  - id: "verify-file-existence"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Verify index.html exists at workspace root"
+    expected_paths:
+    verify:
+      - "[ \"file_index.html\" -f ]"
+  - id: "verify-memo-input-id"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Verify memo-input input element id exists in HTML content"
+    expected_paths:
+    verify:
+      - "python3 -c \"f=open('index.html').read(); print('pass' if 'id=\\\"memo-input\\\"' in f else 'fail')\""
+  - id: "verify-add-button-id"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Verify add-button button id exists in HTML content"
+    expected_paths:
+    verify:
+      - "python3 -c \"f=open('index.html').read(); print('pass' if 'id=\\\"add-button\\\"' in f else 'fail')\""
+  - id: "verify-memo-list-id"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Verify memo-list element id exists in HTML content"
+    expected_paths:
+    verify:
+      - "python3 -c \"f=open('index.html').read(); print('pass' if 'id=\\\"memo-list\\\"' in f else 'fail')\""

@@ -1,0 +1,11 @@
+{
+  "source": "<bench>/runs-v3/C1p/{b-t3,e-t3}/r{1,2} (L-146) and <bench>/runs-v2/C1/e-t3/r{1,2} (L-144); each row of fixtures/recorded/runs.jsonl names its run_dir, events path, events_sha256 and events line numbers",
+  "source_version": "develop 65878b06 (both campaigns ran the release build of that commit)",
+  "owner": "edit-anchor-salvage",
+  "capture": "recorded/runs.jsonl holds the unmodified edit_anchor_salvaged event lines of each run, except that the absolute workspace prefix in `result` is replaced by <workspace>/. The events keep no old_string or new_string bodies, so no Edit text is reconstructed. target_final_membership is the ast summary (class bodies, top-level functions and their lines) of the run's final target file, whose sha256 is recorded with the initial one. In the five incorrect runs a top-level function starts at the line the salvage reported; in the correct contrast run (C1p/e-t3/r1, three salvages) no method left a class. The arm column is the bench arm id; no model name is recorded.",
+  "derived_fixture": "synthetic/cases.json is hand-authored and names the tests that pin each rule.",
+  "fixture_sha256": {
+    "recorded/runs.jsonl": "2b6cb0a33b48379c15c5b0b82a7bd37e57db2a5a7cf281d55876f980a6c31532",
+    "synthetic/cases.json": "ae078b68b73dabee37e01a071ee7cfa633505e547c944c909f71295623b8f95a"
+  }
+}

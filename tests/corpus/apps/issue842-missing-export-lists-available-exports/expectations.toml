@@ -1,0 +1,11 @@
+case_id = "issue842-missing-export-lists-available-exports"
+source = "G1 runs L-98 content-g and L-94 game-g; import scan missing-export feedback lists the exports the target file really has"
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/src/app/api/notes/route.ts = ["listNotes, createNote"]
+fixtures/src/lib/notes.ts = ["export async function getNotes", "export async function saveNote", "export async function deleteNote"]
+fixtures/src/app/page.tsx = ["initGame"]
+fixtures/src/lib/game-logic.ts = ["export function createAlienGrid", "export function updateGame", "export function fireProjectile"]

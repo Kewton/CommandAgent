@@ -3,13 +3,15 @@
 //! UI projections remain immediate. Only this caller thread's event-file writes,
 //! from the provider result through its tool batch, wait for the outcome.
 use std::cell::RefCell;
-use std::io::{Seek, Write};
+use std::io::{Seek, SeekFrom};
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+use anyhow::Context;
 use serde_json::{Value, json};
 
+use super::append_writer::{Progress, copy_exact, record, spool_out, write_counted};
 use crate::providers::AssistantReply;
 
 thread_local! {
@@ -20,6 +22,9 @@ struct PendingTurn {
     path: Option<PathBuf>,
     event: Option<Value>,
     tail: tempfile::SpooledTempFile,
+    /// The end of the last whole line in `tail`; bytes past it are a failed
+    /// write's fragment and are never read.
+    committed: u64,
 }
 
 pub(crate) struct ExecutionTelemetry {
@@ -34,6 +39,7 @@ impl ExecutionTelemetry {
                 path: path.map(Path::to_path_buf),
                 event: None,
                 tail: tempfile::spooled_tempfile(64 * 1024),
+                committed: 0,
             });
         });
         Self {
@@ -67,6 +73,7 @@ impl ExecutionTelemetry {
                         path: None,
                         event: None,
                         tail: tempfile::spooled_tempfile(64 * 1024),
+                        committed: 0,
                     },
                 )
             })
@@ -103,20 +110,37 @@ impl PendingTurn {
             return Ok(());
         };
         self.tail.rewind()?;
-        if buffer(&path, &event)? {
-            PENDING.with_borrow_mut(|pending| -> anyhow::Result<()> {
-                let parent = pending
-                    .iter_mut()
-                    .rev()
-                    .find(|turn| turn.path.as_deref() == Some(path.as_path()))
-                    .expect("buffer found enclosing scope");
-                std::io::copy(&mut self.tail, &mut parent.tail)?;
-                Ok(())
-            })?;
-        } else {
-            super::append(&path, &event)?;
-            let mut file = std::fs::OpenOptions::new().append(true).open(path)?;
-            std::io::copy(&mut self.tail, &mut file)?;
+        let event = protect(&path, &event);
+        let (tail, len) = (&mut self.tail, self.committed);
+        let merged = PENDING.with_borrow_mut(|pending| -> anyhow::Result<bool> {
+            let Some(parent) = pending
+                .iter_mut()
+                .rev()
+                .find(|turn| turn.path.as_deref() == Some(path.as_path()))
+            else {
+                return Ok(false);
+            };
+            // The nested turn's event and tail reach the parent together or
+            // not at all (Issue #987).
+            let head = match parent.event {
+                Some(_) => record(&event)?,
+                None => Vec::new(),
+            };
+            parent.tail.seek(SeekFrom::Start(parent.committed))?;
+            let mut out = spool_out(&mut parent.tail, true);
+            let mut progress = Progress::default();
+            write_counted(&mut out, &head, &mut progress)
+                .and_then(|()| copy_exact(tail, len, &mut out, &mut progress))
+                .with_context(|| {
+                    format!("nested provider turn lost: its event and {len} spooled bytes were not merged")
+                })?;
+            parent.committed += (head.len() as u64) + len;
+            parent.event.get_or_insert_with(|| event.clone());
+            Ok(true)
+        })?;
+        if !merged {
+            // One lock for the event line and its tail (Issue #987).
+            super::append_writer::append_event_with_tail(&path, &event, (tail, len))?;
         }
         Ok(())
     }
@@ -126,11 +150,7 @@ pub(super) fn buffer(path: &Path, event: &Value) -> anyhow::Result<bool> {
     // The caller (emit/append_event_failsafe) already scrubbed this payload;
     // re-applying the idempotent catalog scrub here guarantees the spool file
     // only ever receives protected bytes, including provider-thread events.
-    let mut protected = event.clone();
-    if let Some(context) = crate::sensitive_data::active_for(Some(path)) {
-        context.scrub_value_lenient(&mut protected);
-    }
-    let event = &protected;
+    let event = &protect(path, event);
     PENDING.with_borrow_mut(|pending| {
         let Some(turn) = pending
             .iter_mut()
@@ -145,11 +165,27 @@ pub(super) fn buffer(path: &Path, event: &Value) -> anyhow::Result<bool> {
             }
             turn.event = Some(event.clone());
         } else {
-            serde_json::to_writer(&mut turn.tail, event)?;
-            writeln!(turn.tail)?;
+            // From the last whole line: a failed write's fragment is overwritten.
+            let line = record(event)?;
+            turn.tail.seek(SeekFrom::Start(turn.committed))?;
+            write_counted(
+                &mut spool_out(&mut turn.tail, false),
+                &line,
+                &mut Progress::default(),
+            )
+            .context("failed to spool a provider-turn event")?;
+            turn.committed += line.len() as u64;
         }
         Ok(true)
     })
+}
+
+fn protect(path: &Path, event: &Value) -> Value {
+    let mut protected = event.clone();
+    if let Some(context) = crate::sensitive_data::active_for(Some(path)) {
+        context.scrub_value_lenient(&mut protected);
+    }
+    protected
 }
 
 #[cfg(test)]
@@ -298,5 +334,107 @@ mod issue440_tests {
         let events = events(&path);
         assert_eq!(events.len(), 101);
         assert_eq!(events[100]["index"], 99);
+    }
+
+    fn ids(path: &Path) -> Vec<String> {
+        let bytes = std::fs::read(path).unwrap();
+        let body = bytes
+            .strip_suffix(b"\n")
+            .expect("the last line ends with LF");
+        body.split(|byte| *byte == b'\n')
+            .map(|line| serde_json::from_slice::<Value>(line).unwrap()["id"].to_string())
+            .map(|id| id.trim_matches('"').to_string())
+            .collect()
+    }
+
+    fn fixture(id: &str, payload: usize) -> Value {
+        json!({"event":"fixture", "id":id, "payload":"y".repeat(payload)})
+    }
+
+    /// Issue #987: a spool write that fails part way leaves a fragment longer
+    /// than the next line; neither that fragment nor any of it is flushed.
+    #[test]
+    fn a_failed_spool_write_leaves_no_fragment_in_the_flushed_tail() {
+        use super::super::append_writer::test_seam::{Fault, FaultScope, Site};
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("events.jsonl");
+        let mut scope = ExecutionTelemetry::new(Some(&path));
+        let mut duration = duration("executor");
+        duration["id"] = json!("turn");
+        emit(Some(&path), duration);
+        for index in 0..40 {
+            append_event_failsafe(Some(&path), fixture(&format!("t{index}"), 2_048)).unwrap();
+        }
+        assert!(PENDING.with_borrow(|pending| pending.last().unwrap().tail.is_rolled()));
+        let faults = [
+            (Site::SpoolAppend, Fault::Short(3_000)),
+            (Site::SpoolAppend, Fault::Fail),
+        ];
+        let fault = FaultScope::enter(&faults);
+        assert!(append_event_failsafe(Some(&path), fixture("lost", 5_000)).is_err());
+        drop(fault);
+        append_event_failsafe(Some(&path), fixture("short", 10)).unwrap();
+        scope.finish().unwrap();
+        let mut want = vec!["turn".to_string()];
+        want.extend((0..40).map(|index| format!("t{index}")));
+        want.push("short".to_string());
+        assert_eq!(ids(&path), want);
+    }
+
+    /// Issue #987: a nested turn whose merge fails (a write part way, or its
+    /// tail ending before its length) is lost whole, by finish or by drop,
+    /// and the parent keeps its own lines and its event slot.
+    #[test]
+    fn a_failed_merge_loses_the_whole_nested_turn_and_keeps_the_parent() {
+        use super::super::append_writer::test_seam::{Fault, FaultScope, Site};
+        let write = [
+            (Site::SpoolMerge, Fault::Short(50)),
+            (Site::SpoolMerge, Fault::Fail),
+        ];
+        let early_eof = [
+            (Site::TailRead, Fault::Short(50)),
+            (Site::TailRead, Fault::Zero),
+        ];
+        let cases = [(write, true), (early_eof, true), (write, false)];
+        for (index, (faults, finish)) in cases.into_iter().enumerate() {
+            for parent_event in [true, false] {
+                let dir = tempfile::tempdir().unwrap();
+                let path = dir.path().join("events.jsonl");
+                let mut outer = ExecutionTelemetry::new(Some(&path));
+                if parent_event {
+                    let mut event = duration("executor");
+                    event["id"] = json!("outer");
+                    emit(Some(&path), event);
+                    append_event_failsafe(Some(&path), fixture("outer-0", 10)).unwrap();
+                }
+                {
+                    // Entered first, so it outlives the scope's drop.
+                    let _faults = FaultScope::enter(&faults);
+                    let mut inner = ExecutionTelemetry::new(Some(&path));
+                    let mut event = duration("repair");
+                    event["id"] = json!("inner");
+                    emit(Some(&path), event);
+                    for tail in 0..3 {
+                        let id = format!("inner-{tail}");
+                        append_event_failsafe(Some(&path), fixture(&id, 100)).unwrap();
+                    }
+                    if finish {
+                        let err = inner.finish().unwrap_err();
+                        let text = format!("{err:#}");
+                        assert!(text.contains("nested provider turn lost"), "{text}");
+                        let eof = faults[1].0 == Site::TailRead;
+                        assert_eq!(text.contains("ended"), eof, "{text}");
+                    }
+                }
+                append_event_failsafe(Some(&path), fixture("after", 10)).unwrap();
+                outer.finish().unwrap();
+                let want: &[&str] = if parent_event {
+                    &["outer", "outer-0", "after"]
+                } else {
+                    &["after"]
+                };
+                assert_eq!(ids(&path), want, "case {index}, parent {parent_event}");
+            }
+        }
     }
 }

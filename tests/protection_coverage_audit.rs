@@ -45,8 +45,39 @@ const PROTECTION_RULES: &[ProtectionRule] = &[
             "src/provider_call.rs",
             "src/bounded_process.rs",
             "src/bin/gui_server/delegate.rs",
+            "src/planner/artifact_contract_checks/process.rs",
+            "src/tools/profile_tools/process.rs",
         ],
         audit: audit_bounded_execution_chokepoints,
+    },
+    ProtectionRule {
+        category: "profile_tool_effect_boundary",
+        site_predicate: "propose-artifacts process launch, result acceptance, and host commit",
+        required_wrapper: "env_clear / deny-default isolation / bounded process / bound result / fd commit with receipt",
+        allowlist: &[
+            "src/tools/profile_tools/isolation.rs",
+            "src/tools/profile_tools/process.rs",
+            "src/tools/profile_tools/protocol.rs",
+            "src/tools/profile_tools/commit.rs",
+            "src/tools/profile_tools/effects.rs",
+            "src/tools/registry.rs",
+            // The Linux leaf (Issue #982): the launch sequence, its seccomp filter, its root.
+            "src/tools/profile_tools/isolation/linux.rs",
+            "src/tools/profile_tools/isolation/linux/filter.rs",
+            "src/tools/profile_tools/isolation/linux/root.rs",
+        ],
+        audit: audit_profile_tool_effect_boundary,
+    },
+    ProtectionRule {
+        category: "startup_credential_boundary",
+        site_predicate: "provider credentials in a process's exec-time environment",
+        required_wrapper: "first-statement self exec / read-only store / no way back to an environment",
+        allowlist: &[
+            "src/main.rs",
+            "src/bin/gui_server.rs",
+            "src/startup_credentials.rs",
+        ],
+        audit: audit_startup_credential_boundary,
     },
     ProtectionRule {
         category: "declarative_command_check_boundary",
@@ -54,6 +85,17 @@ const PROTECTION_RULES: &[ProtectionRule] = &[
         required_wrapper: "verify policy / normalized env / bounded process",
         allowlist: &["src/planner/declarative_command_checks.rs"],
         audit: audit_declarative_command_check_boundary,
+    },
+    ProtectionRule {
+        category: "artifact_contract_process_boundary",
+        site_predicate: "operator-registered artifact contract adapter launch and acceptance",
+        required_wrapper: "env_clear / pinned realpath executable / process group / bounded streams / partial cap",
+        allowlist: &[
+            "src/planner/artifact_contract_checks/process.rs",
+            "src/planner/artifact_contract_checks/mod.rs",
+            "src/planner/artifact_contract_checks/protocol.rs",
+        ],
+        audit: audit_artifact_contract_process_boundary,
     },
     ProtectionRule {
         category: "fetch_network_boundary",
@@ -93,7 +135,432 @@ const PROTECTION_RULES: &[ProtectionRule] = &[
         ],
         audit: audit_extension_supply_writes,
     },
+    ProtectionRule {
+        category: "structured_stage_completion",
+        site_predicate: "the ways a run with a declared stage set can end as a success",
+        required_wrapper: "StageFunnel / refuse_unmet_plan / final_gate_failure over StageLedger::verdict",
+        allowlist: &[
+            "src/minimal_loop/loop_run.rs",
+            "src/planner/runner/driver.rs",
+            "src/planner/runner/phase/flow.rs",
+            "src/planner/adjudication/create.rs",
+            "src/planner/structured_stages/mod.rs",
+            "src/planner/structured_stages/contract.rs",
+            "src/planner/fix_runtime.rs",
+            "src/planner/final_acceptance.rs",
+        ],
+        audit: audit_structured_stage_completion,
+    },
+    ProtectionRule {
+        category: "run_budget_provider_send",
+        site_predicate: "provider HTTP POSTs of a run with a wallet selected",
+        required_wrapper: "admit_route_on before any client / BudgetedBody::begin on every try",
+        allowlist: &[
+            "src/providers/mod.rs",
+            "src/providers/lm_studio.rs",
+            "src/providers/openai.rs",
+        ],
+        audit: audit_run_budget_provider_send,
+    },
 ];
+
+/// One required line for each end, and for the single judgment they all come to.
+const STRUCTURED_STAGE_REQUIRED: &[(usize, &str)] = &[
+    (
+        0,
+        "stages.finish(run_session_planned(run, options, &mut plan), config)",
+    ),
+    (
+        1,
+        "crate::planner::structured_stages::refuse_unmet_plan(config)",
+    ),
+    (
+        2,
+        "crate::planner::structured_stages::refuse_unmet_plan(config)?;",
+    ),
+    (
+        3,
+        "crate::planner::structured_stages::final_gate_failure(config)",
+    ),
+    (4, "StageScope::All => verdict.complete(),"),
+    (4, "if !verdict.ledger_intact() {"),
+    (5, "ContractRefusalKind::RecoversByItself"),
+    (
+        6,
+        "crate::planner::structured_stages::refuse_unmet_plan(config)?;",
+    ),
+    // The final repair's clock takes no clock from a test, so its value and its use are held here.
+    (
+        7,
+        "FINAL_ACCEPTANCE_REPAIR_WALL_CLOCK_CAP: Duration = Duration::from_secs(240)",
+    ),
+    (
+        2,
+        "repair_started.elapsed() > FINAL_ACCEPTANCE_REPAIR_WALL_CLOCK_CAP",
+    ),
+];
+
+fn audit_structured_stage_completion(corpus: &AuditCorpus, rule: &ProtectionRule) -> Vec<String> {
+    let mut violations = STRUCTURED_STAGE_REQUIRED
+        .iter()
+        .filter_map(|(index, required)| {
+            let path = rule.allowlist[*index];
+            (!production_text(corpus.file(path)).contains(required))
+                .then(|| format!("{path} is missing `{required}`"))
+        })
+        .collect::<Vec<_>>();
+    // The final repair's budget is one budget: nothing there may count by stage.
+    let repair = rule.allowlist[7];
+    if production_text(corpus.file(repair)).contains("structured_stages") {
+        violations.push(format!("{repair} reads the stages"));
+    }
+    violations
+}
+
+/// G5 (Issue #976): what each wallet client's `post_json` must say, as `allowlist-index code`, read
+/// by [`send_code`]. A wallet's body goes out only through `begin`, the plain body only where no
+/// wallet is.
+const RUN_BUDGET_SEND_REQUIRED: &[&str] = &[
+    "1 self.run_budget.as_ref().map(|handle|BudgetedBody::new(handle,body,send_purpose(self.provider_role)))",
+    "1 Some(budgeted)=>{let(request,send)=budgeted.begin(request).map_err(transport::refused)?",
+    "1 None=>(request.json(body),None),",
+    "2 self.run_budget.as_ref().map(|handle|{BudgetedBody::for_responses(handle,body,send_purpose(self.provider_role),&url)})",
+    "2 Some(budgeted)=>{let(request,send)=budgeted.begin(self.http.post(&url)).map_err(transport::refused)?",
+    "2 None=>(self.http.post(&url).bearer_auth(&self.api_key).json(body),None,),",
+];
+
+/// The POST marks in each wallet client's `post_json`: the request `begin` takes, and OpenAI's
+/// plain one for no wallet. Its one `.send(` sends what the match made of them.
+const RUN_BUDGET_CLIENT_POSTS: [usize; 3] = [0, 1, 2];
+
+/// The POSTs no wallet counts, each as `site marks guard-file guard-line`: the line that keeps it
+/// out of a run with one. The factory refuses the client, or the caller refuses the send; a
+/// router's `.post` sends nothing.
+const RUN_BUDGET_UNCOUNTED_POSTS: &[&str] = &[
+    "src/providers/ollama.rs 2 src/providers/mod.rs admit_route_on(",
+    "src/providers/gemini.rs 2 src/providers/mod.rs admit_route_on(",
+    "src/doctor.rs 1 src/doctor.rs refuse(Unmetered::ProviderCheck)",
+    "src/minimal_loop/request_pattern/jev.rs 1 src/minimal_loop/request_pattern/mod.rs entry::Unmetered::RequestPattern",
+    "src/bin/gui_server.rs 2 src/bin/gui_server.rs Router::new()",
+];
+
+/// Code that [`code_only`] has read, with no whitespace.
+fn send_code(code: &str) -> String {
+    code.split_whitespace().collect()
+}
+
+/// [`code_only`] of each text, read once in a test run: the audit reads the whole tree once for
+/// each weakened variant, and every file but the changed one is the same.
+fn code_once(text: &str) -> String {
+    type Read = std::sync::Mutex<std::collections::HashMap<String, String>>;
+    static READ: std::sync::OnceLock<Read> = std::sync::OnceLock::new();
+    let read = READ.get_or_init(Default::default);
+    if let Some(code) = read.lock().unwrap().get(text) {
+        return code.clone();
+    }
+    let code = code_only(text);
+    read.lock().unwrap().insert(text.to_string(), code.clone());
+    code
+}
+
+/// Every known way a request is made a POST: `.post(`, `Client::post(` (and its `put` and `patch`),
+/// `Method::POST`, and, in a provider, any `.request(`, whose method the audit cannot tell, so it
+/// counts (fail closed).
+fn post_marks(path: &str, code: &str) -> usize {
+    let requests = path.starts_with("src/providers/") as usize * code.matches(".request(").count();
+    let marks = [
+        ".post(",
+        "Client::post(",
+        "Client::put(",
+        "Client::patch(",
+        "Method::POST",
+    ];
+    marks
+        .map(|mark| code.matches(mark).count())
+        .iter()
+        .sum::<usize>()
+        + requests
+}
+
+/// A tripwire that notices a POST written in a known way where none was, not a proof of what runs:
+/// the code is read, never executed. That every send under a wallet is reserved is held by running
+/// it: the wallet's own tests count what a fake HTTP received against the wallet's records, and
+/// `admission.rs` `a_run_with_a_wallet_gets_no_client_but_the_one_it_can_count` and
+/// `a_selection_with_no_wallet_gets_no_client_and_no_selection_is_as_it_was` run the factory's
+/// refusal, wherever its admission sits. Out of its reach: a shared helper outside the providers
+/// that takes the method as an argument, and any rewrite meant to keep the counts.
+fn audit_run_budget_provider_send(corpus: &AuditCorpus, rule: &ProtectionRule) -> Vec<String> {
+    let mut violations = Vec::new();
+    // Code first, so an attribute in a comment is not read as one.
+    let corpus = &AuditCorpus {
+        files: corpus
+            .files
+            .iter()
+            .map(|(path, text)| (path.clone(), code_once(text)))
+            .collect(),
+    };
+    // Not `production_text`: it stops at a `mod tests;` near the top of a file.
+    let production = |path: &str| without_test_items(corpus.file(path));
+    let factory = function_body(
+        &production(rule.allowlist[0]),
+        "client_from_config_for_role",
+    )
+    .map(|body| send_code(&body))
+    .unwrap_or_default();
+    let admitted = factory.find("crate::structured_budget::admission::admit_route_on(config,role,crate::structured_budget::admission::run_basis(config),)?");
+    if admitted.is_none_or(|at| factory.find("Box::new(").is_none_or(|built| built < at)) {
+        violations.push(format!(
+            "{} builds a client before admit_route_on",
+            rule.allowlist[0]
+        ));
+    }
+    for (index, path) in rule.allowlist.iter().enumerate().skip(1) {
+        let text = production(path);
+        let post_json = send_code(&function_body(&text, "post_json").unwrap_or_default());
+        let marks = post_marks(path, &post_json);
+        if marks != post_marks(path, &send_code(&text)) || marks != RUN_BUDGET_CLIENT_POSTS[index] {
+            violations.push(format!(
+                "{path} has {marks} POST marks in post_json, not all of its own"
+            ));
+        }
+        let sends = [".send(", ".begin(", ".execute("].map(|send| post_json.matches(send).count());
+        if sends != [1, 1, 0] {
+            violations.push(format!(
+                "{path} post_json sends {} and begins {}, executes {}",
+                sends[0], sends[1], sends[2]
+            ));
+        }
+        let wanted = RUN_BUDGET_SEND_REQUIRED
+            .iter()
+            .filter_map(|line| line.split_once(' '));
+        for (_, required) in wanted.filter(|(at, _)| *at == index.to_string()) {
+            if !post_json.contains(required) {
+                violations.push(format!("{path} post_json is missing `{required}`"));
+            }
+        }
+    }
+    let test_only = test_only_files(corpus);
+    for (path, text) in corpus.src_rust_files() {
+        let posts = post_marks(&path, &send_code(&without_test_items(text))).to_string();
+        if posts == "0"
+            || test_only.contains(&path)
+            || path.ends_with("_tests.rs")
+            || rule.allowlist[1..].contains(&path.as_str())
+        {
+            continue;
+        }
+        let site = RUN_BUDGET_UNCOUNTED_POSTS
+            .iter()
+            .map(|site| site.splitn(4, ' ').collect::<Vec<_>>());
+        match site
+            .clone()
+            .find(|site| site[0] == path && site[1] == posts)
+        {
+            Some(site) if send_code(&production(site[2])).contains(site[3]) => {}
+            Some(site) => {
+                violations.push(format!("{path} posts and {} lacks `{}`", site[2], site[3]))
+            }
+            None => violations.push(format!("{path}: {posts} POSTs no wallet counts or refuses")),
+        }
+    }
+    violations
+}
+
+/// `source` as code alone: comments (line and block, nested) gone, and each string, byte string,
+/// raw string and character literal left empty, as `""` or `'_'`, so nothing written in one reads
+/// as code.
+fn code_only(source: &str) -> String {
+    let mut code = String::with_capacity(source.len());
+    let mut rest = source;
+    while let Some(first) = rest.chars().next() {
+        let after_ident = code.ends_with(|c: char| c.is_alphanumeric() || c == '_');
+        let raw = ["br", "cr", "r"]
+            .iter()
+            .find_map(|prefix| rest.strip_prefix(prefix))
+            .map(|after| (after, after.len() - after.trim_start_matches('#').len()))
+            .filter(|(after, hashes)| !after_ident && after[*hashes..].starts_with('"'));
+        let (length, kept) = if rest.starts_with("//") {
+            (rest.find('\n').unwrap_or(rest.len()), "")
+        } else if rest.starts_with("/*") {
+            let (mut depth, mut at) = (0usize, 0);
+            while at < rest.len() {
+                let opens = rest[at..].starts_with("/*");
+                if opens || rest[at..].starts_with("*/") {
+                    depth = if opens { depth + 1 } else { depth - 1 };
+                    at += 2;
+                    if depth == 0 {
+                        break;
+                    }
+                } else {
+                    at += rest[at..].chars().next().unwrap().len_utf8();
+                }
+            }
+            (at, " ")
+        } else if let Some((after, hashes)) = raw {
+            let open = rest.len() - after.len() + hashes + 1;
+            let close = ["\"", &"#".repeat(hashes)].concat();
+            let end = rest[open..].find(&close).map(|at| open + at + close.len());
+            (end.unwrap_or(rest.len()), "\"\"")
+        } else if first == '"' {
+            let mut escaped = false;
+            let end = rest[1..].find(|c| {
+                let ends = c == '"' && !escaped;
+                escaped = c == '\\' && !escaped;
+                ends
+            });
+            (end.map_or(rest.len(), |at| at + 2), "\"\"")
+        } else if first == '\'' && rest[1..].starts_with('\\') {
+            (rest[3..].find('\'').map_or(rest.len(), |at| at + 4), "'_'")
+        } else if first == '\'' && rest[1..].chars().nth(1) == Some('\'') {
+            (2 + rest[1..].chars().next().unwrap().len_utf8(), "'_'")
+        } else {
+            (first.len_utf8(), &rest[..first.len_utf8()])
+        };
+        code.push_str(kept);
+        rest = &rest[length..];
+    }
+    code
+}
+
+/// G5: each way around `begin` or the admission fails the rule, one change at a time.
+#[test]
+fn run_budget_provider_send_rejects_each_weakened_variant() {
+    let real = AuditCorpus::from_manifest_dir();
+    let rule = PROTECTION_RULES
+        .iter()
+        .find(|rule| rule.category == "run_budget_provider_send")
+        .expect("the G5 rule is registered");
+    let found = (rule.audit)(&real, rule);
+    assert!(found.is_empty(), "{found:?}");
+    let lm_arm = "Some(budgeted) => {\n                    let (request, send) = budgeted.begin(request).map_err(transport::refused)?;\n                    (request, Some(send))\n                }";
+    let lm_plain = "Some(_) => (request.json(body), None),";
+    let openai_arm = "let (request, send) = budgeted\n                        .begin(self.http.post(&url))\n                        .map_err(transport::refused)?;";
+    let openai_plain =
+        "let (request, send) = (self.http.post(&url).json(body), None::<()>.unwrap());";
+    let resend = "let _ = call.run(async { self.http.post(format!(\"{}{endpoint}\", self.base_url)).json(body).send().await });\n            let request = self.authorize(request);";
+    let execute = "let copy = request.try_clone().unwrap().json(body).build()?;\n            let _ = call.run(self.http.execute(copy));\n            let (request, mut send) = match &budgeted {";
+    // Sends that go around the wallet: each would post a wallet's run with nothing counted.
+    // `what the change is | the file | the text replaced | its replacement`; "" inserts at the top.
+    let weakened = [
+        format!("lm studio's wallet arm sends the plain body | 1 | {lm_arm} | {lm_plain}"),
+        format!("... and keeps the old arm in a comment | 1 | {lm_arm} | /* {lm_arm} */ {lm_plain}"),
+        format!("lm studio posts again in a try | 1 | let request = self.authorize(request); | {resend}"),
+        format!("lm studio executes a copy | 1 | let (request, mut send) = match &budgeted {{ | {execute}"),
+        "lm studio hides a POST past a commented cfg | 1 |  | /*\n#[cfg(test)]\n*/\nfn more(&self) { self.http.post(url).send(); }\n// */\n".into(),
+        "a new file posts after a raw C string | src/providers/new.rs |  | const C: &CStr = cr#\"a\"b\"#;\nfn send() { http.post(url).send(); }\n".into(),
+        "a new file posts as Client::post | src/providers/new.rs |  | fn send() { Client::post(&http, url).send(); }\n".into(),
+        "a provider makes a request of any method | src/providers/new.rs |  | fn send() { http.request(method, url).send(); }\n".into(),
+        "a new file posts, spaced and commented | src/providers/new.rs |  | fn send() { http.post /* x */ (url).send(); }\n".into(),
+        "the factory does not admit | 0 | admit_route_on( | admitted(".into(),
+        "the doctor checks a provider | src/doctor.rs | refuse(Unmetered::ProviderCheck) | Ok(())".into(),
+        "jev posts unrefused | src/minimal_loop/request_pattern/mod.rs | Unmetered::RequestPattern | Other".into(),
+    ];
+    // Marks the audit reads, changed so that no send gets through: the rule sees each of them move.
+    let marks = [
+        format!("openai's wallet arm stops short | 2 | {openai_arm} | {openai_plain}"),
+        "a refused client builds one more POST | src/providers/ollama.rs |  | fn more() { http.post(url); }\n".into(),
+        "lm studio builds a POST in a helper | 1 |  | fn more(&self) { self.http.request(reqwest::Method::POST, url); }\n".into(),
+        "begin renamed | 1 | .begin(request) | .body_of(request)".into(),
+        "the no-wallet arm as `_` | 2 | None => (\n | _ => (\n".into(),
+        "a helper that sends nothing | 1 | fn post_json( | fn other(&self) { self.http.post(url); }\nfn post_json(".into(),
+    ];
+    for variant in weakened.iter().chain(&marks) {
+        let [name, path, from, to] =
+            <[&str; 4]>::try_from(variant.split(" | ").collect::<Vec<_>>()).unwrap();
+        let path = path
+            .parse()
+            .map_or(path, |index: usize| rule.allowlist[index]);
+        let mut changed = AuditCorpus {
+            files: real.files.clone(),
+        };
+        let text = real.file(path).replacen(from, to, 1);
+        assert_ne!(text, real.file(path), "{name}: the change did not apply");
+        changed.files.insert(path.to_string(), text);
+        assert!(!(rule.audit)(&changed, rule).is_empty(), "{name} passed");
+    }
+}
+
+/// T5b (acceptance 6): assurance reads nothing of the stages. The one read is the gate that can
+/// only lower a report, so a seal has no way into Full or a release pass.
+#[test]
+fn assurance_reads_nothing_of_the_stages() {
+    let corpus = AuditCorpus::from_manifest_dir();
+    // Where a level is made. The two reads here are the gate in final acceptance and the check
+    // ahead of an intent's own end; both can only refuse.
+    let allowed: &[(&str, usize)] = &[
+        ("src/planner/adjudication/create.rs", 1),
+        ("src/planner/runner/phase/flow.rs", 1),
+    ];
+    let mut looked_at = 0;
+    for (path, text) in corpus.src_rust_files() {
+        let makes_a_level = path.starts_with("src/planner/adjudication/")
+            || path.starts_with("src/planner/profiles/")
+            || matches!(
+                path.as_str(),
+                "src/planner/assurance.rs"
+                    | "src/planner/profile.rs"
+                    | "src/planner/profile_behavior.rs"
+                    | "src/planner/profile_admission.rs"
+                    | "src/planner/runner/phase/flow.rs"
+            );
+        if makes_a_level {
+            looked_at += 1;
+            let production = production_text(text);
+            for other_name in ["stages_declared_without_a_read", "StageRun"] {
+                assert!(!production.contains(other_name), "{path}: {other_name}");
+            }
+            let hits = production.matches("structured_stages").count();
+            let expected = allowed
+                .iter()
+                .find(|(file, _)| *file == path.as_str())
+                .map_or(0, |(_, count)| *count);
+            assert_eq!(hits, expected, "{path}");
+        }
+    }
+    assert!(looked_at > allowed.len(), "only {looked_at} files");
+}
+
+/// Each way around the G4 ends fails the rule, one file changed at a time.
+#[test]
+fn structured_stage_completion_rejects_each_weakened_variant() {
+    let real = AuditCorpus::from_manifest_dir();
+    let rule = PROTECTION_RULES
+        .iter()
+        .find(|rule| rule.category == "structured_stage_completion")
+        .unwrap();
+    assert!(
+        (rule.audit)(&real, rule).is_empty(),
+        "{:?}",
+        (rule.audit)(&real, rule)
+    );
+    for (index, required) in STRUCTURED_STAGE_REQUIRED {
+        let path = rule.allowlist[*index];
+        let mut changed = AuditCorpus {
+            files: real.files.clone(),
+        };
+        let text = real.file(path).replace(required, "");
+        changed.files.insert(path.to_string(), text);
+        assert!(
+            !(rule.audit)(&changed, rule).is_empty(),
+            "{path} without `{required}` passed"
+        );
+    }
+    let repair = rule.allowlist[7];
+    let mut changed = AuditCorpus {
+        files: real.files.clone(),
+    };
+    changed.files.insert(
+        repair.to_string(),
+        format!(
+            "{}\nuse crate::planner::structured_stages::StageRun;\n",
+            real.file(repair)
+        ),
+    );
+    assert!(
+        !(rule.audit)(&changed, rule).is_empty(),
+        "a final repair that reads the stages passed"
+    );
+}
 
 #[test]
 fn protection_coverage_table_is_green_for_current_tree() {
@@ -151,7 +618,7 @@ fn protection_coverage_table_rejects_unregistered_mock_sites() {
         ),
         (
             "src/tools/registry.rs",
-            r#"fn default_tool_specs() { spec("Read", "", json!({"type":"object","properties":{"path":{"type":"string"}},"required":["path"]})); spec("Write", "", json!({"type":"object","properties":{"path":{"type":"string"}},"required":["path"]})); } fn execute() { let _ = resolve_existing(&context.root, raw); }"#,
+            r#"fn default_tool_specs() { spec("Read", "", json!({"type":"object","properties":{"path":{"type":"string"}},"required":["path"]})); spec("Write", "", json!({"type":"object","properties":{"path":{"type":"string"}},"required":["path"]})); } fn execute() { let _ = resolve_existing(&context.root, raw); let _ = resolve_existing_checked(&context.root, raw); }"#,
         ),
         (
             "src/config.rs",
@@ -172,6 +639,7 @@ fn protection_coverage_table_rejects_unregistered_mock_sites() {
         "verify_normalization_boundary",
         "bounded_execution_chokepoints",
         "declarative_command_check_boundary",
+        "artifact_contract_process_boundary",
         "fetch_network_boundary",
         "provider_timeout_enforcement",
         "workspace_policy_tool_paths",
@@ -193,6 +661,651 @@ fn protection_coverage_table_rejects_unregistered_mock_sites() {
             && violations.contains("direct child-process invocation"),
         "old GUI process location did not trip the moved delegate guard: {violations}"
     );
+    assert!(
+        violations.contains("bypasses policy helper: resolve_existing_checked(&context.root"),
+        "a checked resolver outside the policy helper passed: {violations}"
+    );
+}
+
+/// A credential read past the store fails the rule, wherever and however it is written.
+#[test]
+fn a_direct_credential_read_fails_the_startup_rule() {
+    let real = AuditCorpus::from_manifest_dir();
+    let rule = PROTECTION_RULES
+        .iter()
+        .find(|rule| rule.category == "startup_credential_boundary")
+        .unwrap();
+    let with_file = |path: &str, text: &str| {
+        let mut changed = AuditCorpus {
+            files: real.files.clone(),
+        };
+        changed.files.insert(path.to_string(), text.to_string());
+        (rule.audit)(&changed, rule)
+    };
+    assert!((rule.audit)(&real, rule).is_empty(), "the tree");
+    let direct = |violations: &[String]| {
+        violations
+            .iter()
+            .any(|violation| violation.contains("from the environment"))
+    };
+    for (label, code) in [
+        (
+            "by name",
+            r#"fn f() { let _ = std::env::var("OPENAI_API_KEY"); }"#,
+        ),
+        (
+            "by name, for an OsString",
+            r#"fn f() { let _ = std::env::var_os("LM_STUDIO_API_TOKEN"); }"#,
+        ),
+        (
+            "over two lines",
+            "fn f() {\n    let _ = std::env::var(\n        \"GEMINI_API_KEY\",\n    );\n}\n",
+        ),
+        (
+            "by a constant",
+            "fn f() { let _ = std::env::var(JEV_API_KEY_ENV); }",
+        ),
+        (
+            "by a constant with its path",
+            "fn f() { let _ = std::env::var_os(crate::providers::lm_studio::LM_STUDIO_API_TOKEN_ENV); }",
+        ),
+        (
+            "by a constant this file declares",
+            "const MY_KEY_NAME: &str = \"OPENAI_API_KEY\";\nfn f() { let _ = std::env::var(MY_KEY_NAME); }",
+        ),
+        (
+            "through env_compat",
+            r#"fn f() { let _ = crate::env_compat::var("GEMINI_API_KEY"); }"#,
+        ),
+        (
+            "through env_compat, for an OsString",
+            r#"fn f() { let _ = env_compat::var_os("OPENAI_API_KEY"); }"#,
+        ),
+        (
+            "the configured key name",
+            "fn f(api_key_env: &str) { let _ = std::env::var(api_key_env); }",
+        ),
+        (
+            "the configured key name in a closure",
+            "fn f(c: &C) { let _ = c.api_key_env.as_deref().and_then(|name| std::env::var(name).ok()); }",
+        ),
+        (
+            "the configured key name as a path",
+            "fn f(c: &C) { let _ = c.api_key_env.as_deref().map(std::env::var_os); }",
+        ),
+        (
+            "the configured key name through env_compat",
+            "fn f(api_key_env: &str) { let _ = crate::env_compat::var(api_key_env); }",
+        ),
+        (
+            "a loop over names",
+            r#"fn f() { for name in ["OPENAI_API_KEY"] { let _ = std::env::var(name); } }"#,
+        ),
+        (
+            "beside an unrelated test item",
+            "#[cfg(test)]\nmod t {}\nfn f() { let _ = std::env::var(\"OPENAI_API_KEY\"); }",
+        ),
+    ] {
+        assert!(direct(&with_file("src/elsewhere.rs", code)), "{label}");
+    }
+    for (label, path, code) in [
+        (
+            "in the store's own file",
+            "src/startup_credentials.rs",
+            "fn f() { let _ = std::env::var(\"OPENAI_API_KEY\"); }",
+        ),
+        (
+            "another variable",
+            "src/elsewhere.rs",
+            r#"fn f() { let _ = std::env::var("PATH"); }"#,
+        ),
+        (
+            "a name with no read",
+            "src/elsewhere.rs",
+            r#"const HINT: &str = "set OPENAI_API_KEY";"#,
+        ),
+        (
+            "a test item",
+            "src/elsewhere.rs",
+            "#[cfg(test)]\nfn f() { let _ = std::env::var(\"OPENAI_API_KEY\"); }\n",
+        ),
+        (
+            "a test item for one platform",
+            "src/elsewhere.rs",
+            "#[cfg(all(test, unix))]\nmod t {\n    fn f() { let _ = std::env::var(\"OPENAI_API_KEY\"); }\n}\n",
+        ),
+        (
+            "a brace in a test item's string",
+            "src/elsewhere.rs",
+            "#[cfg(test)]\nmod t {\n    const A: &str = \"}\";\n    const C: char = '}';\n    const R: &str = r#\"}\"#;\n    fn f() { let _ = std::env::var(\"OPENAI_API_KEY\"); }\n}\n",
+        ),
+        (
+            "a comment",
+            "src/elsewhere.rs",
+            "// std::env::var(\"OPENAI_API_KEY\")\nfn f() {}\n",
+        ),
+    ] {
+        let violations = with_file(path, code);
+        assert!(!direct(&violations), "{label}: {violations:?}");
+    }
+    // A file only a test build compiles, and one it brings in.
+    let mut changed = AuditCorpus {
+        files: real.files.clone(),
+    };
+    for (path, text) in [
+        ("src/holder.rs", "#[cfg(test)]\nmod holder_tests;\n"),
+        (
+            "src/holder_tests.rs",
+            "mod inner;\nfn f() { let _ = std::env::var(\"OPENAI_API_KEY\"); }\n",
+        ),
+        (
+            "src/holder_tests/inner.rs",
+            "fn g() { let _ = std::env::var(\"OPENAI_API_KEY\"); }\n",
+        ),
+    ] {
+        changed.files.insert(path.to_string(), text.to_string());
+    }
+    assert!(!direct(&(rule.audit)(&changed, rule)), "a test-only file");
+    // The same file, brought in by production, counts.
+    changed.files.insert(
+        "src/holder.rs".to_string(),
+        "mod holder_tests;\n".to_string(),
+    );
+    assert!(direct(&(rule.audit)(&changed, rule)), "a production file");
+    // A file under `tests/` is not production.
+    assert!(!direct(&with_file(
+        "tests/elsewhere.rs",
+        r#"fn f() { let _ = std::env::var("OPENAI_API_KEY"); }"#,
+    )));
+
+    let discovery = "src/bin/gui_server/trial_options.rs";
+    let text = real.file(discovery);
+    let read = "commandagent::startup_credentials::var_os(\"LM_STUDIO_API_TOKEN\")";
+    assert!(text.contains(read));
+    for (label, to) in [
+        (
+            "its original form",
+            "std::env::var_os(\"LM_STUDIO_API_TOKEN\")".to_string(),
+        ),
+        (
+            "another key",
+            "commandagent::startup_credentials::var_os(\"OPENAI_API_KEY\")".to_string(),
+        ),
+        (
+            "a read that reaches a child",
+            format!(
+                "{read}.inspect(|value| {{ std::process::Command::new(\"x\").env(\"X\", value); }})"
+            ),
+        ),
+    ] {
+        let violations = with_file(discovery, &text.replacen(read, &to, 1));
+        assert!(!violations.is_empty(), "{label}");
+    }
+}
+
+/// Each way back to an environment, or a start that is not first, fails the rule.
+#[test]
+fn startup_credential_boundary_rejects_each_weakened_variant() {
+    let real = AuditCorpus::from_manifest_dir();
+    let rule = PROTECTION_RULES
+        .iter()
+        .find(|rule| rule.category == "startup_credential_boundary")
+        .unwrap();
+    assert!(
+        (rule.audit)(&real, rule).is_empty(),
+        "{:?}",
+        (rule.audit)(&real, rule)
+    );
+    for (label, path, from, to) in [
+        (
+            "the CLI does something first",
+            "src/main.rs",
+            "fn main() {\n    commandagent::startup_credentials::bootstrap_cli();",
+            "fn main() {\n    let _early = std::env::args();\n    commandagent::startup_credentials::bootstrap_cli();",
+        ),
+        (
+            "the CLI skips the start",
+            "src/main.rs",
+            "    commandagent::startup_credentials::bootstrap_cli();\n",
+            "",
+        ),
+        (
+            "the GUI skips the start",
+            "src/bin/gui_server.rs",
+            "    commandagent::startup_credentials::bootstrap_gui();\n",
+            "",
+        ),
+        (
+            "the GUI starts its runtime first",
+            "src/bin/gui_server.rs",
+            "fn main() -> anyhow::Result<()> {\n    commandagent::startup_credentials::bootstrap_gui();",
+            "#[tokio::main]\nasync fn main() -> anyhow::Result<()> {\n    commandagent::startup_credentials::bootstrap_gui();",
+        ),
+        (
+            "a value goes back to the environment",
+            "src/startup_credentials.rs",
+            "if super::HELD.set(Held(pairs)).is_err() {",
+            "unsafe { std::env::set_var(\"OPENAI_API_KEY\", \"x\") };\n        if super::HELD.set(Held(pairs)).is_err() {",
+        ),
+        (
+            "the store is public",
+            "src/startup_credentials.rs",
+            "static HELD: OnceLock<Held>",
+            "pub static HELD: OnceLock<Held>",
+        ),
+        (
+            "the store's Debug shows it",
+            "src/startup_credentials.rs",
+            ".field(\"count\", &self.0.len())",
+            ".field(\"values\", &self.0)",
+        ),
+        (
+            "the exec keeps the environment",
+            "src/startup_credentials.rs",
+            "command.args(arguments).env_clear();",
+            "command.args(arguments);",
+        ),
+        (
+            "a failed exec goes on",
+            "src/startup_credentials.rs",
+            "stop(\"this executable could not be started again\")",
+            "unreachable!()",
+        ),
+        (
+            "a marker alone is believed",
+            "src/startup_credentials.rs",
+            "if names.iter().any(|name| present(name).is_some()) {",
+            "if false {",
+        ),
+        (
+            "another function of the delegate reads a received value",
+            "src/bin/gui_server/delegate.rs",
+            "fn apply_confirmed_pack(",
+            "fn elsewhere(command: &mut Command) {\n    command.env(\"X\", commandagent::startup_credentials::var_os(\"OPENAI_API_KEY\").unwrap());\n}\n\nfn apply_confirmed_pack(",
+        ),
+        (
+            "another function of the delegate reads it apart from the env call",
+            "src/bin/gui_server/delegate.rs",
+            "pub(super) fn check_binary(path: &Path) -> anyhow::Result<String> {",
+            "pub(super) fn check_binary(path: &Path) -> anyhow::Result<String> {\n    let _early = commandagent::startup_credentials::var_os(\"OPENAI_API_KEY\");",
+        ),
+        (
+            "another file reads a received value",
+            "src/bounded_process.rs",
+            "fn child_env_allowed(",
+            "fn elsewhere() -> Option<std::ffi::OsString> {\n    crate::startup_credentials::var_os(\"OPENAI_API_KEY\")\n}\n\nfn child_env_allowed(",
+        ),
+        (
+            "the delegate's restore reads one more name",
+            "src/bin/gui_server/delegate.rs",
+            "    for name in DELEGATE_PARENT_ENV_ALLOWLIST {\n",
+            "    let _ = commandagent::startup_credentials::var(\"JEV_API_KEY\");\n    for name in DELEGATE_PARENT_ENV_ALLOWLIST {\n",
+        ),
+        (
+            "the delegate's allowed names grow",
+            "src/bin/gui_server/delegate.rs",
+            "    \"LM_STUDIO_API_TOKEN\",\n];",
+            "    \"LM_STUDIO_API_TOKEN\",\n    \"JEV_API_KEY\",\n];",
+        ),
+        (
+            "the delegate's allowed names lose a key",
+            "src/bin/gui_server/delegate.rs",
+            "    \"GEMINI_API_KEY\",\n",
+            "",
+        ),
+        (
+            "a reader copies a value to a child",
+            "src/providers/lm_studio.rs",
+            "crate::startup_credentials::var(LM_STUDIO_API_TOKEN_ENV)",
+            "command.env(\"X\", crate::startup_credentials::var(LM_STUDIO_API_TOKEN_ENV))",
+        ),
+        (
+            "a version check gets a credential",
+            "src/bin/gui_server/delegate.rs",
+            "        command.env_remove(name);\n",
+            "",
+        ),
+    ] {
+        let text = real.file(path);
+        assert!(text.contains(from), "{label}: the variant does not apply");
+        let mut changed = AuditCorpus {
+            files: real.files.clone(),
+        };
+        changed
+            .files
+            .insert(path.to_string(), text.replacen(from, to, 1));
+        assert!(!(rule.audit)(&changed, rule).is_empty(), "{label}");
+    }
+}
+
+/// Each bypass of the G3 boundary fails the rule, one file changed at a time.
+#[test]
+fn profile_tool_effect_boundary_rejects_each_weakened_variant() {
+    let real = AuditCorpus::from_manifest_dir();
+    let rule = PROTECTION_RULES
+        .iter()
+        .find(|rule| rule.category == "profile_tool_effect_boundary")
+        .unwrap();
+    assert!(
+        (rule.audit)(&real, rule).is_empty(),
+        "{:?}",
+        (rule.audit)(&real, rule)
+    );
+    for (label, index, from, to) in [
+        (
+            "inherits the environment",
+            0,
+            ".env_clear()",
+            ".env_remove(\"PATH\")",
+        ),
+        ("drops the process group", 0, ".process_group(0)", ".uid(0)"),
+        ("starts open", 0, "(deny default)", "(allow default)"),
+        (
+            "opens the network",
+            0,
+            "(deny network*)",
+            "(allow network*)",
+        ),
+        (
+            "opens every write",
+            0,
+            r#"(allow file-write-data (literal "/dev/null"))"#,
+            "(allow file-write*)",
+        ),
+        (
+            "opens fork",
+            0,
+            "(allow sysctl-read)",
+            "(allow sysctl-read)\n(allow process-fork)",
+        ),
+        (
+            "borrows the old wrapper",
+            0,
+            "use std::time::Duration;",
+            "use std::time::Duration;\nuse crate::tools::os_sandbox::wrap_command;",
+        ),
+        (
+            "starts on any OS",
+            0,
+            "return Err(no_backend());",
+            "return Ok(());",
+        ),
+        ("leaves descendants", 1, "tracker.stop_all()", "(0, 0)"),
+        (
+            "ignores a cancel",
+            1,
+            "stop = Some(Ended::Cancelled)",
+            "let _ = Ended::Cancelled",
+        ),
+        (
+            "ignores the deadline",
+            1,
+            "stop = Some(Ended::TimedOut)",
+            "let _ = Ended::TimedOut",
+        ),
+        (
+            "reads an error as an end",
+            1,
+            "budget.read_failed.store(true, Ordering::SeqCst);\n                    return kept;",
+            "return kept;",
+        ),
+        (
+            "widens the result",
+            2,
+            "MAX_RESULT_BYTES: usize = 64 * 1024;",
+            "MAX_RESULT_BYTES: usize = 128 * 1024;",
+        ),
+        (
+            "widens the clock",
+            2,
+            "MAX_TIMEOUT_MS: u64 = 30_000;",
+            "MAX_TIMEOUT_MS: u64 = 60_000;",
+        ),
+        (
+            "starts its own process in the runner",
+            1,
+            "let mut child = launch.into_command().spawn()?;",
+            "let mut child = std::process::Command::new(\"/bin/sh\").spawn()?;",
+        ),
+        (
+            "takes any command",
+            1,
+            "    launch: StrictCommand,",
+            "    launch: std::process::Command,",
+        ),
+        (
+            "keeps inherited descriptors",
+            0,
+            "command.pre_exec(move || mark_inherited_descriptors_close_on_exec(calls));",
+            "",
+        ),
+        (
+            "execs whatever the marking said",
+            0,
+            "command.pre_exec(move || mark_inherited_descriptors_close_on_exec(calls));",
+            "command.pre_exec(move || { let _ = mark_inherited_descriptors_close_on_exec(calls); Ok(()) });",
+        ),
+        (
+            "ignores a mark that failed",
+            0,
+            "if info.proc_fd > 2 && !(calls.mark)(info.proc_fd) {",
+            "if info.proc_fd > 2 && false {",
+        ),
+        (
+            "goes on past a full list",
+            0,
+            "if count == 0 || count >= CAPACITY {",
+            "if false {",
+        ),
+        (
+            "goes on past a table it may not cover",
+            0,
+            "if table == 0 || table > CAPACITY * entry {",
+            "if false {",
+        ),
+        (
+            "takes a limit for the highest descriptor",
+            0,
+            "let count = usize::try_from((calls.list)(&mut listed)).unwrap_or(0) / entry;",
+            "let count = unsafe { libc::getdtablesize() } as usize;",
+        ),
+        (
+            "keeps the temporary",
+            3,
+            "let _ = self.parent.unlink(&self.name);",
+            "",
+        ),
+        (
+            "claims durability",
+            3,
+            "let synced = parent.sync_directory().is_ok();",
+            "let synced = true;",
+        ),
+        (
+            "forgets a late cancel",
+            3,
+            "cancelled_after_commit: is_cancelled(),",
+            "cancelled_after_commit: false,",
+        ),
+        (
+            "drops a cancel check",
+            3,
+            "if is_cancelled() {",
+            "if false {",
+        ),
+        ("drops a final check", 3, "final_check()?;", ""),
+        (
+            "drops an identity check",
+            3,
+            "if !entry_holds_candidate(",
+            "if false && !entry_holds_candidate(",
+        ),
+        ("skips the fsync", 3, "file.sync_all()", "file.flush()"),
+        (
+            "writes in place",
+            3,
+            ".rename_to_leaf(&temporary.name)",
+            ".write_leaf(\"\")",
+        ),
+        (
+            "allows a hard link",
+            3,
+            "metadata.nlink() != 1",
+            "metadata.nlink() == 0",
+        ),
+        (
+            "trusts the start's answer before the process",
+            4,
+            "self.judge_now(context, STAGE_PROCESS)?;",
+            "",
+        ),
+        (
+            "trusts the start's answer before the commit",
+            4,
+            "&|| self.judge_now(context, STAGE_COMMIT),",
+            "&|| Ok(()),",
+        ),
+        (
+            "skips the pins before the commit",
+            4,
+            "self.verify_pins(STAGE_COMMIT)?;",
+            "",
+        ),
+        ("authorizes as a read", 4, "\"Write\",", "\"Read\","),
+        (
+            "drops the force cancel",
+            5,
+            "is_cancelled() || is_force_cancelled()",
+            "is_cancelled()",
+        ),
+        (
+            "keeps the host's network on Linux",
+            6,
+            "| libc::CLONE_NEWNET",
+            "",
+        ),
+        (
+            "skips Landlock on Linux",
+            6,
+            "libc::SYS_landlock_restrict_self",
+            "libc::SYS_getpid",
+        ),
+        (
+            "installs no filter on Linux",
+            6,
+            "libc::SECCOMP_SET_MODE_FILTER",
+            "libc::SECCOMP_GET_ACTION_AVAIL",
+        ),
+        (
+            "goes on past a Landlock below its floor",
+            6,
+            "CompatLevel::HardRequirement",
+            "CompatLevel::BestEffort",
+        ),
+        (
+            "lets a signal leave the Landlock domain",
+            6,
+            ".scope(Scope::from_all(LANDLOCK_FLOOR))",
+            "",
+        ),
+        (
+            "lets a file's owner be another process",
+            7,
+            "fcntl: Some(72), Some(25), OwnerItself;",
+            "",
+        ),
+        (
+            "runs another architecture",
+            7,
+            "statement(RETURN, KILL_PROCESS)",
+            "statement(RETURN, ALLOW)",
+        ),
+        (
+            "opens sockets on Linux",
+            7,
+            "socket: Some(41), Some(198), Refuse;",
+            "",
+        ),
+        (
+            "binds writable on Linux",
+            8,
+            "libc::MS_REMOUNT | libc::MS_BIND | libc::MS_RDONLY | locked_flags(&real)?",
+            "libc::MS_REMOUNT | libc::MS_BIND | locked_flags(&real)?",
+        ),
+        (
+            "borrows the old wrapper on Linux",
+            6,
+            "mod filter;",
+            "mod filter;\nuse crate::tools::os_sandbox::wrap_command;",
+        ),
+    ] {
+        let mut mutated = AuditCorpus {
+            files: real.files.clone(),
+        };
+        let path = rule.allowlist[index];
+        let text = real.file(path);
+        assert!(text.contains(from), "{label}: `{from}` is not in {path}");
+        mutated
+            .files
+            .insert(path.to_string(), text.replacen(from, to, 1));
+        assert!(
+            !(rule.audit)(&mutated, rule).is_empty(),
+            "the rule did not see: {label}"
+        );
+    }
+}
+
+#[test]
+fn artifact_contract_process_boundary_rejects_inheriting_or_uncapped_variants() {
+    let real = AuditCorpus::from_manifest_dir();
+    let rule = PROTECTION_RULES
+        .iter()
+        .find(|rule| rule.category == "artifact_contract_process_boundary")
+        .unwrap();
+    assert!((rule.audit)(&real, rule).is_empty());
+    let [process, host, protocol] = [0, 1, 2].map(|index| real.file(rule.allowlist[index]));
+    for (label, mutated) in [
+        (
+            "inherits the parent environment",
+            [
+                process.replace(".env_clear()", ".env_remove(\"NODE_OPTIONS\")"),
+                host.to_string(),
+                protocol.to_string(),
+            ],
+        ),
+        (
+            "launches through verifier_env",
+            [
+                process.replace(
+                    "let mut command = Command::new(&launch.executable);",
+                    "let mut command = crate::minimal_loop::verifier_env::normalized_command_at_root(\"node\", &launch.cwd);",
+                ),
+                host.to_string(),
+                protocol.to_string(),
+            ],
+        ),
+        (
+            "drops the partial cap",
+            [
+                process.to_string(),
+                host.to_string(),
+                protocol.replace(
+                    "DOMAIN_CAP: DomainVerdict = DomainVerdict::Partial;",
+                    "DOMAIN_CAP: DomainVerdict = DomainVerdict::Full;",
+                ),
+            ],
+        ),
+    ] {
+        let corpus = AuditCorpus::from_pairs([
+            (rule.allowlist[0], mutated[0].as_str()),
+            (rule.allowlist[1], mutated[1].as_str()),
+            (rule.allowlist[2], mutated[2].as_str()),
+        ]);
+        assert!(
+            !(rule.audit)(&corpus, rule).is_empty(),
+            "{label} was not rejected"
+        );
+    }
 }
 
 fn audit_protection_coverage(corpus: &AuditCorpus) -> Vec<String> {
@@ -356,6 +1469,640 @@ fn audit_declarative_command_check_boundary(
     violations
 }
 
+fn audit_artifact_contract_process_boundary(
+    corpus: &AuditCorpus,
+    rule: &ProtectionRule,
+) -> Vec<String> {
+    let [process, host, protocol] = [0, 1, 2].map(|index| rule.allowlist[index]);
+    let mut violations = Vec::new();
+    for (path, required) in [
+        (process, ".env_clear()"),
+        (process, ".envs(child_env(&launch.tool_root))"),
+        (process, ".process_group(0)"),
+        (process, "terminate_process_group(&mut child)"),
+        (process, "terminate_process_group_by_pid(pid)"),
+        (
+            process,
+            "const FIXED_TIMEOUT: Duration = Duration::from_secs(30);",
+        ),
+        (process, "overflow.store(true, Ordering::SeqCst)"),
+        (host, "fn separate_from_workspace("),
+        (host, "operator tooling changed while the adapter ran"),
+        (host, "changed while the adapter ran"),
+        (host, "does not match its operator pin"),
+        (host, "protocol::cap_domain(receipt.uncapped)"),
+        (host, "\"native_effect\": \"failure_only\""),
+        (
+            protocol,
+            "pub(crate) const DOMAIN_CAP: DomainVerdict = DomainVerdict::Partial;",
+        ),
+        (
+            protocol,
+            "pub(crate) const MAX_REQUEST_BYTES: usize = 16_384;",
+        ),
+        (
+            protocol,
+            "pub(crate) const MAX_STREAM_BYTES: usize = 24_000;",
+        ),
+        (
+            protocol,
+            "executed does not equal passed + failed + unresolved",
+        ),
+    ] {
+        if !corpus.file(path).contains(required) {
+            violations.push(format!("{path} is missing `{required}`"));
+        }
+    }
+    // The adapter child must never pass through a helper that restores the
+    // parent environment or PATH lookup.
+    for (line_index, line) in corpus.file(process).lines().enumerate() {
+        let code = line.trim_start();
+        if code.starts_with("//") {
+            continue;
+        }
+        for forbidden in [
+            "verifier_env::",
+            "spawn_child(",
+            "run_with_timeout",
+            "std::env::var",
+            "Command::new(\"",
+        ] {
+            if code.contains(forbidden) {
+                violations.push(format!(
+                    "{process}:{} uses `{forbidden}` in the adapter launch",
+                    line_index + 1
+                ));
+            }
+        }
+    }
+    violations
+}
+
+/// Only these may read a received credential by name, each for its own request.
+const STARTUP_CREDENTIAL_READERS: [&str; 6] = [
+    "src/bin/gui_server/trial_options.rs",
+    "src/config.rs",
+    "src/doctor.rs",
+    "src/providers/lm_studio.rs",
+    "src/minimal_loop/request_pattern/jev.rs",
+    "src/tools/profile_tools/effects.rs",
+];
+
+/// Every name the GUI gives a delegated child, three of them credentials.
+const DELEGATE_ALLOWLIST_FIXED: &str = r#"const DELEGATE_PARENT_ENV_ALLOWLIST: &[&str] = &[
+    "PATH",
+    "HOME",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "TERM",
+    "TMPDIR",
+    "TZ",
+    "USER",
+    "LOGNAME",
+    "OPENAI_API_KEY",
+    "GEMINI_API_KEY",
+    "LM_STUDIO_API_TOKEN",
+];"#;
+
+/// The whole function, so its body is all that is allowed and nothing can be added to it.
+const DELEGATE_RESTORE_FIXED: &str = r#"fn restore_allowed_environment(command: &mut Command) {
+    for name in DELEGATE_PARENT_ENV_ALLOWLIST {
+        if let Some(value) = commandagent::startup_credentials::var_os(name) {
+            command.env(name, value);
+        }
+    }
+}
+"#;
+
+fn audit_startup_credential_boundary(corpus: &AuditCorpus, rule: &ProtectionRule) -> Vec<String> {
+    let mut violations = Vec::new();
+    let [main, gui, store] = rule.allowlist else {
+        return vec!["the rule lists three files".to_string()];
+    };
+    for (path, required) in [
+        (
+            *main,
+            "fn main() {\n    commandagent::startup_credentials::bootstrap_cli();",
+        ),
+        (
+            *gui,
+            "fn main() -> anyhow::Result<()> {\n    commandagent::startup_credentials::bootstrap_gui();",
+        ),
+        (*store, "command.args(arguments).env_clear();"),
+        (*store, ".field(\"count\", &self.0.len())"),
+        (
+            *store,
+            "stop(\"this executable could not be started again\")",
+        ),
+        (
+            *store,
+            "if names.iter().any(|name| present(name).is_some()) {",
+        ),
+        (*store, "\nstatic HELD: OnceLock<Held>"),
+    ] {
+        if !production_text(corpus.file(path)).contains(required) {
+            violations.push(format!("{path} is missing `{required}`"));
+        }
+    }
+    if corpus.file(gui).contains("#[tokio::main]\nasync fn main()") {
+        violations.push(format!(
+            "{gui} starts its runtime before the credential start"
+        ));
+    }
+    if production_text(corpus.file(store)).contains("set_var") {
+        violations.push(format!("{store} puts a value back in the environment"));
+    }
+    for name in ["OPENAI_API_KEY", "GEMINI_API_KEY", "LM_STUDIO_API_TOKEN"] {
+        if corpus.file("src/bin/gui_server/delegate.rs").contains(name)
+            && !corpus
+                .file("src/bin/gui_server/delegate.rs")
+                .contains("        command.env_remove(name);\n")
+        {
+            violations.push(format!(
+                "src/bin/gui_server/delegate.rs gives its version check {name}"
+            ));
+        }
+    }
+    let delegate = "src/bin/gui_server/delegate.rs";
+    if !corpus.file(delegate).contains(DELEGATE_ALLOWLIST_FIXED) {
+        violations.push(format!("{delegate} changed the names it gives a child"));
+    }
+    if !corpus.file(delegate).contains(DELEGATE_RESTORE_FIXED) {
+        violations.push(format!("{delegate} changed what it gives a child"));
+    }
+    for (path, text) in &corpus.files {
+        if !path.starts_with("src/") || path == store {
+            continue;
+        }
+        // The one place a received value goes to a child: this function's body, as fixed above,
+        // and nowhere else in its file.
+        let without_restore = text.replacen(DELEGATE_RESTORE_FIXED, "", 1);
+        let text = if path == delegate {
+            &without_restore
+        } else {
+            text
+        };
+        let code = production_text(text);
+        let reads = code.contains("startup_credentials::var")
+            || code.contains("startup_credentials::held_values");
+        if reads && !STARTUP_CREDENTIAL_READERS.contains(&path.as_str()) {
+            violations.push(format!("{path} reads a received credential"));
+        }
+        for line in code.lines() {
+            if line.contains("startup_credentials::")
+                && (line.contains(".env(") || line.contains(".envs(") || line.contains("set_var"))
+            {
+                violations.push(format!("{path} copies a received credential: {line}"));
+            }
+        }
+    }
+    // The GUI's model discovery reads one key for a header of its own request. It starts nothing.
+    let discovery = "src/bin/gui_server/trial_options.rs";
+    let code = production_text(corpus.file(discovery));
+    if code.matches("startup_credentials::").count() > 1
+        || (code.contains("startup_credentials::") && !code.contains(DISCOVERY_READ_FIXED))
+        || (code.contains("startup_credentials::")
+            && (code.contains("Command::new(") || code.contains(".env(")))
+    {
+        violations.push(format!("{discovery} reads more than its one header value"));
+    }
+    violations.extend(direct_credential_reads(corpus, store));
+    violations
+}
+
+const DISCOVERY_READ_FIXED: &str =
+    "commandagent::startup_credentials::var_os(\"LM_STUDIO_API_TOKEN\")";
+
+const BUILT_IN_CREDENTIALS: [&str; 4] = [
+    "OPENAI_API_KEY",
+    "GEMINI_API_KEY",
+    "LM_STUDIO_API_TOKEN",
+    "JEV_API_KEY",
+];
+
+/// One way to read the environment, with whitespace already removed: called, or passed as a path.
+const ENVIRONMENT_READS: [&str; 9] = [
+    "env::var(",
+    "env::var_os(",
+    "env::var)",
+    "env::var_os)",
+    "env_compat::var(",
+    "env_compat::var_os(",
+    "env_compat::var_with(",
+    "env_compat::var)",
+    "env_compat::var_os)",
+];
+
+/// A read of a credential's name that does not go through `startup_credentials`, which finds a
+/// value the start received. On macOS such a read finds nothing, silently.
+///
+/// What this sees: in one statement of `src/` production code, an environment read together with
+/// a built-in name, a constant holding one, or `api_key_env` (a run's key name, known only at
+/// run time, so this looks for the variable or field by that name). A loop over names and an
+/// `.and_then(|name| std::env::var(name))` on `api_key_env` are one statement, so they count.
+///
+/// What this does not see: a name that was put in a differently named variable in an earlier
+/// statement, a name passed to a helper that reads the environment, a read in a macro or under a
+/// renamed import, a name built from pieces, and a scan of every variable (`vars_os`). A string
+/// holding a brace that does not balance can also end a test item's removal in the wrong place.
+///
+/// What is test code: an item under `#[cfg(test)]` or `#[cfg(all(test, ...))]`, by its braces,
+/// and a file that a `#[cfg(test)] mod name;` brings in, with whatever that file brings in.
+fn direct_credential_reads(corpus: &AuditCorpus, store: &str) -> Vec<String> {
+    let test_files = test_only_files(corpus);
+    let production = corpus
+        .files
+        .iter()
+        .filter(|(path, _)| path.starts_with("src/") && !test_files.contains(*path))
+        .map(|(path, text)| (path, statements(&without_test_items(text))))
+        .collect::<Vec<_>>();
+    let mut names = BUILT_IN_CREDENTIALS.map(str::to_string).to_vec();
+    names.push("api_key_env".to_string());
+    for (_, statements) in &production {
+        for statement in statements {
+            for built_in in BUILT_IN_CREDENTIALS {
+                let value = format!(":&str=\"{built_in}\"");
+                if let Some(constant) = statement.strip_suffix(&value)
+                    && let Some(position) = constant.rfind("const")
+                {
+                    names.push(constant[position + "const".len()..].to_string());
+                }
+            }
+        }
+    }
+    let mut violations = Vec::new();
+    for (path, statements) in &production {
+        if path.as_str() == store {
+            continue;
+        }
+        for statement in statements {
+            let reads = ENVIRONMENT_READS
+                .iter()
+                .any(|read| statement.contains(read));
+            if let Some(name) = names.iter().find(|name| statement.contains(name.as_str()))
+                && reads
+            {
+                violations.push(format!(
+                    "{path} reads `{name}` from the environment; use startup_credentials"
+                ));
+            }
+        }
+    }
+    violations
+}
+
+/// Files only a test build compiles, followed through the modules they declare.
+fn test_only_files(corpus: &AuditCorpus) -> std::collections::BTreeSet<String> {
+    let mut found = std::collections::BTreeSet::new();
+    loop {
+        let before = found.len();
+        for (path, text) in &corpus.files {
+            let in_test_file = found.contains(path);
+            let mut under_attribute = false;
+            for line in text.lines().map(str::trim) {
+                let declared = line
+                    .strip_prefix("pub ")
+                    .or_else(|| line.strip_prefix("pub(crate) "))
+                    .or_else(|| line.strip_prefix("pub(super) "))
+                    .unwrap_or(line)
+                    .strip_prefix("mod ")
+                    .and_then(|rest| rest.strip_suffix(';'));
+                if let Some(name) = declared
+                    && (under_attribute || in_test_file)
+                {
+                    let directory = Path::new(path).parent().unwrap();
+                    let own = Path::new(path).with_extension("");
+                    for candidate in [
+                        directory.join(format!("{name}.rs")),
+                        directory.join(name).join("mod.rs"),
+                        own.join(format!("{name}.rs")),
+                        own.join(name).join("mod.rs"),
+                    ] {
+                        let candidate = candidate.to_string_lossy().replace('\\', "/");
+                        if corpus.files.contains_key(&candidate) {
+                            found.insert(candidate);
+                        }
+                    }
+                }
+                under_attribute =
+                    is_test_attribute(line) || (under_attribute && line.starts_with("#["));
+            }
+        }
+        if found.len() == before {
+            return found;
+        }
+    }
+}
+
+fn is_test_attribute(line: &str) -> bool {
+    line.starts_with("#[cfg(test)]") || line.starts_with("#[cfg(all(test")
+}
+
+/// The text with each test-only item removed: from its attribute through its closing brace or
+/// semicolon. Braces in a string, a raw string, or a character are not counted.
+fn without_test_items(text: &str) -> String {
+    let mut kept = String::with_capacity(text.len());
+    let mut rest = text;
+    while !rest.is_empty() {
+        let line_end = rest.find('\n').map_or(rest.len(), |end| end + 1);
+        let (line, after) = rest.split_at(line_end);
+        if is_test_attribute(line.trim_start()) {
+            rest = &after[item_length(after)..];
+        } else {
+            kept.push_str(line);
+            rest = after;
+        }
+    }
+    kept
+}
+
+/// How far the first item in `text` reaches.
+fn item_length(text: &str) -> usize {
+    let bytes = text.as_bytes();
+    let mut depth = 0usize;
+    let mut at = 0;
+    while at < bytes.len() {
+        match bytes[at] {
+            b'"' => at = past_string(bytes, at + 1),
+            b'r' if matches!(bytes.get(at + 1), Some(b'"' | b'#')) => {
+                at = past_raw_string(bytes, at + 1)
+            }
+            b'\'' if bytes.get(at + 2) == Some(&b'\'') => at += 3,
+            b'\'' if bytes.get(at + 1) == Some(&b'\\') && bytes.get(at + 3) == Some(&b'\'') => {
+                at += 4
+            }
+            b'/' if bytes.get(at + 1) == Some(&b'/') => {
+                while at < bytes.len() && bytes[at] != b'\n' {
+                    at += 1;
+                }
+            }
+            b'{' => {
+                depth += 1;
+                at += 1;
+            }
+            b'}' => {
+                at += 1;
+                if depth <= 1 {
+                    return at;
+                }
+                depth -= 1;
+            }
+            b';' if depth == 0 => return at + 1,
+            _ => at += 1,
+        }
+    }
+    bytes.len()
+}
+
+fn past_string(bytes: &[u8], mut at: usize) -> usize {
+    while at < bytes.len() {
+        match bytes[at] {
+            b'\\' => at += 2,
+            b'"' => return at + 1,
+            _ => at += 1,
+        }
+    }
+    at
+}
+
+fn past_raw_string(bytes: &[u8], mut at: usize) -> usize {
+    let mut hashes = 0;
+    while bytes.get(at) == Some(&b'#') {
+        hashes += 1;
+        at += 1;
+    }
+    if bytes.get(at) != Some(&b'"') {
+        return at;
+    }
+    at += 1;
+    while at < bytes.len() {
+        if bytes[at] == b'"'
+            && bytes[at + 1..]
+                .iter()
+                .take(hashes)
+                .filter(|byte| **byte == b'#')
+                .count()
+                == hashes
+        {
+            return at + 1 + hashes;
+        }
+        at += 1;
+    }
+    at
+}
+
+/// Statements with whitespace and whole-line comments removed, so a call split over lines reads
+/// as one.
+fn statements(text: &str) -> Vec<String> {
+    let joined = text
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .flat_map(str::chars)
+        .filter(|character| !character.is_whitespace())
+        .collect::<String>();
+    joined.split(';').map(str::to_string).collect()
+}
+
+/// The text of a file above its test module: a unit test may start what production must not.
+fn production_text(text: &str) -> &str {
+    text.find("#[cfg(test)]\nmod tests")
+        .or_else(|| text.find("#[cfg(all(test, unix))]\nmod tests"))
+        .map_or(text, |position| &text[..position])
+}
+
+const PROFILE_TOOL_EFFECT_REQUIRED: [(usize, &str); 55] = [
+    (6, "| libc::CLONE_NEWNET"),
+    (6, ".scope(Scope::from_all(LANDLOCK_FLOOR))"),
+    (7, "fcntl: Some(72), Some(25), OwnerItself;"),
+    (6, "libc::PR_SET_NO_NEW_PRIVS"),
+    (6, "libc::SYS_landlock_restrict_self"),
+    (6, "libc::SYS_pivot_root"),
+    (6, "libc::SECCOMP_SET_MODE_FILTER"),
+    (6, "command.pre_exec(move || confinement.enter());"),
+    (6, "CompatLevel::HardRequirement"),
+    (7, "socket: Some(41), Some(198), Refuse;"),
+    (
+        8,
+        "libc::MS_REMOUNT | libc::MS_BIND | libc::MS_RDONLY | locked_flags(&real)?",
+    ),
+    (
+        0,
+        "command.pre_exec(move || mark_inherited_descriptors_close_on_exec(calls));",
+    ),
+    (0, "libc::F_SETFD, libc::FD_CLOEXEC"),
+    (0, "if info.proc_fd > 2 && !(calls.mark)(info.proc_fd) {"),
+    (0, "if count == 0 || count >= CAPACITY {"),
+    (0, "if table == 0 || table > CAPACITY * entry {"),
+    (0, "answer == 0 || errno == Some(libc::EBADF)"),
+    (1, "    launch: StrictCommand,"),
+    (3, "let _ = self.parent.unlink(&self.name);"),
+    (3, "let synced = parent.sync_directory().is_ok();"),
+    (3, "cancelled_after_commit: is_cancelled(),"),
+    (3, "if !entry_holds_candidate("),
+    (0, ".env_clear()"),
+    (0, ".envs(launch.env)"),
+    (0, ".process_group(0)"),
+    (0, "(deny default)"),
+    (0, "(deny network*)"),
+    (0, r#"(allow process-exec (literal (param "EXE")))"#),
+    (0, r#"(allow file-write-data (literal "/dev/null"))"#),
+    (0, "return Err(no_backend());"),
+    (0, "judge_probe("),
+    (1, "terminate_process_group(&mut child)"),
+    (1, "tracker.stop_all()"),
+    (1, "budget.overflow.store(true, Ordering::SeqCst)"),
+    (
+        1,
+        "budget.read_failed.store(true, Ordering::SeqCst);\n                    return kept;",
+    ),
+    (1, "stop = Some(Ended::Cancelled)"),
+    (1, "stop = Some(Ended::TimedOut)"),
+    (1, "feed_stdin(&mut pipe"),
+    (1, "descendant_left_behind"),
+    (2, "pub(crate) const MAX_RESULT_BYTES: usize = 64 * 1024;"),
+    (2, "pub(crate) const MAX_TIMEOUT_MS: u64 = 30_000;"),
+    (2, r#"Some("passed") => {}"#),
+    (2, "request_id_mismatch"),
+    (2, "runtime_pin_mismatch"),
+    (2, "output_digest_mismatch"),
+    (3, ".create_exclusive(&temporary_name)"),
+    (3, ".sync_all()"),
+    (3, ".rename_to_leaf(&temporary.name)"),
+    (3, "temporary.adopted = true;"),
+    (3, "metadata.nlink() != 1"),
+    (4, "self.judge_now(context, STAGE_PROCESS)?;"),
+    (4, "&|| self.judge_now(context, STAGE_COMMIT),"),
+    (4, "self.verify_pins(STAGE_COMMIT)?;"),
+    (4, "\"Write\","),
+    (5, "is_cancelled() || is_force_cancelled()"),
+];
+
+fn audit_profile_tool_effect_boundary(corpus: &AuditCorpus, rule: &ProtectionRule) -> Vec<String> {
+    let mut violations = Vec::new();
+    for (index, required) in PROFILE_TOOL_EFFECT_REQUIRED {
+        let path = rule.allowlist[index];
+        if !production_text(corpus.file(path)).contains(required) {
+            violations.push(format!("{path} is missing `{required}`"));
+        }
+    }
+    let isolation = rule.allowlist[0];
+    if production_text(corpus.file(isolation))
+        .matches("return Err(no_backend());")
+        .count()
+        != 2
+    {
+        violations.push(format!(
+            "{isolation} must refuse both the probe and the launch without a backend"
+        ));
+    }
+    for forbidden in [
+        "allow default",
+        "allow network",
+        "process-fork",
+        "mach-lookup",
+        "os_sandbox::",
+        "wrap_command",
+        "getdtablesize",
+    ] {
+        let found = production_text(corpus.file(isolation))
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("//"))
+            .any(|line| line.contains(forbidden));
+        if found {
+            violations.push(format!("{isolation} uses `{forbidden}`"));
+        }
+    }
+    let process = rule.allowlist[1];
+    if production_text(corpus.file(process))
+        .matches("tracker.stop_all()")
+        .count()
+        != 2
+    {
+        violations.push(format!(
+            "{process} must stop descendants on both ways out of a run"
+        ));
+    }
+    for (path, forbidden) in [
+        (isolation, "spawn_child("),
+        (process, "spawn_child("),
+        (process, "verifier_env::"),
+        (process, "run_with_timeout"),
+        (process, "std::env::var"),
+        (process, "Command::new("),
+    ] {
+        if production_text(corpus.file(path)).contains(forbidden) {
+            violations.push(format!("{path} uses `{forbidden}` in the launch"));
+        }
+    }
+    let commit = production_text(corpus.file(rule.allowlist[3]));
+    // Twice each: the commit's start and right before the rename; before and after it.
+    for (token, count) in [
+        ("final_check()?;", 2),
+        ("if is_cancelled() {", 2),
+        ("if !entry_holds_candidate(", 2),
+    ] {
+        if commit.matches(token).count() != count {
+            violations.push(format!(
+                "{} must hold `{token}` {count} times",
+                rule.allowlist[3]
+            ));
+        }
+    }
+    let rename = commit.find(".rename_to_leaf(&temporary.name)");
+    let last_gate = ["final_check()?;", "if is_cancelled() {"]
+        .map(|token| commit.rfind(token))
+        .into_iter()
+        .max()
+        .flatten();
+    let first_identity = commit.find("if !entry_holds_candidate(");
+    let last_identity = commit.rfind("if !entry_holds_candidate(");
+    if !(last_gate < first_identity && first_identity < rename && rename < last_identity) {
+        violations.push(format!(
+            "{} must judge, cancel, and compare the held file before the rename, and compare it after",
+            rule.allowlist[3]
+        ));
+    }
+    let order = [
+        ".create_exclusive(&temporary_name)",
+        "file.write_all(plan.bytes)",
+        "file.sync_all()",
+        ".rename_to_leaf(&temporary.name)",
+        "temporary.adopted = true;",
+    ]
+    .map(|step| commit.find(step));
+    let in_order =
+        order.iter().all(Option::is_some) && order.windows(2).all(|pair| pair[0] < pair[1]);
+    if !in_order {
+        violations.push(format!(
+            "{} does not write, sync, and rename a temporary in that order",
+            rule.allowlist[3]
+        ));
+    }
+    let effects = production_text(corpus.file(rule.allowlist[4]));
+    if effects.contains("\"Read\"") || effects.contains("access\": \"read_only") {
+        violations.push(format!("{} treats the effect as a read", rule.allowlist[4]));
+    }
+    // The Linux leaf (Issue #982): its own launch, never the old wrapper, and a filter that kills
+    // a foreign architecture and the x32 ABI before it reads a number.
+    for path in &rule.allowlist[6..9] {
+        let text = production_text(corpus.file(path));
+        for forbidden in ["os_sandbox::", "wrap_command", "spawn_child("] {
+            if text.contains(forbidden) {
+                violations.push(format!("{path} uses `{forbidden}`"));
+            }
+        }
+    }
+    let filter = production_text(corpus.file(rule.allowlist[7]));
+    if filter.matches("statement(RETURN, KILL_PROCESS)").count() != 2 {
+        violations.push(format!(
+            "{} must kill another architecture and the x32 ABI",
+            rule.allowlist[7]
+        ));
+    }
+    violations
+}
+
 fn audit_fetch_network_boundary(corpus: &AuditCorpus, rule: &ProtectionRule) -> Vec<String> {
     let mut violations = Vec::new();
     let transport = corpus.file("src/fetch_probe/transport.rs");
@@ -459,6 +2206,7 @@ fn audit_workspace_policy_tool_paths(corpus: &AuditCorpus, _: &ProtectionRule) -
     let registry_without_helper = registry.replace(&helper, "");
     for raw_resolver in [
         "resolve_existing(&context.root",
+        "resolve_existing_checked(&context.root",
         "resolve_for_create(&context.root",
         "resolve_optional_existing(&context.root",
     ] {

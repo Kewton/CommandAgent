@@ -1,0 +1,26 @@
+{
+  "source_run": "gen-eval-1022 campaign-G1 stage3a (cli-q, ambig-g), develop 2d3e78b0",
+  "files": [
+    {
+      "file": "fixtures/cases.json#cli_q.fixed_verifier",
+      "source": "synthesized from campaign-G1/stage3a/cli-q verify_output.py without the src/app/main.py shim; parses the space-aligned table the CLI prints",
+      "sha256": null,
+      "note": "synthetic; the cli-q workspace itself comes from issue820-model-verifier-oracle-disagreement/fixtures/cases.json"
+    },
+    {
+      "file": "fixtures/cases.json#ambig_g.files.smoke-check.js",
+      "source": "campaign-G1/stage3a/ambig-g/work/smoke-check.js",
+      "sha256": "c3e50c853ff848e3d76128cf339a58430285ed41085ff4feb147d56ed8f1c213"
+    },
+    {
+      "file": "fixtures/cases.json#ambig_g.files.script.js",
+      "source": "campaign-G1/stage3a/ambig-g/work/script.js",
+      "sha256": "a6a04c66be32851e8951e6ae3f622f83fdb823e94dcff657f6c5018614a0d3b6"
+    },
+    {
+      "file": "fixtures/cases.json#ambig_g.files.index.html",
+      "source": "campaign-G1/stage3a/ambig-g/work/index.html",
+      "sha256": "87e7ea0228fe038f1791a5aac85f269b5d2125dda6d15a8687096d5e3f86f783"
+    }
+  ]
+}

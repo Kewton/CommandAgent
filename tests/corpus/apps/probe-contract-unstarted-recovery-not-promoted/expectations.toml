@@ -1,0 +1,46 @@
+case_id = "probe-contract-unstarted-recovery-not-promoted"
+source = "synthetic, derived from S-118b, S-119a and develop 46d99b14"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = ["src/app/page.tsx"]
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[release_qualification]
+evidence_fixture = "browser-interaction.json"
+restart_required = false
+full_eligible = false
+evidence_status = "failed:contract_instrumentation_missing:state_change"
+reasons = ["contract_instrumentation_missing:state_change"]
+
+[json_fields]
+browser-interaction.json:ok = "false"
+browser-interaction.json:start_transition = "false"
+browser-interaction.json:failure_kind = "start_transition_missing"
+browser-interaction.json:recovery_transition_status = "not_observed"
+browser-interaction.json:recovery_control = "none"
+
+[fixture_contains]
+src/app/page.tsx = [
+  "data-anvil-action=\"primary\"",
+  "setStatus(\"playing\")"
+]
+provenance.md = [
+  "synthetic",
+  "S-119a"
+]

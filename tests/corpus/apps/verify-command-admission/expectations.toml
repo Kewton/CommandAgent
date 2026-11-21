@@ -1,0 +1,75 @@
+case_id = "verify-command-admission"
+source = "Issue #952 (plan A): a verify line whose first word resolves to nothing is a verify_command_shape lint error only when that word cannot be a command name or the line has at least three raw letters-only words closing with sentence punctuation, so the existing three planner attempts repair it or the run stops; builtins, pinned-PATH executables, paths, same-step or earlier producers, earlier setup tools, catalog checks, commands not on PATH yet, and quoted, glob, comma, capitalized, and mixed-script command shapes are left to the runtime gate; prose without the static shape passes lint and fails at runtime (known limit); later producers and setup steps stay order-lint errors; host-owned checks are never satisfied by deleted, empty, true, echo, or weaker repairs through the public generate-and-run entry; the existing planner_error event keeps its base keys and message shape"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["verify_command_shape"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[json_fields]
+fixtures/events.json:issue = "#952"
+fixtures/events.json:kind = "synthetic"
+fixtures/events.json:category = "verify_command_shape"
+source-manifest.json:base_sha = "04e262c8bedc25bfbb033509eac7a368debc3339"
+source-manifest.json:origin = "synthetic"
+
+[fixture_contains]
+fixtures/events.json = [
+  "\"id\": \"same-first-word-on-path\"",
+  "\"id\": \"same-first-word-produced\"",
+  "\"id\": \"relative-script\"",
+  "\"id\": \"absolute-path\"",
+  "\"id\": \"non-ascii-path\"",
+  "\"id\": \"earlier-producer-script\"",
+  "\"id\": \"not-yet-on-path\"",
+  "\"id\": \"english-sentence\"",
+  "\"id\": \"japanese-deferral\"",
+  "\"id\": \"mixed-sentence\"",
+  "\"id\": \"english-deferred-shape\"",
+  "\"id\": \"english-validate-shape\"",
+  "\"id\": \"capitalized-with-arguments\"",
+  "\"id\": \"quoted-sentence-argument\"",
+  "\"id\": \"latin-name\"",
+  "\"id\": \"english-no-closing-mark\"",
+  "\"runtime\": \"exit_127\"",
+  "\"id\": \"delete-check-step\"",
+  "\"id\": \"weaker-check\"",
+  "\"base_verdict\": \"accepted\"",
+  "\"base_verdict\": \"rejected\"",
+  "\"after_category\": \"verify_semantics\"",
+  "\"after_category\": \"dependency_order\"",
+  "\"planner_error_kind\""
+]
+
+[fixture_ordered]
+fixtures/events.json = [
+  "\"positive\"",
+  "\"negative\"",
+  "\"left_to_runtime\"",
+  "\"order_controls\"",
+  "\"obligation\"",
+  "\"base_lint_message\"",
+  "\"planner_error lint attempt 1\"",
+  "\"planner_raw_output_shape attempt 2\"",
+  "\"plan admitted\"",
+  "\"verify_step passes after the artifact\"",
+  "\"planner_error lint attempt 3\"",
+  "\"invalid StepPlan after corrective retries\"",
+  "\"nothing executed\"",
+  "\"final contract judges the run\""
+]

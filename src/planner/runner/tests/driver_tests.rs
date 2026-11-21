@@ -300,7 +300,7 @@ fn missing_descriptive_expected_result_is_defaulted_and_recorded() {
 
 #[test]
 fn verify_policy_error_gets_corrective_retry() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = crate::planner::verify_producer_lint::tests::tempdir_with_check_scripts();
     let invalid = r#"{"goal":"goal","steps":[{"id":"s1","kind":"implement","expected_result":"pass","instruction":"Create app","expected_paths":["package.json"],"verify":["node check.js | node check2.js"]}]}"#;
     let valid = r#"{"goal":"goal","steps":[{"id":"s1","kind":"implement","expected_result":"pass","instruction":"Create app","expected_paths":["package.json"],"verify":["node check.js","node check2.js"]}]}"#;
     let mut planner = FakeClient::new(vec![

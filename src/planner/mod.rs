@@ -1,4 +1,5 @@
 pub mod adjudication;
+pub mod artifact_contract_checks;
 pub mod auto_recovery;
 pub mod capability_catalog;
 pub(crate) mod completion_contract_path;
@@ -33,6 +34,7 @@ pub(crate) mod lint_rejection;
 pub mod pack;
 pub(crate) mod phase_plan_synthesis;
 pub mod plan;
+pub(crate) mod plan_generation_guidance;
 pub mod profile;
 pub(crate) mod profile_admission;
 pub(crate) mod profile_behavior;
@@ -63,10 +65,13 @@ pub mod state_binding_scan;
 pub(crate) mod step_material;
 pub mod step_plan;
 pub(crate) mod step_plan_finalize;
+pub(crate) mod structured_stages;
 pub mod ultra_plan;
 pub mod ultra_preset;
 pub mod verify;
 pub(crate) mod verify_assertion;
+pub(crate) mod verify_command_shape;
+pub(crate) mod verify_producer_lint;
 pub(crate) mod verify_semantics;
 pub mod profiles {
     pub mod community_mini_app;

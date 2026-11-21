@@ -1,0 +1,35 @@
+{
+  "capture": "Issue #916: a Bash result reached the model as a 500-character flattened snippet, both when it was stored and when it was sent, so a traceback's last exception, stderr printed after a long stdout, and the indentation of a file printed with cat could be missing.",
+  "synthetic": {
+    "note": "Complete result bodies written for this corpus. They are not copies of any run's output. tests/bash_history_contract.rs runs each case through the real Bash tool in a tempdir.",
+    "cases": "fixtures/cases.json",
+    "fixtures": {
+      "traceback.txt": "A general Python traceback whose final exception is the last line.",
+      "compiler.txt": "A general rustc diagnostic with a warning, an indented error span and the final could-not-compile line.",
+      "inventory.py": "Indented Python source printed by a successful cat."
+    },
+    "built_in_test": "Secret boundaries are built inside the tests from fake values and are not stored here."
+  },
+  "real_runs": {
+    "note": "Event line references only. The full tool result bodies of these runs were not recorded, so none is reproduced or reconstructed here, and which byte of a lost diagnostic caused a wrong repair cannot be determined.",
+    "source_sha": "65878b0603d7ecc6dfbaf5511975b9d5278b54f8",
+    "source_sha_role": "origin/develop the investigation read; line numbers in the Issue refer to it. The commandagent commit of the runs themselves is not recorded in this corpus.",
+    "evidence": "workspace/tmp/1007/wave1/results/S-146a/rca.md:97 (claim) and :345-346 (events paths)",
+    "events": [
+      {
+        "run": "P7",
+        "events_path": "<bench-root>/runs-v3/C1p/b-t3/r1/work/.commandagent/runs/01a187f7-f784-7800-8361-3b37690adee1/events.jsonl",
+        "event_lines": [83, 89],
+        "tool": "Bash (cat)",
+        "result_body_recorded": false
+      },
+      {
+        "run": "P8",
+        "events_path": "<bench-root>/runs-v3/C1p/b-t3/r2/work/.commandagent/runs/01a187f6-5337-7b62-9ace-72a131a2d1e9/events.jsonl",
+        "event_lines": [87],
+        "tool": "Bash (grep)",
+        "result_body_recorded": false
+      }
+    ]
+  }
+}

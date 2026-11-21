@@ -1,0 +1,65 @@
+case_id = "output-limit-feedback"
+source = "Issue #958: synthetic Chat Completions bodies served by a loopback stand-in to the openai-compatible client and run through the public minimal loop; every row's base (outcome, call count, request digests, event-name sequence, a digest of every normalized event) was recorded from source c84aaa8203b533c7945068f4c7a8fc09bfea2be3 before the change, and the expect entries come from the Issue's rules; not a model or bench measurement"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/events.jsonl = [
+  "\"kind\":\"synthetic\"",
+  "\"source\":\"c84aaa82\"",
+  "\"id\":\"no-tool-missing-artifact\"",
+  "\"id\":\"empty-stage-rewrite\"",
+  "\"id\":\"fresh-session-retry\"",
+  "\"id\":\"guard-default-stop\"",
+  "\"id\":\"accepted-final-at-limit\"",
+  "\"id\":\"long-tool-call\"",
+  "\"id\":\"truncated-at-limit\"",
+  "\"id\":\"truncated-below-limit\"",
+  "\"id\":\"syntax-error-at-limit\"",
+  "\"id\":\"missing-name-at-limit\"",
+  "\"id\":\"missing-arguments-at-limit\"",
+  "\"id\":\"non-object-at-limit\"",
+  "\"id\":\"truncated-retry-exhausted\"",
+  "\"id\":\"num-predict-zero\"",
+  "\"id\":\"reasoning-malformed-values\"",
+  "\"id\":\"reasoning-other-turn\"",
+  "\"id\":\"truncated-below-limit-xml-fallback\"",
+  "\"xml_fallback_request\":3",
+  "\"kind\":\"no_tool_call_at_output_limit\"",
+  "\"kind\":\"tool_arguments_truncated_at_output_limit\"",
+  "\"provider_reasoning_tokens\":0",
+  "\"num_predict\":0",
+  "\"fallback_decision\"",
+  "\"empty_response_escalation\"",
+  "\"stop_reason\":\"AssistantFinal\"",
+  "\"event_digest\":\""
+]
+
+[fixture_ordered]
+fixtures/events.jsonl = [
+  "\"id\":\"no-tool-missing-artifact\"",
+  "\"id\":\"empty-stage-rewrite\"",
+  "\"id\":\"fresh-session-retry\"",
+  "\"id\":\"guard-default-stop\"",
+  "\"id\":\"truncated-at-limit\"",
+  "\"id\":\"truncated-retry-exhausted\"",
+  "\"id\":\"reasoning-other-turn\""
+]

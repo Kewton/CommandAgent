@@ -1,0 +1,43 @@
+case_id = "edit-salvage-indentation"
+source = "Issue #914 / L-146 and L-144: the whitespace-normalized Edit salvage wrote new_string verbatim, so class methods sent without the class indentation left the class; the salvage now applies only when the region's indentation levels are kept"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["edit_anchor_salvaged", "edit_anchor_not_found"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/recorded/runs.jsonl = [
+  "\"kind\":\"recorded\"",
+  "\"campaign\":\"L-146\"",
+  "\"campaign\":\"L-144\"",
+  "\"source_code\":\"65878b06\"",
+  "\"event\":\"edit_anchor_salvaged\"",
+  "\"method\":\"whitespace_normalized_unique_region\"",
+  "\"classes\":{\"Replay\":[\"__init__\"]}",
+  "\"top_level_function_lines\":{\"confirm\":58,\"expire\":62}"
+]
+fixtures/synthetic/cases.json = [
+  "\"kind\": \"synthetic\"",
+  "\"id\": \"class-methods-dedented-uniformly\"",
+  "\"id\": \"new-mixes-dedented-and-real-levels\"",
+  "\"id\": \"tabs-mixed-with-spaces\"",
+  "\"id\": \"same-rules-for-every-file-name\"",
+  "\"id\": \"scripted-b-t3-shape\"",
+  "\"id\": \"scripted-e-t3-shape\""
+]

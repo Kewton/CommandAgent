@@ -1,0 +1,19 @@
+case_id = "nextjs-verify-rewritten-grep-repeated"
+source = "synthetic, derived from the shape of campaign-G1-3a9 game-q events 166, 171, 209 and 223 (a hook attribute grep rewritten into an inline node program and refused twice in a Verify step); no recorded text, secret or absolute path"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+planner-greps.json = ["synthetic", "data-anvil-action", "data-anvil-state", "next dev", "useState", "onKeyDown"]
+rewritten-tokens.json = ["anvil-nextjs-check:hook_action:primary:src/app/page.tsx", "anvil-nextjs-check:hook_state:src/app/page.tsx", "anvil-nextjs-check:script_includes:dev:next%20dev", "anvil-nextjs-check:source_token:useState:src/app/page.tsx", "anvil-nextjs-check:source_keydown:src/app/page.tsx"]
+model-commands.json = ["one_by_one", "newline", "and_and", "semicolon", "original_greps", "inline_node_refused"]
+expected.json = ["nextjs-contract-wiring-verify", "passed", "recoverable tool error repeated"]
+sources.json = ["synthetic", "data-anvil-action", "next dev -p 3011"]

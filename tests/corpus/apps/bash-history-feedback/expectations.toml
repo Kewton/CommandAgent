@@ -1,0 +1,50 @@
+case_id = "bash-history-feedback"
+source = "Issue #916 synthetic Bash results (traceback, compiler diagnostic, long stdout, indentation) whose diagnostics sit after 500 characters; real-run event lines are listed separately in source-manifest.json"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/traceback.txt = [
+  "Traceback (most recent call last):",
+  "ZeroDivisionError: division by zero"
+]
+fixtures/compiler.txt = [
+  "error[E0308]: mismatched types",
+  "error: could not compile `calc` (lib) due to 1 previous error; 1 warning emitted"
+]
+fixtures/inventory.py = [
+  "                    item.tags.append(tag)"
+]
+fixtures/cases.json = [
+  "\"case\": \"python-traceback-after-long-stdout\"",
+  "\"case\": \"successful-cat-indentation\""
+]
+source-manifest.json = [
+  "\"result_body_recorded\": false",
+  "65878b0603d7ecc6dfbaf5511975b9d5278b54f8"
+]
+
+[fixture_ordered]
+fixtures/traceback.txt = [
+  "Traceback (most recent call last):",
+  "File \"app/stats.py\", line 12, in normalize",
+  "ZeroDivisionError: division by zero"
+]

@@ -75,10 +75,12 @@ fn split_views(
         index > *host_index
             && step.step_kind() == StepKind::Verify
             && step.expected_result == "pass"
-            && original_owner
-                .verify
-                .iter()
-                .all(|c| step.verify.contains(c))
+            && original_owner.verify.iter().all(|c| {
+                crate::planner::profiles::nextjs::package_script_check::list_has_declared_check(
+                    &step.verify,
+                    c,
+                )
+            })
     }) {
         return None;
     }
@@ -142,18 +144,23 @@ pub(crate) fn ordered_split(plan: &StepPlan, path: &str, first: &str, second: &s
     let runtime = crate::planner::profile::resolve_profile_runtime(
         crate::planner::profile_descriptor::NEXTJS_PROFILE_ID,
     );
-    if runtime.guidance(&host.instruction).as_deref() != Some(host.instruction.as_str()) {
+    if !super::profile_contract_reference::is_host_contract_text(
+        runtime,
+        &host.instruction,
+        &host.instruction,
+    ) {
         return false;
     }
     plan.steps.iter().enumerate().any(|(index, step)| {
         index > *host_index
             && step.step_kind() == StepKind::Verify
             && step.expected_result == "pass"
-            && model
-                .verify
-                .iter()
-                .chain(&host.verify)
-                .all(|c| step.verify.contains(c))
+            && model.verify.iter().chain(&host.verify).all(|c| {
+                crate::planner::profiles::nextjs::package_script_check::list_has_declared_check(
+                    &step.verify,
+                    c,
+                )
+            })
             && step.verify.iter().any(|c| {
                 package_script_check::comparison(c).is_some_and(|(script, value)| {
                     super::package_script_formation::fixed_values(&model.instruction, &script)

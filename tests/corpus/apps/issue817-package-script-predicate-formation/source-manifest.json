@@ -1,0 +1,28 @@
+{
+  "source": "G1 stage 3a first-attempt recovery_verifier_plan_admission events (develop cdbc4388, 2026-10-22); model_proposal copied verbatim, no secrets",
+  "original_plan_layout": "original-plan.json maps a case key to the first model proposal (a StepPlan) of that run",
+  "cases": {
+    "tool-g-build-todo-ui": {
+      "run": "tool-g",
+      "run_id": "01a1621e-7b92-79e2-812f-f9c961c614d6",
+      "phase_id": "build-todo-ui",
+      "planner_attempt": 1,
+      "json_pointer": "/model_proposal",
+      "weak_command": "node -p \"require('./package.json').scripts.dev.includes('3011')\"",
+      "owner": "configure-scripts"
+    },
+    "game-q-r1-setup-project": {
+      "run": "game-q-r1",
+      "run_id": "01a1621a-5663-72d0-9f89-b20fc1744ea3",
+      "phase_id": "setup-project",
+      "planner_attempt": 1,
+      "json_pointer": "/model_proposal",
+      "weak_command": "node -p \"require('./package.json').scripts.dev.includes('3011')\"",
+      "owner": "verify-build-config"
+    }
+  },
+  "capture": "live-prefix observation; the replay is offline with no live model",
+  "fixture_sha256": {
+    "original-plan.json": "986b2a9974e305d9a32b26556aa25a2f05bc58e34264ef53bd90955f77c21460"
+  }
+}

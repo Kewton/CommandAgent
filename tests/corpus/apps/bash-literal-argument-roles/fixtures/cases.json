@@ -1,0 +1,1920 @@
+{
+  "schema": "bash-literal-argument-roles/v1",
+  "note": "Issue #930. `recorded` keeps pre-fix observations from the L-162 generic comparison as measured facts and minimal command excerpts only (no task text, expected answer, hidden test, host path, or key; JSON data is omitted and measured). Recorded rows carry the pre-fix rejection only; the post-fix decision is shown by the synthetic twin. `unresolved` lists the seven first-version misreadings this Issue does not fix (B type 2, C type 5). `synthetic` rows are minimal shell forms written for this Issue from the shell/guard contract; the sed/awk I/O, getline, and pipe rows are counterexamples, never recorded. The fixture workspace has in.txt, index.html, app.py, an inside .env, a protected tests/spec.rs, and `sub/link`, a symlink to an outside directory holding secret and patterns. `{OUT}` is that outside directory as an absolute path outside the system read prefixes. Rows with the `redteam-` prefix are the 46 counterexamples of an independent red-team pass, and rows with the `redteamb-` prefix are its 28 rule B' counterexamples, copied as synthetic commands; `before_fix` marks a row the base already allowed, and `note` records a known limit. `expect` is the public path-confinement decision; `secret` is whether the raw credential scan reports the command.",
+  "base_sha": "f9103ce6ad184319f0cc17de11ce0b78d0e1a885",
+  "recorded": [
+    {
+      "id": "recorded-glmlow-a-mid-r1-29-sed-range-pipeline",
+      "source_event": "GLMlow/a-mid/r1:29",
+      "type": "B",
+      "observed_before_fix": {
+        "decision": "reject",
+        "policy_error_kind": "bash_path_confinement_error",
+        "verify_command_violation_kind": "workspace_path_outside_root",
+        "reason_path_kind": "absolute",
+        "misread_fragment": "/<script>/,/<\\/script>/p",
+        "misread_fragment_bytes": 24
+      },
+      "form": {
+        "reader": "sed",
+        "role": "program",
+        "pipeline": [
+          "sed",
+          "sed"
+        ],
+        "redirect": "> <file>.js"
+      },
+      "command_summary_truncated": false,
+      "synthetic_twin": "synthetic-sed-range-pipeline-redirect",
+      "command_excerpt": "sed -n '/<script>/,/<\\/script>/p' index.html | sed '1d;$d' > extracted.js"
+    },
+    {
+      "id": "recorded-glmlow-a-mid-r1-36-awk-flag-range",
+      "source_event": "GLMlow/a-mid/r1:36",
+      "type": "B",
+      "observed_before_fix": {
+        "decision": "reject",
+        "policy_error_kind": "bash_path_confinement_error",
+        "verify_command_violation_kind": "workspace_path_outside_root",
+        "reason_path_kind": "absolute",
+        "misread_fragment": "/<script>/{f=1;next} /<\\/script>/{f=0} f",
+        "misread_fragment_bytes": 40
+      },
+      "form": {
+        "reader": "awk",
+        "role": "program",
+        "redirect": "> <file>.js"
+      },
+      "command_summary_truncated": false,
+      "synthetic_twin": "synthetic-awk-default-print",
+      "command_excerpt": "awk '/<script>/{f=1;next} /<\\/script>/{f=0} f' index.html > extracted.js"
+    },
+    {
+      "id": "recorded-glmlow-a-t3-r2-22-sed-range-pipeline",
+      "source_event": "GLMlow/a-t3/r2:22",
+      "type": "B",
+      "observed_before_fix": {
+        "decision": "reject",
+        "policy_error_kind": "bash_path_confinement_error",
+        "verify_command_violation_kind": "workspace_path_outside_root",
+        "reason_path_kind": "absolute",
+        "misread_fragment": "/<script>/,/<\\/script>/p",
+        "misread_fragment_bytes": 24
+      },
+      "form": {
+        "reader": "sed",
+        "role": "program",
+        "pipeline": [
+          "sed",
+          "sed"
+        ],
+        "redirect": "> <file>.js"
+      },
+      "command_summary_truncated": false,
+      "synthetic_twin": "synthetic-sed-range-pipeline-redirect",
+      "command_excerpt": "sed -n '/<script>/,/<\\/script>/p' index.html | sed '1d;$d' > check.js"
+    },
+    {
+      "id": "recorded-glmlow-a-t3-r2-29-awk-print-flag",
+      "source_event": "GLMlow/a-t3/r2:29",
+      "type": "B",
+      "observed_before_fix": {
+        "decision": "reject",
+        "policy_error_kind": "bash_path_confinement_error",
+        "verify_command_violation_kind": "workspace_path_outside_root",
+        "reason_path_kind": "absolute",
+        "misread_fragment": "/{f=0}",
+        "misread_fragment_bytes": 6
+      },
+      "form": {
+        "reader": "awk",
+        "role": "program",
+        "redirect": "> <file>.js"
+      },
+      "command_summary_truncated": false,
+      "synthetic_twin": "synthetic-awk-print-then-flags",
+      "command_excerpt": "awk 'f{print} /<script>$/{f=1} /<\\/script>/{f=0}' index.html > check.js"
+    },
+    {
+      "id": "recorded-glmlow-a-t3-r2-36-grep-closing-tag",
+      "source_event": "GLMlow/a-t3/r2:36",
+      "type": "B",
+      "observed_before_fix": {
+        "decision": "reject",
+        "policy_error_kind": "bash_path_confinement_error",
+        "verify_command_violation_kind": "workspace_path_outside_root",
+        "reason_path_kind": "absolute",
+        "misread_fragment": "/script",
+        "misread_fragment_bytes": 7
+      },
+      "form": {
+        "reader": "grep",
+        "role": "pattern"
+      },
+      "command_summary_truncated": false,
+      "synthetic_twin": "synthetic-grep-closing-tag-chain",
+      "command_excerpt": "grep -n \"</script>\" index.html"
+    },
+    {
+      "id": "recorded-g0-c-t4-r1-64-echo-json-pipe",
+      "source_event": "G0/c-t4/r1:64",
+      "type": "C",
+      "observed_before_fix": {
+        "decision": "reject",
+        "policy_error_kind": "bash_path_confinement_error",
+        "verify_command_violation_kind": "workspace_path_outside_root",
+        "reason_path_kind": "absolute",
+        "misread_fragment": "/a/1",
+        "misread_fragment_bytes": 4
+      },
+      "form": {
+        "reader": "echo",
+        "role": "display operand",
+        "pipeline": [
+          "echo",
+          "python3 <script>.py"
+        ]
+      },
+      "command_summary_truncated": false,
+      "synthetic_twin": "synthetic-echo-json-pipe-app",
+      "command_excerpt": "<omitted>",
+      "data_bytes": 66
+    },
+    {
+      "id": "recorded-glmlow-c-t4-r2-25-printf-json-lines",
+      "source_event": "GLMlow/c-t4/r2:25",
+      "type": "C",
+      "observed_before_fix": {
+        "decision": "reject",
+        "policy_error_kind": "bash_path_confinement_error",
+        "verify_command_violation_kind": "workspace_path_outside_root",
+        "reason_path_kind": "absolute",
+        "misread_fragment": "/b",
+        "misread_fragment_bytes": 2
+      },
+      "form": {
+        "reader": "printf",
+        "role": "display operand",
+        "format": "%s\\n",
+        "operands": "several JSON lines"
+      },
+      "command_summary_truncated": true,
+      "synthetic_twin": "synthetic-printf-json-pointer-pipe-app",
+      "command_excerpt": "<omitted>",
+      "data_bytes": "<truncated>"
+    },
+    {
+      "id": "recorded-glmlow-d-t4-r1-21-printf-long-json",
+      "source_event": "GLMlow/d-t4/r1:21",
+      "type": "C",
+      "observed_before_fix": {
+        "decision": "reject",
+        "policy_error_kind": "bash_path_confinement_error",
+        "verify_command_violation_kind": "workspace_path_outside_root",
+        "reason_path_kind": "relative",
+        "misread_fragment": "<omitted>",
+        "misread_fragment_bytes": 282
+      },
+      "form": {
+        "reader": "printf",
+        "role": "display operand",
+        "format": "%s\\n",
+        "pipeline": [
+          "printf",
+          "python3 <script>.py"
+        ]
+      },
+      "command_summary_truncated": false,
+      "synthetic_twin": "synthetic-printf-long-json-pipe-app",
+      "command_excerpt": "<omitted>",
+      "data_bytes": 282
+    },
+    {
+      "id": "recorded-glmlow-d-t4-r1-28-printf-long-json",
+      "source_event": "GLMlow/d-t4/r1:28",
+      "type": "C",
+      "observed_before_fix": {
+        "decision": "reject",
+        "policy_error_kind": "bash_path_confinement_error",
+        "verify_command_violation_kind": "workspace_path_outside_root",
+        "reason_path_kind": "relative",
+        "misread_fragment": "<omitted>",
+        "misread_fragment_bytes": 282
+      },
+      "form": {
+        "reader": "printf",
+        "role": "display operand",
+        "format": "%s\\n",
+        "pipeline": [
+          "printf",
+          "python3 <script>.py"
+        ]
+      },
+      "command_summary_truncated": false,
+      "synthetic_twin": "synthetic-printf-long-json-pipe-app",
+      "command_excerpt": "<omitted>",
+      "data_bytes": 282
+    },
+    {
+      "id": "recorded-glmlow-e-t3-r1-49-printf-json-format",
+      "source_event": "GLMlow/e-t3/r1:49",
+      "type": "C",
+      "observed_before_fix": {
+        "decision": "reject",
+        "policy_error_kind": "bash_path_confinement_error",
+        "verify_command_violation_kind": "workspace_path_outside_root",
+        "reason_path_kind": "relative",
+        "misread_fragment": "<omitted>",
+        "misread_fragment_bytes": 485
+      },
+      "form": {
+        "reader": "printf",
+        "role": "format",
+        "format": "JSON lines with \\n"
+      },
+      "command_summary_truncated": true,
+      "synthetic_twin": "synthetic-printf-long-json-format-redirect",
+      "command_excerpt": "<omitted>",
+      "data_bytes": "<truncated>"
+    },
+    {
+      "id": "recorded-glmlow-e-t3-r2-49-printf-long-json",
+      "source_event": "GLMlow/e-t3/r2:49",
+      "type": "C",
+      "observed_before_fix": {
+        "decision": "reject",
+        "policy_error_kind": "bash_path_confinement_error",
+        "verify_command_violation_kind": "workspace_path_outside_root",
+        "reason_path_kind": "relative",
+        "misread_fragment": "<omitted>",
+        "misread_fragment_bytes": 485
+      },
+      "form": {
+        "reader": "printf",
+        "role": "display operand",
+        "format": "%s\\n"
+      },
+      "command_summary_truncated": true,
+      "synthetic_twin": "synthetic-printf-long-json-pipe-app",
+      "command_excerpt": "<omitted>",
+      "data_bytes": "<truncated>"
+    },
+    {
+      "id": "recorded-glmlow-e-t3-r2-63-printf-long-json",
+      "source_event": "GLMlow/e-t3/r2:63",
+      "type": "C",
+      "observed_before_fix": {
+        "decision": "reject",
+        "policy_error_kind": "bash_path_confinement_error",
+        "verify_command_violation_kind": "workspace_path_outside_root",
+        "reason_path_kind": "relative",
+        "misread_fragment": "<omitted>",
+        "misread_fragment_bytes": 485
+      },
+      "form": {
+        "reader": "printf",
+        "role": "display operand",
+        "format": "%s\\n"
+      },
+      "command_summary_truncated": true,
+      "synthetic_twin": "synthetic-printf-long-json-pipe-app",
+      "command_excerpt": "<omitted>",
+      "data_bytes": "<truncated>"
+    },
+    {
+      "id": "recorded-glmlow-e-t3-r2-81-printf-json-format-redirect",
+      "source_event": "GLMlow/e-t3/r2:81",
+      "type": "C",
+      "observed_before_fix": {
+        "decision": "reject",
+        "policy_error_kind": "bash_path_confinement_error",
+        "verify_command_violation_kind": "workspace_path_outside_root",
+        "reason_path_kind": "relative",
+        "misread_fragment": "<omitted>",
+        "misread_fragment_bytes": 264
+      },
+      "form": {
+        "reader": "printf",
+        "role": "format",
+        "format": "one JSON line with \\n",
+        "redirect": "> <dir>/<file>.jsonl"
+      },
+      "command_summary_truncated": false,
+      "synthetic_twin": "synthetic-printf-long-json-format-redirect",
+      "command_excerpt": "<omitted>",
+      "data_bytes": 264
+    },
+    {
+      "id": "recorded-glmlow-e-t4-r1-61-printf-long-json",
+      "source_event": "GLMlow/e-t4/r1:61",
+      "type": "C",
+      "observed_before_fix": {
+        "decision": "reject",
+        "policy_error_kind": "bash_path_confinement_error",
+        "verify_command_violation_kind": "workspace_path_outside_root",
+        "reason_path_kind": "relative",
+        "misread_fragment": "<omitted>",
+        "misread_fragment_bytes": 285
+      },
+      "form": {
+        "reader": "printf",
+        "role": "display operand",
+        "format": "%s\\n",
+        "operands": "several JSON objects"
+      },
+      "command_summary_truncated": true,
+      "synthetic_twin": "synthetic-printf-long-json-pipe-app",
+      "command_excerpt": "<omitted>",
+      "data_bytes": "<truncated>"
+    },
+    {
+      "id": "recorded-glmlow-e-t4-r2-64-printf-long-json",
+      "source_event": "GLMlow/e-t4/r2:64",
+      "type": "C",
+      "observed_before_fix": {
+        "decision": "reject",
+        "policy_error_kind": "bash_path_confinement_error",
+        "verify_command_violation_kind": "workspace_path_outside_root",
+        "reason_path_kind": "relative",
+        "misread_fragment": "<omitted>",
+        "misread_fragment_bytes": 285
+      },
+      "form": {
+        "reader": "printf",
+        "role": "display operand",
+        "format": "%s\\n",
+        "pipeline": [
+          "printf",
+          "python3 <script>.py"
+        ]
+      },
+      "command_summary_truncated": true,
+      "synthetic_twin": "synthetic-printf-long-json-pipe-app",
+      "command_excerpt": "<omitted>",
+      "data_bytes": "<truncated>"
+    },
+    {
+      "id": "recorded-glmlow-e-t4-r2-71-printf-long-json",
+      "source_event": "GLMlow/e-t4/r2:71",
+      "type": "C",
+      "observed_before_fix": {
+        "decision": "reject",
+        "policy_error_kind": "bash_path_confinement_error",
+        "verify_command_violation_kind": "workspace_path_outside_root",
+        "reason_path_kind": "relative",
+        "misread_fragment": "<omitted>",
+        "misread_fragment_bytes": 285
+      },
+      "form": {
+        "reader": "printf",
+        "role": "display operand",
+        "format": "%s\\n",
+        "pipeline": [
+          "printf",
+          "python3 <script>.py"
+        ]
+      },
+      "command_summary_truncated": true,
+      "synthetic_twin": "synthetic-printf-long-json-pipe-app",
+      "command_excerpt": "<omitted>",
+      "data_bytes": "<truncated>"
+    }
+  ],
+  "unresolved": [
+    {
+      "source_event": "GLMlow/a-mid/r1:15",
+      "type": "B",
+      "form": "node -e inline JavaScript (a `//` comment)",
+      "first_version": "not handled"
+    },
+    {
+      "source_event": "GLMlow/a-mid/r1:22",
+      "type": "B",
+      "form": "sed inside a process substitution",
+      "first_version": "not handled",
+      "synthetic": "synthetic-sed-in-process-substitution"
+    },
+    {
+      "source_event": "G0/c-t4/r1:26",
+      "type": "C",
+      "form": "heredoc body kept as shell text (outside the #924/R2 subset)",
+      "first_version": "not handled"
+    },
+    {
+      "source_event": "G0/c-t4/r1:33",
+      "type": "C",
+      "form": "heredoc body kept as shell text (outside the #924/R2 subset)",
+      "first_version": "not handled"
+    },
+    {
+      "source_event": "G0/c-t4/r1:57",
+      "type": "C",
+      "form": "heredoc body kept as shell text (outside the #924/R2 subset)",
+      "first_version": "not handled"
+    },
+    {
+      "source_event": "G0/c-t4/r1:71",
+      "type": "C",
+      "form": "heredoc body kept as shell text (outside the #924/R2 subset)",
+      "first_version": "not handled"
+    },
+    {
+      "source_event": "GLMlow/c-t4/r1:28",
+      "type": "C",
+      "form": "heredoc body kept as shell text (outside the #924/R2 subset)",
+      "first_version": "not handled"
+    }
+  ],
+  "synthetic": [
+    {
+      "id": "synthetic-sed-range",
+      "origin": "synthetic",
+      "command": "sed -n '/begin/,/end/p' in.txt",
+      "expect": "allow",
+      "secret": false
+    },
+    {
+      "id": "synthetic-sed-range-e",
+      "origin": "synthetic",
+      "command": "sed -n -e '/begin/,/end/p' in.txt",
+      "expect": "allow",
+      "secret": false
+    },
+    {
+      "id": "synthetic-sed-range-expression",
+      "origin": "synthetic",
+      "command": "sed -n --expression='/begin/,/end/p' in.txt",
+      "expect": "allow",
+      "secret": false
+    },
+    {
+      "id": "synthetic-sed-delete-first-last",
+      "origin": "synthetic",
+      "command": "sed '1d;$d' in.txt",
+      "expect": "allow",
+      "secret": false
+    },
+    {
+      "id": "synthetic-sed-hash-delimiter",
+      "origin": "synthetic",
+      "command": "sed -e 's#/old#/new#g' in.txt",
+      "expect": "allow",
+      "secret": false
+    },
+    {
+      "id": "synthetic-sed-range-pipeline-redirect",
+      "origin": "synthetic",
+      "command": "sed -n '/<script>/,/<\\/script>/p' index.html | sed '1d;$d' > extracted.js",
+      "expect": "allow",
+      "secret": false
+    },
+    {
+      "id": "synthetic-awk-flag-range",
+      "origin": "synthetic",
+      "command": "awk '/begin/{f=1;next} /end/{f=0} f{print}' in.txt",
+      "expect": "allow",
+      "secret": false
+    },
+    {
+      "id": "synthetic-awk-default-print",
+      "origin": "synthetic",
+      "command": "awk '/<script>/{f=1;next} /<\\/script>/{f=0} f' index.html > extracted.js",
+      "expect": "allow",
+      "secret": false
+    },
+    {
+      "id": "synthetic-awk-print-then-flags",
+      "origin": "synthetic",
+      "command": "awk 'f{print} /<script>$/{f=1} /<\\/script>/{f=0}' index.html > check.js",
+      "expect": "allow",
+      "secret": false
+    },
+    {
+      "id": "synthetic-grep-tag",
+      "origin": "synthetic",
+      "command": "grep -n '</tag>' in.txt",
+      "expect": "allow",
+      "secret": false
+    },
+    {
+      "id": "synthetic-grep-e-dashdash",
+      "origin": "synthetic",
+      "command": "grep -e '/item' -- in.txt",
+      "expect": "allow",
+      "secret": false
+    },
+    {
+      "id": "synthetic-grep-closing-tag-chain",
+      "origin": "synthetic",
+      "command": "grep -n \"<script>\" index.html && grep -n \"</script>\" index.html && wc -l index.html",
+      "expect": "allow",
+      "secret": false
+    },
+    {
+      "id": "synthetic-printf-json-pointer",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' '{\"pointer\":\"/item/2\"}'",
+      "expect": "allow",
+      "secret": false
+    },
+    {
+      "id": "synthetic-echo-json-pointer",
+      "origin": "synthetic",
+      "command": "echo '{\"pointer\":\"/item\"}'",
+      "expect": "allow",
+      "secret": false
+    },
+    {
+      "id": "synthetic-printf-redirect-local",
+      "origin": "synthetic",
+      "command": "printf 'literal-data\\n' > local.txt",
+      "expect": "allow",
+      "secret": false
+    },
+    {
+      "id": "synthetic-echo-json-pipe-app",
+      "origin": "synthetic",
+      "command": "echo '{\"doc\":{\"a\":[1,2]},\"patch\":[{\"op\":\"add\",\"path\":\"/a/1\"}]}' | python3 app.py",
+      "expect": "allow",
+      "secret": false
+    },
+    {
+      "id": "synthetic-printf-json-pointer-pipe-app",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' '{\"p\":\"/b\"}' '{\"from\":\"/a\",\"path\":\"/a/x\"}' | python3 app.py",
+      "expect": "allow",
+      "secret": false
+    },
+    {
+      "id": "synthetic-printf-long-json-pipe-app",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' '{\"items\":[{\"op\":\"add\",\"key\":\"k0\",\"qty\":0,\"path\":\"/items/0\"},{\"op\":\"add\",\"key\":\"k1\",\"qty\":1,\"path\":\"/items/1\"},{\"op\":\"add\",\"key\":\"k2\",\"qty\":2,\"path\":\"/items/2\"},{\"op\":\"add\",\"key\":\"k3\",\"qty\":3,\"path\":\"/items/3\"},{\"op\":\"add\",\"key\":\"k4\",\"qty\":4,\"path\":\"/items/4\"},{\"op\":\"add\",\"key\":\"k5\",\"qty\":5,\"path\":\"/items/5\"}]}' | python3 app.py",
+      "expect": "allow",
+      "secret": false
+    },
+    {
+      "id": "synthetic-printf-long-json-format-redirect",
+      "origin": "synthetic",
+      "command": "printf '{\"items\":[{\"op\":\"add\",\"key\":\"k0\",\"qty\":0,\"path\":\"/items/0\"},{\"op\":\"add\",\"key\":\"k1\",\"qty\":1,\"path\":\"/items/1\"},{\"op\":\"add\",\"key\":\"k2\",\"qty\":2,\"path\":\"/items/2\"},{\"op\":\"add\",\"key\":\"k3\",\"qty\":3,\"path\":\"/items/3\"},{\"op\":\"add\",\"key\":\"k4\",\"qty\":4,\"path\":\"/items/4\"},{\"op\":\"add\",\"key\":\"k5\",\"qty\":5,\"path\":\"/items/5\"}]}\\n' > local.jsonl; python3 app.py < local.jsonl",
+      "expect": "reject",
+      "secret": false,
+      "note": "rule B' closes it: a write and a python3 script run in the same text (PM approved)"
+    },
+    {
+      "id": "synthetic-cd-then-echo-symlink-name",
+      "origin": "synthetic",
+      "command": "cd sub && echo link",
+      "expect": "allow",
+      "secret": false
+    },
+    {
+      "id": "synthetic-sed-program-escaping-operand",
+      "origin": "synthetic",
+      "command": "sed -n '/begin/,/end/p' sub/link/secret",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-sed-program-outside-operand",
+      "origin": "synthetic",
+      "command": "sed -n '/begin/,/end/p' {OUT}/secret",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-sed-program-parent-operand",
+      "origin": "synthetic",
+      "command": "sed -n p ../in.txt",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-awk-program-escaping-operand",
+      "origin": "synthetic",
+      "command": "awk '/begin/{f=1;next} f{print}' sub/link/secret",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-grep-pattern-escaping-operand",
+      "origin": "synthetic",
+      "command": "grep -n '/item' sub/link/secret",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-grep-e-outside-operand",
+      "origin": "synthetic",
+      "command": "grep -e '/item' -- {OUT}/secret",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-cd-then-cat-symlink-name",
+      "origin": "synthetic",
+      "command": "cd sub && echo link && cat link",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-grep-f-escaping",
+      "origin": "synthetic",
+      "command": "grep -f sub/link/patterns in.txt",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-grep-f-joined-escaping",
+      "origin": "synthetic",
+      "command": "grep -fsub/link/patterns in.txt",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-grep-file-outside",
+      "origin": "synthetic",
+      "command": "grep --file={OUT}/patterns in.txt",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-awk-f-escaping-script",
+      "origin": "synthetic",
+      "command": "awk -f sub/link/prog.awk in.txt",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-sed-w-tmp",
+      "origin": "synthetic",
+      "command": "sed '1w /tmp/out' in.txt",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-sed-r-escaping",
+      "origin": "synthetic",
+      "command": "sed '1r sub/link/secret' in.txt",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-sed-w-escaping",
+      "origin": "synthetic",
+      "command": "sed -n '1w sub/link/out' in.txt",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-sed-s-w-flag-parent",
+      "origin": "synthetic",
+      "command": "sed 's/a/b/w ../out.txt' in.txt",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-sed-s-e-flag-outside",
+      "origin": "synthetic",
+      "command": "sed 's|.*|cat {OUT}/secret|e' in.txt",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-sed-e-command-outside",
+      "origin": "synthetic",
+      "command": "sed '1e cat {OUT}/secret' in.txt",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-sed-in-place-escaping",
+      "origin": "synthetic",
+      "command": "sed -i.bak 's/a/b/' sub/link/secret",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-sed-w-inside-workspace",
+      "origin": "synthetic",
+      "command": "sed -n '1,5w out.txt' in.txt",
+      "expect": "allow",
+      "secret": false
+    },
+    {
+      "id": "synthetic-awk-print-redirect-tmp",
+      "origin": "synthetic",
+      "command": "awk '{print > \"/tmp/out\"}' in.txt",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-awk-getline-escaping",
+      "origin": "synthetic",
+      "command": "awk '{getline line < \"sub/link/secret\"; print line}' in.txt",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-awk-print-redirect-escaping",
+      "origin": "synthetic",
+      "command": "awk '{print > \"sub/link/out\"}' in.txt",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-awk-pipe-outside",
+      "origin": "synthetic",
+      "command": "awk '{print | \"cat {OUT}/secret\"}' in.txt",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-awk-system-outside",
+      "origin": "synthetic",
+      "command": "awk '{system(\"cat {OUT}/secret\")}' in.txt",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-redirect-tmp",
+      "origin": "synthetic",
+      "command": "sed -n p in.txt > /tmp/out",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-printf-redirect-tmp",
+      "origin": "synthetic",
+      "command": "printf 'literal-data\\n' > /tmp/out",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-redirect-parent-append",
+      "origin": "synthetic",
+      "command": "grep /x in.txt >> ../out",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-redirect-stderr-escaping",
+      "origin": "synthetic",
+      "command": "grep /x in.txt 2> sub/link/err",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-input-redirect-escaping",
+      "origin": "synthetic",
+      "command": "grep /x < sub/link/secret",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-fd-input-escaping",
+      "origin": "synthetic",
+      "command": "grep /x 0< sub/link/secret",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-suffix-tee-escaping",
+      "origin": "synthetic",
+      "command": "sed -n p in.txt; tee sub/link/f",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-suffix-cat-outside",
+      "origin": "synthetic",
+      "command": "grep /x in.txt && cat {OUT}/secret",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-suffix-newline-credential",
+      "origin": "synthetic",
+      "command": "printf '/a\\n'\ncat .env",
+      "expect": "allow",
+      "secret": true
+    },
+    {
+      "id": "synthetic-printf-pipe-xargs",
+      "origin": "synthetic",
+      "command": "printf '%s' sub/link/secret | xargs cat",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-echo-pipe-bash",
+      "origin": "synthetic",
+      "command": "echo sub/link/secret | bash -c 'cat'",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-printf-pipe-python-c",
+      "origin": "synthetic",
+      "command": "printf '%s' {OUT}/secret | python3 -c 'import sys'",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-printf-pipe-python-stdin",
+      "origin": "synthetic",
+      "command": "printf '%s' {OUT}/secret | python3 -",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-printf-pipe-sh",
+      "origin": "synthetic",
+      "command": "printf '%s' {OUT}/secret | sh",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-dynamic-program",
+      "origin": "synthetic",
+      "command": "sed \"$X\" in.txt",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-double-quoted-dollar-program",
+      "origin": "synthetic",
+      "command": "sed \"1d;$d\" in.txt",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-substituted-program",
+      "origin": "synthetic",
+      "command": "sed -n \"$(cat prog)\" in.txt",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-backtick-pattern",
+      "origin": "synthetic",
+      "command": "grep `cat pat` in.txt",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-glob-outside",
+      "origin": "synthetic",
+      "command": "grep /x {OUT}/*",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-glob-escaping",
+      "origin": "synthetic",
+      "command": "grep /x sub/lin*/secret",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-unterminated-quote",
+      "origin": "synthetic",
+      "command": "sed 'p in.txt",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-dynamic-beside-static-escaping",
+      "origin": "synthetic",
+      "command": "echo $HOME && grep /x sub/link/secret",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-printf-credential-name",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' '.env'",
+      "expect": "allow",
+      "secret": true
+    },
+    {
+      "id": "synthetic-grep-then-credential",
+      "origin": "synthetic",
+      "command": "grep /x in.txt && cat .env",
+      "expect": "allow",
+      "secret": true
+    },
+    {
+      "id": "synthetic-heredoc-with-here-string",
+      "origin": "synthetic",
+      "command": "cat <<EOF <<<x\ntee sub/link/f\nEOF",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-heredoc-unterminated",
+      "origin": "synthetic",
+      "command": "cat <<EOF\ndata\ntee sub/link/f",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-heredoc-with-dash-reader",
+      "origin": "synthetic",
+      "command": "cat - <<EOF\ntee sub/link/f\nEOF",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-here-string-pointer",
+      "origin": "synthetic",
+      "command": "grep /x <<< '/item'",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-sed-in-process-substitution",
+      "origin": "synthetic",
+      "command": "node --check <(sed -n '/<script>/,/<\\/script>/p' index.html)",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-process-substitution-escaping",
+      "origin": "synthetic",
+      "command": "sed -n p <(cat sub/link/secret)",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-unknown-option",
+      "origin": "synthetic",
+      "command": "grep -A 2 '/item' in.txt",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-option-after-operand",
+      "origin": "synthetic",
+      "command": "grep '/item' in.txt -e x",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-missing-value",
+      "origin": "synthetic",
+      "command": "grep -n '/item' in.txt -e",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-quoted-command-name",
+      "origin": "synthetic",
+      "command": "'grep' -n '/item' in.txt",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-joined-quote-command-name",
+      "origin": "synthetic",
+      "command": "g\"rep\" -n '/item' in.txt",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-prefix-assignment",
+      "origin": "synthetic",
+      "command": "LC_ALL=C grep -n '/item' in.txt",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-wrapper",
+      "origin": "synthetic",
+      "command": "env grep -n '/item' in.txt",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-alias-definition",
+      "origin": "synthetic",
+      "command": "alias grep=cat; grep sub/link/secret",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-noclobber-redirect-then-operand",
+      "origin": "synthetic",
+      "command": "sed -n p >| printf sub/link/secret",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-cat-noclobber-redirect-then-operand",
+      "origin": "synthetic",
+      "command": "cat >| printf sub/link/secret",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-fd-noclobber-redirect-then-operand",
+      "origin": "synthetic",
+      "command": "sed -n p 2>| printf sub/link/secret",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-redirect-target-then-operand",
+      "origin": "synthetic",
+      "command": "grep -n x in.txt > out.txt sub/link/secret",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-noclobber-escaping-target",
+      "origin": "synthetic",
+      "command": "sed -n p in.txt >| sub/link/printf",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-noclobber-inside-target",
+      "origin": "synthetic",
+      "command": "sed -n p in.txt >| printed.txt",
+      "expect": "allow",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-script-bare-sh",
+      "origin": "synthetic",
+      "command": "printf '%s' 'sed -n p ' sub/link/secret > script.sh; sh script.sh",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-script-absolute-sh",
+      "origin": "synthetic",
+      "command": "printf '%s' 'sed -n p ' sub/link/secret > script.sh; /bin/sh script.sh",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-script-wrapped-sh",
+      "origin": "synthetic",
+      "command": "printf '%s' 'sed -n p ' sub/link/secret > script.sh && env /bin/sh script.sh",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-list-bare-xargs",
+      "origin": "synthetic",
+      "command": "printf '%s' sub/link/secret > list.txt; xargs cat < list.txt",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-list-absolute-xargs",
+      "origin": "synthetic",
+      "command": "printf '%s' sub/link/secret > list.txt; /usr/bin/xargs cat < list.txt",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-list-wrapped-xargs",
+      "origin": "synthetic",
+      "command": "printf '%s' sub/link/secret > list.txt\ntimeout 5 xargs cat < list.txt",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-awk-system",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' sub/link/secret > list.txt; awk 'BEGIN{getline item < \"list.txt\"; system(\"sed -n p \" item)}'",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-sed-e-flag",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' sub/link/secret > list.txt && sed 's/^/cat /e' list.txt",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-inline-python",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' sub/link/secret > list.txt; python3 -c 'import sys'",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-workspace-copy",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' x > list.txt; cat list.txt > copy.txt",
+      "expect": "allow",
+      "secret": false
+    },
+    {
+      "id": "synthetic-unquoted-tilde-printf",
+      "origin": "synthetic",
+      "command": "printf '%s' ~",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-unquoted-tilde-grep-e",
+      "origin": "synthetic",
+      "command": "grep -e ~/pat in.txt",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-quoted-tilde-printf",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' '~'",
+      "expect": "allow",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-python-option-then-inline",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' sub/link/secret > list.txt; python3 -B -c 'import sys'",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-versioned-python-option-then-inline",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' sub/link/secret > list.txt; python3.12 -u -c 'import sys'",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-node-option-then-eval",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' sub/link/secret > list.txt; node --no-warnings -e '1'",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-perl-option-then-eval",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' sub/link/secret > list.txt; perl -w -e '1'",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-ruby-option-then-eval",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' sub/link/secret > list.txt; ruby -w -e '1'",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-capitalized-python-inline",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' sub/link/secret > list.txt; Python3 -c 'import sys'",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-script-uppercase-sh",
+      "origin": "synthetic",
+      "command": "printf '%s' 'sed -n p ' sub/link/secret > script.sh; /bin/SH script.sh",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-script-mixed-case-sh",
+      "origin": "synthetic",
+      "command": "printf '%s' 'sed -n p ' sub/link/secret > script.sh; /bin/Sh script.sh",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-script-wrapped-uppercase-sh",
+      "origin": "synthetic",
+      "command": "printf '%s' 'sed -n p ' sub/link/secret > script.sh && env /bin/SH script.sh",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-list-uppercase-xargs",
+      "origin": "synthetic",
+      "command": "printf '%s' sub/link/secret > list.txt; /usr/bin/XARGS cat < list.txt",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-python-module-then-data",
+      "origin": "synthetic",
+      "command": "python3 -m unittest discover -s tests && printf '%s\\n' '/a'",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-python-timeit",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' sub/link/secret > list.txt; python3 -m timeit -n 1 -r 1 'import sys'",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-unknown-command",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' sub/link/secret > list.txt; lua x.lua",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-written-python-script",
+      "origin": "synthetic",
+      "command": "printf '%s' 'print(open(\"' sub/link/secret '\").read())' > script.py; python3 script.py",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-piped-to-written-python-script",
+      "origin": "synthetic",
+      "command": "printf '%s' 'import sys' > s.py; printf '%s\\n' sub/link/secret | python3 s.py",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-long-s-shell",
+      "origin": "synthetic",
+      "command": "printf '%s' 'sed -n p ' sub/link/secret > script.sh; /bin/ſh script.sh",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-fullwidth-shell",
+      "origin": "synthetic",
+      "command": "printf '%s' 'sed -n p ' sub/link/secret > script.sh; ｓｈ script.sh",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-then-known-reader",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' sub/link/secret > f; head -n1 f",
+      "expect": "allow",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-then-workspace-python-script",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' x > f; python3 app.py < f",
+      "expect": "allow",
+      "secret": false,
+      "note": "rule B' closes the data roles here, but the data word `x` is not a path, so the existing proof allows the command"
+    },
+    {
+      "id": "synthetic-path-data-then-workspace-python-script",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' sub/link/secret > f; python3 app.py < f",
+      "expect": "reject",
+      "secret": false,
+      "note": "rule B' closes it: a write and a python3 script run in the same text (PM approved)"
+    },
+    {
+      "id": "synthetic-program-spelling-to-cat",
+      "origin": "synthetic",
+      "command": "cat '/begin/,/end/p'",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-json-spelling-to-cat",
+      "origin": "synthetic",
+      "command": "cat '{\"pointer\":\"/item\"}'",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-quoted-escaping-operand-to-cat",
+      "origin": "synthetic",
+      "command": "cat 'sub/link/secret'",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "redteam-pos-sed-range",
+      "origin": "synthetic",
+      "command": "sed -n '/begin/,/end/p' in.txt",
+      "expect": "allow",
+      "secret": false,
+      "family": "allowed-table/sed"
+    },
+    {
+      "id": "redteam-pos-sed-subst",
+      "origin": "synthetic",
+      "command": "sed -e 's#/old#/new#g' in.txt",
+      "expect": "allow",
+      "secret": false,
+      "family": "allowed-table/sed"
+    },
+    {
+      "id": "redteam-pos-awk-prog",
+      "origin": "synthetic",
+      "command": "awk '/begin/{f=1;next} /end/{f=0} f{print}' in.txt",
+      "expect": "allow",
+      "secret": false,
+      "family": "allowed-table/awk"
+    },
+    {
+      "id": "redteam-pos-grep-pat",
+      "origin": "synthetic",
+      "command": "grep -n '</tag>' in.txt",
+      "expect": "allow",
+      "secret": false,
+      "family": "allowed-table/grep"
+    },
+    {
+      "id": "redteam-pos-grep-e",
+      "origin": "synthetic",
+      "command": "grep -e '/item' -- in.txt",
+      "expect": "allow",
+      "secret": false,
+      "family": "allowed-table/grep"
+    },
+    {
+      "id": "redteam-pos-printf-json",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' '{\"pointer\":\"/item/2\"}'",
+      "expect": "allow",
+      "secret": false,
+      "family": "allowed-table/printf"
+    },
+    {
+      "id": "redteam-pos-echo-json",
+      "origin": "synthetic",
+      "command": "echo '{\"pointer\":\"/item\"}'",
+      "expect": "allow",
+      "secret": false,
+      "family": "allowed-table/echo"
+    },
+    {
+      "id": "redteam-pos-printf-pipe-py",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' '{\"p\":\"/b\"}' | python3 app.py",
+      "expect": "allow",
+      "secret": false,
+      "family": "partner/python3"
+    },
+    {
+      "id": "redteam-pos-echo-redir-py",
+      "origin": "synthetic",
+      "command": "echo '{\"p\":\"/b\"}' > data.json; python3 app.py data.json",
+      "expect": "reject",
+      "secret": false,
+      "family": "partner/python3",
+      "note": "rule B' closes it: a write and a python3 script run in the same text; the red-team file expected allow"
+    },
+    {
+      "id": "redteam-pos-cat-readback",
+      "origin": "synthetic",
+      "command": "printf 'x\\n' > a.txt; cat a.txt",
+      "expect": "allow",
+      "secret": false,
+      "family": "partner/cat"
+    },
+    {
+      "id": "redteam-pos-node-check",
+      "origin": "synthetic",
+      "command": "node --check app.js",
+      "expect": "allow",
+      "secret": false,
+      "family": "allowed/node"
+    },
+    {
+      "id": "redteam-open-B-wc-files0from",
+      "origin": "synthetic",
+      "command": "echo sub/link/secret > list.txt; wc --files0-from=list.txt",
+      "expect": "reject",
+      "secret": false,
+      "family": "content-as-path/wc-files0-from"
+    },
+    {
+      "id": "redteam-open-A-py-pipe",
+      "origin": "synthetic",
+      "command": "printf '%s' sub/link/secret | python3 reader.py",
+      "expect": "allow",
+      "secret": false,
+      "family": "content-as-path/python3-preexisting",
+      "note": "known limit (PM decision 2a, user approved): a workspace python3 script may read the data it receives; the script content was outside the static judgement before the fix as well, so the reach is equivalent"
+    },
+    {
+      "id": "redteam-open-A-py-fromfile",
+      "origin": "synthetic",
+      "command": "printf '%s' sub/link/secret > list.txt; python3 fromfile.py list.txt",
+      "expect": "reject",
+      "secret": false,
+      "family": "content-as-path/python3-preexisting",
+      "note": "rule B' closes it (PM approved, a safer change within decision 2a): a write and a python3 script run in the same text"
+    },
+    {
+      "id": "redteam-closed-redir-noclobber",
+      "origin": "synthetic",
+      "command": "sed -n p >| printf sub/link/secret",
+      "expect": "reject",
+      "secret": false,
+      "family": "shell-syntax/compound-redirect"
+    },
+    {
+      "id": "redteam-closed-redir-fd-noclobber",
+      "origin": "synthetic",
+      "command": "sed -n p 2>| printf sub/link/secret",
+      "expect": "reject",
+      "secret": false,
+      "family": "shell-syntax/compound-redirect"
+    },
+    {
+      "id": "redteam-closed-redir-hidden-operand",
+      "origin": "synthetic",
+      "command": "grep -n x in.txt > out.txt sub/link/secret",
+      "expect": "reject",
+      "secret": false,
+      "family": "shell-syntax/redirect-hidden-operand"
+    },
+    {
+      "id": "redteam-closed-input-redirect-outside",
+      "origin": "synthetic",
+      "command": "grep -e pat < sub/link/secret",
+      "expect": "reject",
+      "secret": false,
+      "family": "shell-syntax/input-redirect"
+    },
+    {
+      "id": "redteam-closed-process-substitution",
+      "origin": "synthetic",
+      "command": "cat <(sed -n p sub/link/secret)",
+      "expect": "reject",
+      "secret": false,
+      "family": "shell-syntax/process-substitution"
+    },
+    {
+      "id": "redteam-closed-subshell",
+      "origin": "synthetic",
+      "command": "( sed -n p sub/link/secret )",
+      "expect": "reject",
+      "secret": false,
+      "family": "shell-syntax/subshell"
+    },
+    {
+      "id": "redteam-closed-generated-script-same-text",
+      "origin": "synthetic",
+      "command": "printf 'print(open(\"sub/link/secret\").read())' > x.py; python3 x.py",
+      "expect": "allow",
+      "secret": false,
+      "family": "data-to-code/generated-script",
+      "before_fix": "allow",
+      "note": "known limit: allowed before the fix as well (f9103ce6 allows it); the printf format holds quotes and parentheses, so it was never a path candidate, and the written script content is outside the static judgement"
+    },
+    {
+      "id": "redteam-closed-shell-exec",
+      "origin": "synthetic",
+      "command": "printf '%s' 'sed -n p ' sub/link/secret > s.sh; /bin/sh s.sh",
+      "expect": "reject",
+      "secret": false,
+      "family": "name-normalization/evaluator"
+    },
+    {
+      "id": "redteam-closed-shell-exec-case",
+      "origin": "synthetic",
+      "command": "printf '%s' 'sed -n p ' sub/link/secret > s.sh; /bin/SH s.sh",
+      "expect": "reject",
+      "secret": false,
+      "family": "name-normalization/case-fold"
+    },
+    {
+      "id": "redteam-closed-shell-exec-unicode",
+      "origin": "synthetic",
+      "command": "printf '%s' 'sed -n p ' sub/link/secret > s.sh; /bin/ſh s.sh",
+      "expect": "reject",
+      "secret": false,
+      "family": "name-normalization/unicode"
+    },
+    {
+      "id": "redteam-closed-env-prefix-shell",
+      "origin": "synthetic",
+      "command": "printf '%s' 'sed -n p ' sub/link/secret > s.sh && env /bin/sh s.sh",
+      "expect": "reject",
+      "secret": false,
+      "family": "shell-syntax/wrapper-prefix"
+    },
+    {
+      "id": "redteam-closed-assignment-prefix",
+      "origin": "synthetic",
+      "command": "PYTHONPATH=x printf '%s' sub/link/secret | python3 app.py",
+      "expect": "reject",
+      "secret": false,
+      "family": "shell-syntax/assignment-prefix"
+    },
+    {
+      "id": "redteam-closed-absolute-known-cmd",
+      "origin": "synthetic",
+      "command": "/bin/printf '%s' sub/link/secret",
+      "expect": "reject",
+      "secret": false,
+      "family": "name-normalization/absolute"
+    },
+    {
+      "id": "redteam-closed-py-inline-opt-first",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' sub/link/secret > list.txt; python3 -B -c 'import sys'",
+      "expect": "reject",
+      "secret": false,
+      "family": "interpreter/inline-option-first"
+    },
+    {
+      "id": "redteam-closed-py-module",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' sub/link/secret > list.txt; python3 -m timeit -n 1 'print(1)'",
+      "expect": "reject",
+      "secret": false,
+      "family": "interpreter/python-m"
+    },
+    {
+      "id": "redteam-closed-py-dir",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' sub/link/secret > list.txt; python3 dir/",
+      "expect": "reject",
+      "secret": false,
+      "family": "interpreter/python-directory"
+    },
+    {
+      "id": "redteam-closed-py-pyz",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' sub/link/secret > list.txt; python3 app.pyz",
+      "expect": "reject",
+      "secret": false,
+      "family": "interpreter/python-zipapp"
+    },
+    {
+      "id": "redteam-closed-node-extra-option",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' sub/link/secret > list.txt; node --check app.js --import x",
+      "expect": "reject",
+      "secret": false,
+      "family": "interpreter/node-extra-flag"
+    },
+    {
+      "id": "redteam-closed-xargs",
+      "origin": "synthetic",
+      "command": "printf '%s' sub/link/secret > list.txt; xargs cat < list.txt",
+      "expect": "reject",
+      "secret": false,
+      "family": "data-to-code/arg-consumer"
+    },
+    {
+      "id": "redteam-closed-sed-w",
+      "origin": "synthetic",
+      "command": "sed '1w sub/link/secret' in.txt",
+      "expect": "reject",
+      "secret": false,
+      "family": "allowed-table/sed-io"
+    },
+    {
+      "id": "redteam-closed-sed-r",
+      "origin": "synthetic",
+      "command": "sed '1r sub/link/secret' in.txt",
+      "expect": "reject",
+      "secret": false,
+      "family": "allowed-table/sed-io"
+    },
+    {
+      "id": "redteam-closed-sed-subst-w",
+      "origin": "synthetic",
+      "command": "sed 's/x/y/w sub/link/secret' in.txt",
+      "expect": "reject",
+      "secret": false,
+      "family": "allowed-table/sed-io"
+    },
+    {
+      "id": "redteam-closed-sed-inplace",
+      "origin": "synthetic",
+      "command": "sed -i 's/x/y/' in.txt",
+      "expect": "allow",
+      "secret": false,
+      "family": "allowed-table/sed-option",
+      "before_fix": "allow",
+      "note": "known limit: allowed before the fix as well (f9103ce6 allows it); an in-place edit inside the workspace, which the Issue #871 contract keeps allowed"
+    },
+    {
+      "id": "redteam-closed-awk-getline-system",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' sub/link/secret > list.txt; awk 'BEGIN{getline x < \"list.txt\"; system(\"cat \" x)}'",
+      "expect": "reject",
+      "secret": false,
+      "family": "allowed-table/awk-io"
+    },
+    {
+      "id": "redteam-closed-awk-print-redirect",
+      "origin": "synthetic",
+      "command": "awk 'BEGIN{print \"x\" > \"sub/link/secret\"}'",
+      "expect": "reject",
+      "secret": false,
+      "family": "allowed-table/awk-io"
+    },
+    {
+      "id": "redteam-closed-awk-environ",
+      "origin": "synthetic",
+      "command": "awk '{print ENVIRON[\"X\"]}'",
+      "expect": "allow",
+      "secret": false,
+      "family": "allowed-table/awk-unsupported",
+      "before_fix": "allow",
+      "note": "known limit: allowed before the fix as well (f9103ce6 allows it); the program names no path"
+    },
+    {
+      "id": "redteam-closed-sed-f",
+      "origin": "synthetic",
+      "command": "sed -f sub/link/secret in.txt",
+      "expect": "reject",
+      "secret": false,
+      "family": "allowed-table/script-file"
+    },
+    {
+      "id": "redteam-closed-awk-f",
+      "origin": "synthetic",
+      "command": "awk -f sub/link/secret in.txt",
+      "expect": "reject",
+      "secret": false,
+      "family": "allowed-table/script-file"
+    },
+    {
+      "id": "redteam-closed-grep-f-joined",
+      "origin": "synthetic",
+      "command": "grep -fsub/link/secret in.txt",
+      "expect": "reject",
+      "secret": false,
+      "family": "allowed-table/pattern-file"
+    },
+    {
+      "id": "redteam-closed-tilde-operand",
+      "origin": "synthetic",
+      "command": "printf '%s' ~",
+      "expect": "reject",
+      "secret": false,
+      "family": "name-normalization/tilde"
+    },
+    {
+      "id": "redteam-closed-tilde-grep",
+      "origin": "synthetic",
+      "command": "grep -e ~/pat in.txt",
+      "expect": "reject",
+      "secret": false,
+      "family": "name-normalization/tilde"
+    },
+    {
+      "id": "redteam-closed-cd-write-after",
+      "origin": "synthetic",
+      "command": "echo sub/link/secret > list.txt; cd d; printf code > reader.py; python3 reader.py",
+      "expect": "reject",
+      "secret": false,
+      "family": "shell-syntax/cd-then-write"
+    },
+    {
+      "id": "redteamb-b-pos-pipe-py",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' '{\"p\":\"/b\"}' | python3 app.py",
+      "expect": "allow",
+      "secret": false,
+      "family": "rule B' red team"
+    },
+    {
+      "id": "redteamb-b-pos-sed-grep-pipe",
+      "origin": "synthetic",
+      "command": "sed -n '/a/,/b/p' in.txt | grep -n '/x'",
+      "expect": "allow",
+      "secret": false,
+      "family": "rule B' red team"
+    },
+    {
+      "id": "redteamb-b-pos-write-then-cat",
+      "origin": "synthetic",
+      "command": "printf 'x\\n' > a.txt; cat a.txt",
+      "expect": "allow",
+      "secret": false,
+      "family": "rule B' red team"
+    },
+    {
+      "id": "redteamb-b-pos-write-then-wc",
+      "origin": "synthetic",
+      "command": "printf 'x\\n' > a.txt; wc -l a.txt",
+      "expect": "allow",
+      "secret": false,
+      "family": "rule B' red team"
+    },
+    {
+      "id": "redteamb-b-pos-broken-2a-file",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' '{\"p\":\"/b\"}' > data.json; python3 app.py data.json",
+      "expect": "reject",
+      "secret": false,
+      "family": "rule B' red team",
+      "note": "rule B' closes it (PM approved option a)"
+    },
+    {
+      "id": "redteamb-b-pos-broken-pipe-output",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' '{\"p\":\"/b\"}' | python3 app.py > out.json",
+      "expect": "reject",
+      "secret": false,
+      "family": "rule B' red team",
+      "note": "rule B' closes it (PM approved option a)"
+    },
+    {
+      "id": "redteamb-b-pos-broken-input-pipe",
+      "origin": "synthetic",
+      "command": "grep -e '/x' < in.txt | python3 app.py",
+      "expect": "reject",
+      "secret": false,
+      "family": "rule B' red team",
+      "note": "same as before the fix: the Issue test table's `< file` row (no new exclusion in the first version) keeps the grep pattern a path candidate"
+    },
+    {
+      "id": "redteamb-b-closed-B1a-case-alias",
+      "origin": "synthetic",
+      "command": "printf '%s' 'print(open(\"' sub/link/secret '\").read())' > SCRIPT.py; python3 script.py",
+      "expect": "reject",
+      "secret": false,
+      "family": "rule B' red team"
+    },
+    {
+      "id": "redteamb-b-closed-B1b-symlink-alias",
+      "origin": "synthetic",
+      "command": "printf '%s' 'print(open(\"' sub/link/secret '\").read())' > generated.py; python3 alias.py",
+      "expect": "reject",
+      "secret": false,
+      "family": "rule B' red team"
+    },
+    {
+      "id": "redteamb-b-closed-B1c-hardlink-alias",
+      "origin": "synthetic",
+      "command": "printf '%s' 'print(open(\"' sub/link/secret '\").read())' > generated.py; python3 hard.py",
+      "expect": "reject",
+      "secret": false,
+      "family": "rule B' red team"
+    },
+    {
+      "id": "redteamb-b-closed-B2-py-directory",
+      "origin": "synthetic",
+      "command": "printf '%s' 'print(open(\"' sub/link/secret '\").read())' > pkg.py/__main__.py; python3 pkg.py",
+      "expect": "reject",
+      "secret": false,
+      "family": "rule B' red team"
+    },
+    {
+      "id": "redteamb-b-closed-same-file-plain",
+      "origin": "synthetic",
+      "command": "printf '%s' 'print(open(\"' sub/link/secret '\").read())' > x.py; python3 x.py",
+      "expect": "reject",
+      "secret": false,
+      "family": "rule B' red team"
+    },
+    {
+      "id": "redteamb-b-closed-dotslash-script",
+      "origin": "synthetic",
+      "command": "printf '%s' 'print(1)' > x.py; python3 ./x.py",
+      "expect": "allow",
+      "secret": false,
+      "family": "rule B' red team",
+      "before_fix": "allow",
+      "note": "rule B' closes the data roles (unit test); the written text is not a path, so the public decision is allow, allowed before the fix as well (f9103ce6)"
+    },
+    {
+      "id": "redteamb-b-closed-append-script",
+      "origin": "synthetic",
+      "command": "printf '%s' 'print(1)' >> x.py; python3 x.py",
+      "expect": "allow",
+      "secret": false,
+      "family": "rule B' red team",
+      "before_fix": "allow",
+      "note": "rule B' closes the data roles (unit test); the written text is not a path, so the public decision is allow, allowed before the fix as well (f9103ce6)"
+    },
+    {
+      "id": "redteamb-b-closed-and-form",
+      "origin": "synthetic",
+      "command": "printf '%s' 'print(open(\"' sub/link/secret '\").read())' > x.py && python3 y.py",
+      "expect": "reject",
+      "secret": false,
+      "family": "rule B' red team"
+    },
+    {
+      "id": "redteamb-b-closed-newline-form",
+      "origin": "synthetic",
+      "command": "printf '%s' 'print(1)' > x.py\npython3 x.py",
+      "expect": "allow",
+      "secret": false,
+      "family": "rule B' red team",
+      "before_fix": "allow",
+      "note": "rule B' closes the data roles (unit test); the written text is not a path, so the public decision is allow, allowed before the fix as well (f9103ce6)"
+    },
+    {
+      "id": "redteamb-b-closed-cd-write-script",
+      "origin": "synthetic",
+      "command": "cd d; printf '%s' 'print(1)' > x.py; python3 x.py",
+      "expect": "allow",
+      "secret": false,
+      "family": "rule B' red team",
+      "before_fix": "allow",
+      "note": "rule B' closes the data roles (unit test); the written text is not a path, so the public decision is allow, allowed before the fix as well (f9103ce6)"
+    },
+    {
+      "id": "redteamb-b-closed-py-stdin-dash",
+      "origin": "synthetic",
+      "command": "printf '%s' sub/link/secret > list.txt; python3 - < list.txt",
+      "expect": "reject",
+      "secret": false,
+      "family": "rule B' red team"
+    },
+    {
+      "id": "redteamb-b-closed-py-stdin-redirect",
+      "origin": "synthetic",
+      "command": "printf '%s' 'print(1)' > s.py; python3 < s.py",
+      "expect": "allow",
+      "secret": false,
+      "family": "rule B' red team",
+      "before_fix": "allow",
+      "note": "rule B' closes the data roles (unit test); the written text is not a path, so the public decision is allow, allowed before the fix as well (f9103ce6)"
+    },
+    {
+      "id": "redteamb-b-closed-py-pyc",
+      "origin": "synthetic",
+      "command": "printf '%s' sub/link/secret > app.pyc; python3 app.pyc",
+      "expect": "reject",
+      "secret": false,
+      "family": "rule B' red team"
+    },
+    {
+      "id": "redteamb-b-closed-py-zip",
+      "origin": "synthetic",
+      "command": "printf '%s' sub/link/secret > a.zip; python3 a.zip",
+      "expect": "reject",
+      "secret": false,
+      "family": "rule B' red team"
+    },
+    {
+      "id": "redteamb-b-closed-py-dashX",
+      "origin": "synthetic",
+      "command": "printf '%s' sub/link/secret > list.txt; python3 -X importtime app.py",
+      "expect": "reject",
+      "secret": false,
+      "family": "rule B' red team"
+    },
+    {
+      "id": "redteamb-b-closed-env-pythonpath",
+      "origin": "synthetic",
+      "command": "PYTHONPATH=evil printf '%s' 'print(1)' > s.py; python3 s.py",
+      "expect": "allow",
+      "secret": false,
+      "family": "rule B' red team",
+      "before_fix": "allow",
+      "note": "rule B' closes the data roles (unit test); the written text is not a path, so the public decision is allow, allowed before the fix as well (f9103ce6)"
+    },
+    {
+      "id": "redteamb-b-closed-py-module",
+      "origin": "synthetic",
+      "command": "printf '%s' sub/link/secret > list.txt; python3 -m timeit 'print(1)'",
+      "expect": "reject",
+      "secret": false,
+      "family": "rule B' red team"
+    },
+    {
+      "id": "redteamb-b-closed-subshell-write",
+      "origin": "synthetic",
+      "command": "( printf '%s' 'print(open(\"' sub/link/secret '\").read())' > x.py ); python3 x.py",
+      "expect": "reject",
+      "secret": false,
+      "family": "rule B' red team"
+    },
+    {
+      "id": "redteamb-b-closed-tee-write",
+      "origin": "synthetic",
+      "command": "printf '%s' 'print(1)' | tee x.py; python3 x.py",
+      "expect": "allow",
+      "secret": false,
+      "family": "rule B' red team",
+      "before_fix": "allow",
+      "note": "rule B' closes the data roles (unit test); the written text is not a path, so the public decision is allow, allowed before the fix as well (f9103ce6)"
+    },
+    {
+      "id": "redteamb-b-oos-wc-files0from",
+      "origin": "synthetic",
+      "command": "echo sub/link/secret > list.txt; wc --files0-from=list.txt",
+      "expect": "reject",
+      "secret": false,
+      "family": "rule B' red team"
+    },
+    {
+      "id": "redteamb-b-oos-pipe-reader",
+      "origin": "synthetic",
+      "command": "printf '%s' sub/link/secret | python3 reader.py",
+      "expect": "allow",
+      "secret": false,
+      "family": "rule B' red team",
+      "note": "known limit (PM decision 2a, user approved): a workspace python3 script may read the data it receives; the script content was outside the static judgement before the fix as well, so the reach is equivalent"
+    }
+  ]
+}

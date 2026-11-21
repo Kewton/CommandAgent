@@ -1,0 +1,25 @@
+[
+  {
+    "case": "content-notes",
+    "fixture": "notes.ts",
+    "workspace_path": "src/lib/notes.ts",
+    "must_contain": [
+      "export async function getNotes",
+      "export async function saveNote",
+      "export async function deleteNote"
+    ],
+    "first_export_line": 30
+  },
+  {
+    "case": "game-logic",
+    "fixture": "game-logic.ts",
+    "workspace_path": "src/lib/game-logic.ts",
+    "must_contain": [
+      "export const INITIAL_WORLD",
+      "export function createAlienGrid",
+      "export function updateGame",
+      "export function fireProjectile"
+    ],
+    "first_export_line": 36
+  }
+]

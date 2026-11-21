@@ -29,17 +29,15 @@ fn retry(
 
 fn overlapping(c: &Config) -> (StepPlan, StepPlan) {
     let mut before = bounded_plan(c, 2_500);
-    let guidance = crate::planner::profile::resolve_profile_runtime(&c.profile)
-        .guidance(&before.goal)
-        .unwrap();
+    let (model, merged) = overlapping_instructions();
     // Host completion can remove duplication without losing a single model word.
-    before.steps[0].instruction = guidance.chars().skip(1).collect();
+    before.steps[0].instruction = model;
     let mut check = step("check-package", "verify", &[]);
     check.instruction = "Check the package manifest exists.".into();
     check.verify = vec!["test -f package.json".into()];
     before.steps.push(check);
     let mut after = before.clone();
-    after.steps[0].instruction = guidance;
+    after.steps[0].instruction = merged;
     (before, after)
 }
 
@@ -111,7 +109,7 @@ fn issue496_saved_model_and_host_tail_loss_are_independently_rejected() {
         if model_loss {
             owner.instruction = owner.instruction.replace(&target(&raw).instruction, "");
         } else {
-            let new_len = owner.instruction.len() - 344;
+            let new_len = owner.instruction.len() - 20;
             owner.instruction.truncate(new_len);
         }
         assert!(owner.instruction.chars().count() <= 2_500);
@@ -136,6 +134,11 @@ fn issue496_capacity_freezes_sources_contract_and_expectations_once() {
         "../../../../tests/corpus/apps/issue484-package-script-formation/original-plan.json"
     ))
     .unwrap();
+    // #810: the package owner is a closed template that cannot grow, so a later
+    // owner receives the host reference and is grown until it overflows.
+    let mut long_owner = step("write-notes", "implement", &["NOTES.md"]);
+    long_owner.instruction = "業".repeat(2_400);
+    raw.steps.push(long_owner);
     let mut admission = admission::Admission::default();
     let first_feedback = retry(&c, &mut admission, &raw, 1);
     let first = admission_events(&c).pop().unwrap();
@@ -305,7 +308,7 @@ fn issue496_formation_before_capacity_keeps_the_first_baseline() {
     retry(&c, &mut admission, &raw, 1);
     let first = admission_events(&c).pop().unwrap();
     c.profile = NEXTJS_PROFILE_ID.into();
-    raw.steps[0].instruction = "業".repeat(700);
+    raw.steps[0].instruction = "業".repeat(2_400);
     retry(&c, &mut admission, &raw, 2);
     let second = admission_events(&c).pop().unwrap();
     assert!(
@@ -357,7 +360,8 @@ fn issue496_recovery_and_configured_contract_cannot_bypass_capacity() {
 fn issue496_deterministic_capacity_retry_is_an_explicit_error() {
     let root = tempfile::tempdir().unwrap();
     let c = super::super::issue478::nextjs_config(root.path());
-    let long_path = format!("{}.txt", "a".repeat(600));
+    // #810: the path is long enough that the template plus the reference overflows.
+    let long_path = format!("{}.txt", "a".repeat(2_300));
     let goal = format!(
         "Phase id: build-verification\nPhase task: Verify the Next.js build\nRequired final artifacts:\n- {long_path}"
     );

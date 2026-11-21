@@ -17,10 +17,14 @@ fn issue439_generated_hook_identity_is_exact() {
             let command = normalize_verify_command(&format!("grep -q '{pattern}' {path}")).unwrap();
             assert!(is_generated_hook_check(command.as_str()), "{command}");
             assert!(!is_generated_hook_check(&format!("{command} || true")));
+            assert!(!is_generated_hook_check(&format!("{command}x")));
+            // The inline text the host once assembled is the same identity, exactly.
+            let inline = super::super::source_checks::legacy_for_token(command.as_str())
+                .expect("the host emits a token");
+            assert!(is_generated_hook_check(&inline), "{inline}");
+            assert!(!is_generated_hook_check(&format!("{inline} || true")));
             assert!(!is_generated_hook_check(
-                &command
-                    .as_str()
-                    .replace("process.exit(1)", "process.exit(0)")
+                &inline.replace("process.exit(1)", "process.exit(0)")
             ));
         }
     }

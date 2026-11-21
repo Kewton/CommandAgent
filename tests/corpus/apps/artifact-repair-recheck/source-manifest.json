@@ -1,0 +1,13 @@
+{
+  "issue": "#949",
+  "kind": "synthetic",
+  "owner": "src/planner/final_acceptance/artifact_repair_paths.rs (final-acceptance repair snapshot candidates)",
+  "base_sha": "4edfc5a726feb5fa468b4a24bc9de29f41c6b1bc",
+  "base_note": "develop 4edfc5a7 is the approved base of the Issue body; every base_sequence and base_events entry in fixtures/events.json was observed by running tests/artifact_repair_recheck.rs against the unchanged sources of that commit",
+  "recorded_source": null,
+  "derived_fixture": "fixtures/events.json lists hand-authored synthetic cases only. Each names the test that builds it at run time: generic draft profiles, a POSIX shell adapter run by the operator-pinned /bin/sh, and scripted fake planner and executor clients, all in temporary directories. No external smoke task, grader input, expected value, model output, generated code, host path, or credential is stored or copied here.",
+  "regenerate_digests": "shasum -a 256 fixtures/events.json",
+  "fixture_sha256": {
+    "events.json": "385e29b62fbd308ca77c3440e22bf5d5db4a683618958ca3206f322f20b6291f"
+  }
+}

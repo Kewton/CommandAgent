@@ -85,6 +85,7 @@ pub(super) fn run_command(
     execution: &mut dyn ChatClient,
     ui: &dyn crate::tui::InteractionUi,
 ) -> anyhow::Result<String> {
+    crate::tools::profile_tools::refuse_for_client(config, &*execution)?;
     crate::preflight::run_for_slash_command(config, &parsed.command, &parsed.goal)?;
     match command.kind {
         SlashCommandKind::PlanSteps => {
@@ -125,6 +126,7 @@ pub(super) fn run_command(
             ui,
         ),
         SlashCommandKind::Resume => {
+            crate::structured_budget::command::refuse_resume(config)?;
             let resume = crate::runs::prepare_resume(&config.workspace_root, &parsed.goal)?;
             if let Some(error) = resume.workspace_drift_error() {
                 bail!("{error}");
@@ -143,7 +145,7 @@ pub(super) fn run_command(
                 planner,
                 execution,
                 &resume.plan,
-                config,
+                &crate::planner::structured_stages::config_resuming(config, &resume.resumed_from),
                 ui,
             )?;
             Ok(format!(

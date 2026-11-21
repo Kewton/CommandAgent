@@ -1,0 +1,57 @@
+{
+  "kind": "synthetic",
+  "note": "Hand-authored scripted runs for Issue #921, the behavior after the fix. No line here was observed in a real run; the recorded rows (before the fix) live in fixtures/recorded/runs.jsonl. Every scripted case runs with native tool calls and with the XML text protocol and requires the same control sequence from both.",
+  "cases": [
+    {
+      "id": "write-then-bash-then-final",
+      "prompt": "Create `hello.py` that prints a greeting, then run it with python3.",
+      "replies": ["Write hello.py", "Bash python3 hello.py", "final text"],
+      "expected": ["no loop_stop reason=required_artifacts_satisfied_after_tool", "three provider requests", "the third request carries the real Bash output", "stop_reason = AssistantFinal with the model's final text", "initially_missing_paths = [hello.py]"],
+      "test": "first_write_of_a_new_file_continues_to_bash_and_final"
+    },
+    {
+      "id": "ls-read-write-then-bash-then-final",
+      "replies": ["Bash ls -F", "Read notes.txt", "Write hello.py", "Bash python3 hello.py", "final text"],
+      "expected": ["the leading ls is not completion evidence", "five provider requests", "no after-tool stop", "AssistantFinal"],
+      "test": "leading_ls_and_read_are_not_completion_evidence"
+    },
+    {
+      "id": "write-and-bash-in-one-reply",
+      "replies": ["Write hello.py + Bash python3 hello.py (one reply)", "final text"],
+      "expected": ["both tools run in order and both results reach the next request", "no after-tool stop", "AssistantFinal"],
+      "test": "several_tools_in_one_reply_keep_their_order_and_results"
+    },
+    {
+      "id": "touch-only",
+      "replies": ["Bash touch hello.py", "final text", "final text"],
+      "expected": ["the empty file exists but is not accepted as the change", "no after-tool stop", "the existing action check fails the run: missing tool call for action prompt after feedback"],
+      "test": "a_path_created_by_bash_touch_does_not_end_the_run"
+    },
+    {
+      "id": "gates-still-block",
+      "expected": ["a refused follow-up command (dangerous command blocked) stays a hard error", "a required path still missing is not excused by finals", "a spent iteration budget is a failure, not a success because the file exists", "no after-tool stop in any of them"],
+      "test": "existing_gates_still_block_after_a_new_file"
+    },
+    {
+      "id": "no-new-execution-duty",
+      "expected": ["a direct edit of an existing file continues to the model final (Issue #913)", "a written document or a script the prompt says not to run ends with the model final and no Bash", "a read-only answer stays read-only", "a final alone does not satisfy a document that was never written"],
+      "test": "preexisting_paths_and_documents_need_no_execution"
+    },
+    {
+      "id": "direct-decision-table",
+      "expected": ["a direct prompt never ends after the tool, whether its paths existed or were created"],
+      "test": "direct_prompt_does_not_end_after_tool_for_preexisting_or_created_paths"
+    },
+    {
+      "id": "plan-step-created-path",
+      "replies": ["Write summary.md", "final text (not consumed)"],
+      "expected": ["a plan implement step keeps RequiredArtifactsSatisfiedAfterTool and the unchanged loop_stop event"],
+      "test": "plan_implement_step_still_ends_after_creating_a_missing_path"
+    },
+    {
+      "id": "direct-create-in-913-corpus",
+      "expected": ["the #913 create-missing-file case now continues to the model final"],
+      "test": "creating_a_missing_file_continues_to_the_model_final"
+    }
+  ]
+}

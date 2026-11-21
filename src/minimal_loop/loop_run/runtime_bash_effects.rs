@@ -49,17 +49,17 @@ where
                     command,
                     setup.status.as_str()
                 ));
-                if passed {
-                    and_chain_failed = false;
-                } else {
-                    and_chain_failed = true;
-                    if first_failure.is_none() {
-                        first_failure = Some((
-                            index + 1,
-                            command.to_string(),
-                            BashOutcomeKind::CommandFailed,
-                        ));
-                    }
+                and_chain_failed = !passed;
+                if !passed {
+                    first_failure.get_or_insert(failed_segment(index + 1, command));
+                }
+            }
+            RuntimeNormalizedCommand::HostCheck(check) => {
+                let (text, passed) = check.execute(root, profile, index + 1);
+                out.push(text);
+                and_chain_failed = !passed;
+                if !passed {
+                    first_failure.get_or_insert(failed_segment(index + 1, command));
                 }
             }
             RuntimeNormalizedCommand::Verify(verify_command) => {
@@ -94,9 +94,7 @@ where
                     and_chain_failed = false;
                 } else {
                     and_chain_failed = true;
-                    if first_failure.is_none() {
-                        first_failure = Some((index + 1, command.to_string(), outcome.kind));
-                    }
+                    first_failure.get_or_insert((index + 1, command.to_string(), outcome.kind));
                 }
             }
         }
@@ -107,6 +105,10 @@ where
         "combined_outcome: Success".to_string()
     };
     Ok(format!("{combined}\n{}", out.join("\n\n")))
+}
+
+fn failed_segment(number: usize, command: &str) -> (usize, String, BashOutcomeKind) {
+    (number, command.to_string(), BashOutcomeKind::CommandFailed)
 }
 
 fn run_runtime_verify_install_substitution(

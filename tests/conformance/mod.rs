@@ -18,6 +18,7 @@ enum MatrixScenario {
     PythonCli,
     GenericStatic,
     GenericPromoted,
+    ExternalDraft,
 }
 
 impl MatrixScenario {
@@ -27,6 +28,7 @@ impl MatrixScenario {
             Self::PythonCli => "python_cli",
             Self::GenericStatic => "generic-static",
             Self::GenericPromoted => "generic-promoted",
+            Self::ExternalDraft => "external-draft",
         }
     }
 
@@ -35,6 +37,7 @@ impl MatrixScenario {
             Self::Nextjs => "nextjs",
             Self::PythonCli => "python-cli",
             Self::GenericStatic | Self::GenericPromoted => "generic",
+            Self::ExternalDraft => EXTERNAL_DRAFT_PROFILE,
         }
     }
 
@@ -92,6 +95,22 @@ impl MatrixScenario {
                     },
                 ],
             },
+            Self::ExternalDraft => UltraPlan {
+                goal: "Write three short release notes".to_string(),
+                profile: EXTERNAL_DRAFT_PROFILE.to_string(),
+                style: "default".to_string(),
+                intent: "create".to_string(),
+                phases: vec![
+                    UltraPhase {
+                        id: "implementation".to_string(),
+                        prompt: "Write the notes and the adapter request.".to_string(),
+                    },
+                    UltraPhase {
+                        id: "verification".to_string(),
+                        prompt: "Rewrite the notes and the adapter request unchanged.".to_string(),
+                    },
+                ],
+            },
             Self::GenericPromoted => UltraPlan {
                 goal: "Create a route page".to_string(),
                 profile: "generic".to_string(),
@@ -127,6 +146,7 @@ fn conformance_matrix_runs_ultra_lifecycle_paths() {
         MatrixScenario::PythonCli,
         MatrixScenario::GenericStatic,
         MatrixScenario::GenericPromoted,
+        MatrixScenario::ExternalDraft,
     ] {
         let trace = run_matrix_scenario(scenario);
         assert!(
@@ -157,6 +177,9 @@ fn conformance_matrix_runs_ultra_lifecycle_paths() {
         );
         if matches!(scenario, MatrixScenario::GenericPromoted) {
             assert_has_event(&trace, "profile_reinferred");
+        }
+        if matches!(scenario, MatrixScenario::ExternalDraft) {
+            assert_external_draft_receipt(&trace);
         }
         assert_conformance_contracts(&trace);
     }
@@ -1551,8 +1574,138 @@ fn scenario_prepare_workspace(scenario: MatrixScenario, root: &Path, run_dir: &P
             write_fake_npm_dependency_installer(root);
             write_browser_release_evidence(run_dir);
         }
+        MatrixScenario::ExternalDraft => external_draft_registry(),
         MatrixScenario::PythonCli | MatrixScenario::GenericStatic => {}
     }
+}
+
+const EXTERNAL_DRAFT_PROFILE: &str = "artifact-contract-draft";
+const EXTERNAL_DRAFT_ADAPTER: &str = "conformance-lines";
+const EXTERNAL_DRAFT_NOTES: &str = "first\nsecond\nthird\n";
+const EXTERNAL_DRAFT_REQUEST: &str = r#"{"protocol":"artifact-contract.request/v1","request_id":"conformance-1","inputs":[{"input_id":"notes","path":"notes.txt"}]}"#;
+/// A synthetic POSIX shell adapter run by the operator-pinned `/bin/sh`: it
+/// counts the lines of its one input under its own opaque IDs.
+const EXTERNAL_DRAFT_ADAPTER_SCRIPT: &str = r#"IFS= read -r envelope || :
+field() { value=${envelope#*\"$1\":\"}; printf '%s' "${value%%\"*}"; }
+request_id=$(field request_id)
+nonce=$(field nonce)
+workspace=$(field workspace)
+path=$(field path)
+sha=$(field sha256)
+count=0
+while IFS= read -r line || [ -n "$line" ]; do count=$((count + 1)); done < "$workspace/$path"
+if [ "$count" -eq 3 ]; then status=passed; ok=1; bad=0; code=0; else status=failed; ok=0; bad=1; code=1; fi
+printf '{"protocol":"artifact-contract.result/v1","request_id":"%s","nonce":"%s","input_digests":[{"input_id":"notes","sha256":"%s"}],"checks":[{"check_id":"lines/total","target_id":null,"status":"%s","counts":{"expected":1,"executed":1,"passed":%s,"failed":%s,"unresolved":0}}]}\n' "$request_id" "$nonce" "$sha" "$status" "$ok" "$bad"
+exit "$code"
+"#;
+
+/// Register the external draft profile and its operator adapter registry once
+/// per test process. Both roots live in a process-lifetime temporary directory
+/// outside every scenario workspace.
+fn external_draft_registry() {
+    static REGISTRY: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    REGISTRY.get_or_init(|| {
+        let root = std::fs::canonicalize(tempfile::tempdir().unwrap().keep()).unwrap();
+        let tooling = root.join("tooling");
+        let config = root.join("config");
+        let profile = root.join(format!("extension/profiles/{EXTERNAL_DRAFT_PROFILE}"));
+        for dir in [&tooling, &config.join("adapters"), &profile] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        std::fs::write(tooling.join("lines.sh"), EXTERNAL_DRAFT_ADAPTER_SCRIPT).unwrap();
+        let shell = std::fs::canonicalize("/bin/sh").unwrap();
+        let descriptor = json!({
+            "protocol": "artifact-contract.adapter/v1",
+            "adapter_id": EXTERNAL_DRAFT_ADAPTER,
+            "executable": {"path": shell, "sha256": sha256_file(&shell)},
+            "tooling_root": tooling,
+            "entrypoint": "lines.sh",
+            "members": {"lines.sh": sha256_file(&tooling.join("lines.sh"))},
+            "required": [{"check_id": "lines/total"}],
+            "inputs": [{"input_id": "notes"}]
+        });
+        std::fs::write(
+            config.join(format!("adapters/{EXTERNAL_DRAFT_ADAPTER}.json")),
+            serde_json::to_vec(&descriptor).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            profile.join("manifest.toml"),
+            format!(
+                r#"[metadata]
+id = "{EXTERNAL_DRAFT_PROFILE}"
+display_name = "Artifact contract draft"
+schema_version = "v2"
+task_family = "generic"
+[plan]
+intent = "create"
+phases = [
+  {{ id = "implementation", prompt = "Write the requested notes for {{goal}}." }},
+  {{ id = "verification", prompt = "Recheck the notes for {{goal}}." }},
+]
+[artifacts]
+required = ["notes.txt"]
+[guidance.variants.contract]
+triggers = [{{ condition = "always" }}]
+messages = {{ instruction = "Write notes.txt and check/request.json." }}
+[[checks.final]]
+id = "artifact_contract_check"
+params = {{ adapter_id = "{EXTERNAL_DRAFT_ADAPTER}", request = "check/request.json" }}
+"#
+            ),
+        )
+        .unwrap();
+        // SAFETY: set once under the OnceLock before the profile is registered;
+        // no other test in this process reads or writes this key.
+        unsafe { std::env::set_var("COMMANDAGENT_ADAPTER_CONFIG_ROOT", &config) };
+        commandagent::planner::extension_profiles::register(&root.join("extension")).unwrap();
+        root
+    });
+}
+
+fn external_draft_writes() -> AssistantReply {
+    AssistantReply {
+        content: String::new(),
+        tool_calls: vec![
+            ToolCall::new(
+                "Write",
+                json!({"path": "notes.txt", "content": EXTERNAL_DRAFT_NOTES}),
+            ),
+            ToolCall::new(
+                "Write",
+                json!({"path": "check/request.json", "content": EXTERNAL_DRAFT_REQUEST}),
+            ),
+        ],
+        prompt_tokens: None,
+        completion_tokens: None,
+    }
+}
+
+fn sha256_file(path: &Path) -> String {
+    use sha2::Digest;
+    format!("{:x}", sha2::Sha256::digest(std::fs::read(path).unwrap()))
+}
+
+fn assert_external_draft_receipt(trace: &Trace) {
+    let receipts = events_named(&trace.events, "artifact_contract_check_result");
+    assert_eq!(receipts.len(), 1, "{}", render_events(&trace.events));
+    let receipt = receipts[0];
+    assert_eq!(string_field(receipt, "source"), Some("draft_profile"));
+    assert_eq!(
+        string_field(receipt, "adapter_id"),
+        Some(EXTERNAL_DRAFT_ADAPTER)
+    );
+    assert_eq!(string_field(receipt, "status"), Some("passed"));
+    assert_eq!(string_field(receipt, "stopped_at"), Some("verified"));
+    // The host caps the domain at partial and never lifts native assurance.
+    assert_eq!(string_field(receipt, "domain_verdict"), Some("partial"));
+    assert_eq!(string_field(receipt, "native_effect"), Some("failure_only"));
+    let stop = events_named(&trace.events, "tui_command_stop")[0];
+    assert_eq!(string_field(stop, "assurance_level"), Some("static"));
+    assert_eq!(
+        string_field(stop, "assurance_reason"),
+        Some("profile_not_admitted")
+    );
 }
 
 fn scenario_planner_replies(scenario: MatrixScenario) -> Vec<AssistantReply> {
@@ -1596,6 +1749,20 @@ fn scenario_planner_replies(scenario: MatrixScenario) -> Vec<AssistantReply> {
                 "Record generic static marker",
                 "implement",
                 vec!["generic-static.txt".to_string()],
+                Vec::new(),
+            )),
+        ],
+        MatrixScenario::ExternalDraft => vec![
+            AssistantReply::text(step_plan_json(
+                "Write the release notes and the adapter request",
+                "implement",
+                vec!["notes.txt".to_string(), "check/request.json".to_string()],
+                Vec::new(),
+            )),
+            AssistantReply::text(step_plan_json(
+                "Rewrite the release notes and the adapter request",
+                "implement",
+                vec!["notes.txt".to_string(), "check/request.json".to_string()],
                 Vec::new(),
             )),
         ],
@@ -1677,6 +1844,7 @@ fn scenario_execution_replies(scenario: MatrixScenario) -> Vec<AssistantReply> {
             write_reply("memo.jsx", generic_interactive_source()),
             write_reply("generic-static.txt", "static fallback observed\n"),
         ],
+        MatrixScenario::ExternalDraft => vec![external_draft_writes(), external_draft_writes()],
         MatrixScenario::GenericPromoted => vec![
             write_reply("package.json", nextjs_complete_package_json()),
             AssistantReply {

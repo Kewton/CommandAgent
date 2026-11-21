@@ -15,6 +15,7 @@ use crate::minimal_loop::dependency_setup::{
     NodeDependencySetupAuthority, NodeDependencySetupRequirement,
 };
 use crate::planner::adjudication::contract::ProbeOutcome;
+use crate::planner::artifact_contract_checks::ArtifactRepairPaths;
 use crate::planner::capability_catalog::{InternalCapability, ResolvedCapability};
 use crate::planner::profile::{
     DomainProfile, InteractionRepairContract, ProfileBehaviorProbeReport, ProfileBuildOracle,
@@ -31,6 +32,7 @@ use crate::planner::profile_manifest::{
 };
 use crate::planner::ultra_plan::{UltraPhase, UltraPlan};
 use crate::planner::verify::VerificationReport;
+use crate::verification::report::artifact_diagnostics::ArtifactDiagnostics;
 
 /// What the adapter is bound to.
 pub enum ManifestBinding {
@@ -190,6 +192,8 @@ impl ManifestDrivenProfile {
         root: &Path,
         goal: &str,
         eval_events_path: Option<&Path>,
+        repair_paths: &mut ArtifactRepairPaths,
+        diagnostics: &mut ArtifactDiagnostics,
     ) -> Vec<String> {
         let checks = match self.resolved_checks() {
             Ok(checks) => checks,
@@ -254,6 +258,26 @@ impl ManifestDrivenProfile {
                             self.id, check.id
                         )),
                     }
+                }
+                ResolvedCapability::Internal(InternalCapability::ArtifactContract(adapter)) => {
+                    if check.phases.is_some() {
+                        failures.push(format!(
+                            "{} manifest check `{}` is registered only for final acceptance; omit phases",
+                            self.id, check.id
+                        ));
+                        continue;
+                    }
+                    let (check_failures, paths, group) =
+                        crate::planner::artifact_contract_checks::run_and_record_with_repair_paths(
+                            root,
+                            &adapter,
+                            eval_events_path,
+                            "draft_profile",
+                            self.id,
+                        );
+                    failures.extend(check_failures);
+                    repair_paths.merge(paths);
+                    diagnostics.push_group(group);
                 }
                 ResolvedCapability::Internal(_) | ResolvedCapability::Probe(_) => {
                     failures.push(format!(
@@ -333,9 +357,19 @@ impl DomainProfile for ManifestDrivenProfile {
         for failure in self.artifact_failures(root) {
             report.push_profile_failure(failure);
         }
-        for failure in self.check_failures(root, goal, eval_events_path) {
+        let mut repair_paths = ArtifactRepairPaths::default();
+        let mut diagnostics = ArtifactDiagnostics::default();
+        for failure in self.check_failures(
+            root,
+            goal,
+            eval_events_path,
+            &mut repair_paths,
+            &mut diagnostics,
+        ) {
             report.push_profile_failure(failure);
         }
+        report.artifact_repair_paths = repair_paths;
+        report.artifact_diagnostics = diagnostics;
         report
     }
 

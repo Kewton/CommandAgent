@@ -1,0 +1,39 @@
+case_id = "request-pattern-routing"
+source = "Issue #918: with --request-pattern jev a direct --prompt request is classified once by TypeSafe jev into ANSWER, CREATE, MODIFY, or INVESTIGATE; an adopted pattern adds one Request guidance block to the system prompt and records request_pattern_resolved, every failure falls back to DEFAULT with no block, and off leaves the request unchanged"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["request_pattern_resolved"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/cases.json = [
+  "\"kind\": \"synthetic\"",
+  "\"guidance_version\": \"v1\"",
+  "\"id\": \"answer-high\"",
+  "\"id\": \"create-high\"",
+  "\"id\": \"modify-high\"",
+  "\"id\": \"investigate-high\"",
+  "\"id\": \"below-threshold\"",
+  "\"id\": \"http-500\"",
+  "\"id\": \"broken-json\"",
+  "\"id\": \"unknown-label\"",
+  "\"id\": \"timeout\"",
+  "\"id\": \"missing-key\"",
+  "\"id\": \"offline\""
+]

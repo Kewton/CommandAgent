@@ -1,0 +1,20 @@
+{
+  "source_runs": "generic comparison pilot L-142 (IC-48); runs under <generic-bench>/runs/<arm>/<task>/r1/ built from develop a520c0847829b783ece38faa8c8227894e0f9d2a; plans copied unmodified",
+  "source_sha": "a520c0847829b783ece38faa8c8227894e0f9d2a",
+  "files": [
+    {
+      "file": "fixtures/recorded-c-mid-plan.yaml",
+      "source": "<generic-bench>/runs/Aa-med/c-mid/r1/work/.commandagent/plans/plan-01a18382-c7ce-7670-a5d1-f71aa8b7ffed.yaml",
+      "line": 23,
+      "sha256": "a09e744a42f11d95a3813bf983af8ed0ad18247c747d4406fe0ca65d0a5c1a82"
+    },
+    {
+      "file": "fixtures/recorded-a-mid-plan.yaml",
+      "source": "<generic-bench>/runs/L3/a-mid/r1/work/.commandagent/plans/plan-01a183bb-1592-7a70-97d8-9388a43bbc9b.yaml",
+      "line": 23,
+      "sha256": "7369e7838feb9fcd321221e22adab60b8d76d35c01ffed1b5eda716427a3c58b"
+    }
+  ],
+  "observations": "fixtures/recorded-observations.jsonl",
+  "synthetic": "fixtures/synthetic-cases.json"
+}

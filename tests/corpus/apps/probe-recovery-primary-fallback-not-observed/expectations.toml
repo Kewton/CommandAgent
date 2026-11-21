@@ -1,0 +1,45 @@
+case_id = "probe-recovery-primary-fallback-not-observed"
+source = "L-111 GAME G (G1 stage 3a, develop eadcaa42), trimmed"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = ["src/app/page.tsx"]
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[release_qualification]
+evidence_fixture = "browser-interaction.json"
+restart_required = true
+full_eligible = false
+evidence_status = "failed:contract_instrumentation_missing:restart"
+reasons = ["contract_instrumentation_missing:restart"]
+
+[json_fields]
+browser-interaction.json:restart_hook_count_after_start = "0"
+browser-interaction.json:recovery_transition_status = "not_observed"
+browser-interaction.json:recovery_control = "primary_fallback"
+
+[fixture_contains]
+src/app/page.tsx = [
+  "data-anvil-action=\"restart\"",
+  "data-anvil-action=\"primary\"",
+  "const handleRestart"
+]
+provenance.md = [
+  "L-111",
+  "GAME G"
+]

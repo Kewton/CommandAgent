@@ -1,0 +1,171 @@
+{
+  "issue": "#948",
+  "event": "speculative_phase_plan_provider_call",
+  "accounting_flag": "accounting_record",
+  "turn_event": "provider_turn_duration",
+  "base_pipeline_lines": {
+    "started": "{\"current_phase_id\":\"phase-n\",\"event\":\"speculative_phase_plan_started\",\"next_phase_id\":\"phase-n-plus-one\",\"reason\":\"verification_overlap\",\"schema_version\":\"1\"}",
+    "adopted": "{\"current_phase_id\":\"phase-n\",\"event\":\"speculative_phase_plan_adopted\",\"next_phase_id\":\"phase-n-plus-one\",\"reason\":\"gate_passed\",\"schema_version\":\"1\"}",
+    "discarded_stale_input": "{\"current_phase_id\":\"phase-n\",\"event\":\"speculative_phase_plan_discarded\",\"next_phase_id\":\"phase-n-plus-one\",\"reason\":\"stale_input\",\"schema_version\":\"1\"}",
+    "discarded_verification_failed": "{\"current_phase_id\":\"phase-n\",\"event\":\"speculative_phase_plan_discarded\",\"next_phase_id\":\"phase-n-plus-one\",\"reason\":\"verification_failed\",\"schema_version\":\"1\"}",
+    "discarded_prefetch_failed": "{\"current_phase_id\":\"phase-n\",\"event\":\"speculative_phase_plan_discarded\",\"next_phase_id\":\"phase-n-plus-one\",\"reason\":\"prefetch_failed\",\"schema_version\":\"1\"}"
+  },
+  "cases": [
+    {
+      "id": "adopted-replayed",
+      "transport": "fake_client",
+      "physical_calls": 2,
+      "prefetch_calls": 1,
+      "pipeline_events": ["started", "adopted"],
+      "provider_call_events": [
+        {"accounted_by": "provider_turn_duration", "accounting_record": false, "call_index": 1, "current_phase_id": "phase-n", "disposition": "replayed", "event": "speculative_phase_plan_provider_call", "next_phase_id": "phase-n-plus-one", "ok": true, "provider_response_id": "resp-prefetch", "reason": "gate_passed", "schema_version": "1"}
+      ],
+      "turns": [
+        {"expect": {"caller_scope": "planner_step", "provider_response_id": "resp-prefetch", "provider_cached_input_tokens": 40, "prompt_eval_count": 100, "eval_count": 5, "prompt_eval_duration": 1100, "eval_duration": 2200}, "absent": []},
+        {"expect": {"caller_scope": "planner_step", "provider_response_id": "resp-fallback", "provider_cached_input_tokens": 0, "prompt_eval_count": 90, "eval_count": 7, "prompt_eval_duration": 3300, "eval_duration": 4400}, "absent": []}
+      ]
+    },
+    {
+      "id": "discarded-settled",
+      "transport": "fake_client",
+      "physical_calls": 1,
+      "prefetch_calls": 1,
+      "pipeline_events": ["started", "discarded_stale_input"],
+      "provider_call_events": [
+        {"accounting_record": true, "call_index": 1, "current_phase_id": "phase-n", "disposition": "unconsumed", "eval_count": 5, "eval_duration": 6600, "event": "speculative_phase_plan_provider_call", "next_phase_id": "phase-n-plus-one", "ok": true, "prompt_eval_count": 100, "prompt_eval_duration": 5500, "provider_cached_input_tokens": 0, "provider_response_id": "resp-discarded", "reason": "stale_input", "schema_version": "1"}
+      ],
+      "turns": []
+    },
+    {
+      "id": "cancelled-unsettled",
+      "transport": "fake_client",
+      "physical_calls": 1,
+      "prefetch_calls": 1,
+      "pipeline_events": ["started", "discarded_verification_failed"],
+      "provider_call_events": [
+        {"accounting_record": true, "call_index": 1, "current_phase_id": "phase-n", "disposition": "unsettled", "event": "speculative_phase_plan_provider_call", "next_phase_id": "phase-n-plus-one", "reason": "verification_failed", "schema_version": "1"}
+      ],
+      "turns": []
+    },
+    {
+      "id": "failed-attempts",
+      "transport": "fake_client",
+      "physical_calls": 2,
+      "prefetch_calls": 2,
+      "pipeline_events": ["started", "discarded_prefetch_failed"],
+      "provider_call_events": [
+        {"accounting_record": true, "call_index": 1, "current_phase_id": "phase-n", "disposition": "unconsumed", "event": "speculative_phase_plan_provider_call", "next_phase_id": "phase-n-plus-one", "ok": false, "reason": "prefetch_failed", "schema_version": "1"},
+        {"accounting_record": true, "call_index": 2, "current_phase_id": "phase-n", "disposition": "unconsumed", "event": "speculative_phase_plan_provider_call", "next_phase_id": "phase-n-plus-one", "ok": false, "reason": "prefetch_failed", "schema_version": "1"}
+      ],
+      "turns": []
+    },
+    {
+      "id": "adopted-unreplayed",
+      "transport": "fake_client",
+      "physical_calls": 1,
+      "prefetch_calls": 1,
+      "pipeline_events": ["started", "adopted"],
+      "provider_call_events": [
+        {"accounting_record": true, "call_index": 1, "current_phase_id": "phase-n", "disposition": "unconsumed", "eval_count": 5, "event": "speculative_phase_plan_provider_call", "next_phase_id": "phase-n-plus-one", "ok": true, "prompt_eval_count": 100, "provider_cached_input_tokens": 40, "provider_response_id": "resp-unreplayed", "reason": "adopted_unreplayed", "schema_version": "1"}
+      ],
+      "turns": []
+    },
+    {
+      "id": "pipeline-dropped",
+      "transport": "fake_client",
+      "physical_calls": 1,
+      "prefetch_calls": 1,
+      "pipeline_events": ["started"],
+      "provider_call_events": [
+        {"accounting_record": true, "call_index": 1, "current_phase_id": "phase-n", "disposition": "unconsumed", "eval_count": 5, "event": "speculative_phase_plan_provider_call", "next_phase_id": "phase-n-plus-one", "ok": true, "prompt_eval_count": 100, "provider_response_id": "resp-dropped", "reason": "pipeline_dropped", "schema_version": "1"}
+      ],
+      "turns": []
+    },
+    {
+      "id": "adopted-precancelled",
+      "transport": "fake_client",
+      "physical_calls": 1,
+      "prefetch_calls": 1,
+      "pipeline_events": ["started", "adopted"],
+      "provider_call_events": [
+        {"accounting_record": true, "call_index": 1, "current_phase_id": "phase-n", "disposition": "unconsumed", "eval_count": 5, "event": "speculative_phase_plan_provider_call", "next_phase_id": "phase-n-plus-one", "ok": true, "prompt_eval_count": 100, "provider_cached_input_tokens": 40, "provider_response_id": "resp-precancelled", "reason": "adopted_unreplayed", "schema_version": "1"}
+      ],
+      "turns": [
+        {"expect": {"caller_scope": "planner_step", "aborted_by_user": true, "ok": false, "prompt_eval_count": null, "eval_count": null}, "absent": ["provider_response_id", "provider_cached_input_tokens"]}
+      ]
+    },
+    {
+      "id": "late-begin-refused",
+      "transport": "fake_client",
+      "physical_calls": 0,
+      "prefetch_calls": 0,
+      "pipeline_events": ["started", "discarded_verification_failed"],
+      "provider_call_events": [],
+      "turns": []
+    },
+    {
+      "id": "late-earlier-attempt",
+      "transport": "fake_client",
+      "physical_calls": 2,
+      "prefetch_calls": 2,
+      "pipeline_events": ["started", "adopted"],
+      "provider_call_events": [
+        {"accounting_record": true, "call_index": 2, "current_phase_id": "phase-n", "disposition": "unconsumed", "eval_count": 5, "event": "speculative_phase_plan_provider_call", "next_phase_id": "phase-n-plus-one", "ok": true, "prompt_eval_count": 100, "provider_response_id": "resp-earlier-late", "reason": "gate_passed", "schema_version": "1"},
+        {"accounted_by": "provider_turn_duration", "accounting_record": false, "call_index": 1, "current_phase_id": "phase-n", "disposition": "replayed", "event": "speculative_phase_plan_provider_call", "next_phase_id": "phase-n-plus-one", "ok": true, "provider_response_id": "resp-later", "reason": "gate_passed", "schema_version": "1"}
+      ],
+      "turns": [
+        {"expect": {"caller_scope": "planner_step", "provider_response_id": "resp-later", "prompt_eval_count": 100, "eval_count": 5}, "absent": ["provider_cached_input_tokens"]}
+      ]
+    },
+    {
+      "id": "http-adopted-replayed",
+      "transport": "local_http",
+      "physical_calls": 2,
+      "prefetch_calls": 1,
+      "pipeline_events": ["started", "adopted"],
+      "provider_call_events": [
+        {"accounted_by": "provider_turn_duration", "accounting_record": false, "call_index": 1, "current_phase_id": "phase-n", "disposition": "replayed", "event": "speculative_phase_plan_provider_call", "next_phase_id": "phase-n-plus-one", "ok": true, "provider_response_id": "resp-http-prefetch", "reason": "gate_passed", "schema_version": "1"}
+      ],
+      "turns": [
+        {"expect": {"caller_scope": "planner_step", "provider_response_id": "resp-http-prefetch", "provider_model_id": "synthetic-model", "provider_cached_input_tokens": 40, "prompt_eval_count": 100, "eval_count": 5}, "absent": []},
+        {"expect": {"caller_scope": "planner_step", "provider_response_id": "resp-http-fallback", "provider_model_id": "synthetic-model", "provider_cached_input_tokens": 0, "prompt_eval_count": 100, "eval_count": 5}, "absent": []}
+      ]
+    },
+    {
+      "id": "http-discarded-missing-cache",
+      "transport": "local_http",
+      "physical_calls": 1,
+      "prefetch_calls": 1,
+      "pipeline_events": ["started", "discarded_verification_failed"],
+      "provider_call_events": [
+        {"accounting_record": true, "call_index": 1, "current_phase_id": "phase-n", "disposition": "unconsumed", "eval_count": 5, "event": "speculative_phase_plan_provider_call", "next_phase_id": "phase-n-plus-one", "ok": true, "prompt_eval_count": 100, "provider_model_id": "synthetic-model", "provider_response_id": "resp-http-discarded", "reason": "verification_failed", "schema_version": "1"}
+      ],
+      "turns": []
+    },
+    {
+      "id": "http-billed-adopted-replayed",
+      "transport": "local_http",
+      "physical_calls": 2,
+      "prefetch_calls": 1,
+      "pipeline_events": ["started", "adopted"],
+      "provider_call_events": [
+        {"accounted_by": "provider_turn_duration", "accounting_record": false, "call_index": 1, "current_phase_id": "phase-n", "disposition": "replayed", "event": "speculative_phase_plan_provider_call", "next_phase_id": "phase-n-plus-one", "ok": true, "provider_response_id": "resp-http-billed-prefetch", "reason": "gate_passed", "schema_version": "1"}
+      ],
+      "turns": [
+        {"expect": {"caller_scope": "planner_step", "provider_response_id": "resp-http-billed-prefetch", "provider_billed_cost_usd": "0.012345", "prompt_eval_count": 100, "eval_count": 5}, "absent": []},
+        {"expect": {"caller_scope": "planner_step", "provider_response_id": "resp-http-billed-fallback", "provider_billed_cost_usd": "0", "prompt_eval_count": 100, "eval_count": 5}, "absent": []}
+      ]
+    },
+    {
+      "id": "http-billed-discarded",
+      "transport": "local_http",
+      "physical_calls": 1,
+      "prefetch_calls": 1,
+      "pipeline_events": ["started", "discarded_verification_failed"],
+      "provider_call_events": [
+        {"accounting_record": true, "call_index": 1, "current_phase_id": "phase-n", "disposition": "unconsumed", "eval_count": 5, "event": "speculative_phase_plan_provider_call", "next_phase_id": "phase-n-plus-one", "ok": true, "prompt_eval_count": 100, "provider_billed_cost_usd": "0.012345", "provider_model_id": "synthetic-model", "provider_response_id": "resp-http-billed-discarded", "reason": "verification_failed", "schema_version": "1"}
+      ],
+      "turns": []
+    }
+  ]
+}

@@ -41,6 +41,7 @@ pub struct RepairContext {
     pub workspace_root: Option<PathBuf>,
     pub eval_events_path: Option<PathBuf>,
     pub prompt_layout: PromptLayout,
+    pub model_verifier_edit_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -179,6 +180,11 @@ fn append_shared_repair_tail(
     }
     prompt.push_str(&compile_context::contract_context(report, context));
     crate::minimal_loop::python_traceback::append_repair_guidance(prompt, report);
+    crate::minimal_loop::ts_missing_export::append_repair_guidance(
+        prompt,
+        report,
+        context.workspace_root.as_deref(),
+    );
     let contract_attribute_guidance = contract_attribute_repair::guidance_section(
         context.workspace_root.as_deref(),
         report,
@@ -189,6 +195,11 @@ fn append_shared_repair_tail(
         prompt.push_str(&contract_attribute_guidance);
     }
     append_profile_repair_guidance(prompt, report, context);
+    crate::minimal_loop::verify_failure_target::append_repair_guidance(
+        prompt,
+        report,
+        context.workspace_root.as_deref(),
+    );
     if let Some(expected) = &context.expected_result {
         prompt.push_str("\n\nExpected verification result:\n");
         prompt.push_str(expected);
@@ -205,6 +216,9 @@ fn append_shared_repair_tail(
             .map(|failure| format!("{}: {}", failure.command, failure.reason))
             .collect::<Vec<_>>();
         prompt.push_str(&bullet_list(&failures));
+    }
+    if let Some(path) = &context.model_verifier_edit_path {
+        prompt.push_str(&format!("\n\nVerifier authority:\nThe model-written verifier `{path}` and the implementation may both be fixed; keep the verify command unchanged. The host's deterministic oracle must still pass."));
     }
     if !context.changed_files.is_empty() {
         prompt.push_str("\n\nFiles already changed in this step:\n");
@@ -834,6 +848,7 @@ mod tests {
 
     #[test]
     fn repair_prompt_includes_contract_attribute_guidance() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("src/app")).unwrap();
         std::fs::write(

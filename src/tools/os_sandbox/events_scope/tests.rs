@@ -286,3 +286,31 @@ fn a_failing_landlock_wrap_is_announced_to_the_child_scope_only() {
     assert_eq!(lines(&child_path), Some(1));
     assert_eq!(lines(&parent_path), None);
 }
+
+/// Issue #803: the one announced event is both written to the file and projected
+/// as exactly one TUI line; without a path it is projected and not written.
+#[test]
+fn a_downgrade_is_projected_once_with_or_without_a_path() {
+    for with_path in [true, false] {
+        let _state = SandboxTestState::acquire();
+        clear_announced();
+        let dir = tempfile::tempdir().unwrap();
+        install(dir.path(), SandboxMode::Auto);
+        let events = dir.path().join("events.jsonl");
+        let scope = EventsScope::enter(with_path.then(|| events.clone()));
+        mark_backend_unavailable("failed at /home/someone/.ssh".to_string());
+        mark_backend_unavailable("a second failure".to_string());
+        drop(scope);
+
+        let calls = announced();
+        assert_eq!(calls.len(), 1, "with_path={with_path}: {calls:?}");
+        let line = crate::tui::presentation::render_activity_line(&calls[0].1)
+            .expect("the downgrade is projected");
+        assert!(!line.contains('\n') && !line.contains("/home"), "{line}");
+        assert_eq!(
+            lines(&events),
+            with_path.then_some(1),
+            "with_path={with_path}"
+        );
+    }
+}

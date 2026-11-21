@@ -1,0 +1,7 @@
+作業ディレクトリにある `textstats.py` の `char_count` と `truncate` が、日本語や絵文字を含む文字列で誤った結果を返します（例: `char_count("こんにちは")` が 15 になる）。
+
+`textstats.py` の docstring に書かれた仕様どおりに動くよう直してください。
+- 文字数は「NFC に正規化した後の Unicode のコードポイントの数」です。
+- 関数の名前・引数・戻り値の型は変えないこと（他の箇所から呼ばれています）。
+- `initials` は正しく動いているので、振る舞いを変えないこと。
+- `tests/test_textstats.py` は `python3 -m unittest discover -s tests -t .` で実行できます。試験を書き換えて通すのではなく、`textstats.py` を直してください。

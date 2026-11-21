@@ -127,9 +127,13 @@ fn validate_additive(
                 crate::planner::capability_catalog::InternalCapability::Pack(_)
             ))
         ),
-        PackProfile::Draft(_) => {
-            matches!(&capability, Some(ResolvedCapability::CommandCheck(_)))
-        }
+        PackProfile::Draft(_) => matches!(
+            &capability,
+            Some(ResolvedCapability::CommandCheck(_))
+                | Some(ResolvedCapability::Internal(
+                    crate::planner::capability_catalog::InternalCapability::ArtifactContract(_)
+                ))
+        ),
         _ => false,
     };
     if !registered_addition {

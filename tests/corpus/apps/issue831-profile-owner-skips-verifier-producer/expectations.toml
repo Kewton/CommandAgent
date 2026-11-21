@@ -1,0 +1,17 @@
+case_id = "issue831-profile-owner-skips-verifier-producer"
+source = "G1 stage 3a rerun game-q game-ui-implementation proposal; the host profile addition must not land on the verifier producer"
+required_paths = []
+verify_commands = ["node smoke-check.js", "npm run build"]
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+acceptance_passed = true
+primary_reason = "pass"
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+source-manifest.json = ["01a168f2-aa84-7032-af13-76d849167695", "game-ui-implementation", "create-verification-script"]
