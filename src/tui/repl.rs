@@ -1286,14 +1286,17 @@ fn present_and_record_terminal(
         Err(error) => render_terminal_after_pack_change(identity, terminal, &error),
     };
     let gate = if terminal.full { "Gate 3" } else { "Gate 4" };
-    // The transcript is saved outside any later display boundary, so the sheet
-    // path line is masked with the run's registered scope here, as every other
-    // reason is. A `--state-dir` can contain a registered value, and the path
+    // The transcript is saved outside any later display boundary, so the reason
+    // body and the sheet path's value are each masked with the run's registered
+    // scope here. A `--state-dir` can contain a registered value, and the path
     // must not be persisted raw (Issue #1057 r3).
-    let body = crate::sensitive_data::scrub_everything(&format!(
-        "{rendered}\n\nSheet path: {}",
-        sheet_path.display()
-    ));
+    //
+    // Only the *value* is masked; the fixed label `Sheet path: ` is joined
+    // afterwards, so registering that label cannot rewrite the record's
+    // structure (Issue #1057 r4).
+    let body = crate::sensitive_data::scrub_everything(&rendered);
+    let masked_path = crate::sensitive_data::scrub_everything(&sheet_path.display().to_string());
+    let body = format!("{body}\n\nSheet path: {masked_path}");
     crate::tui::boundary_shell::transcript::append(&config.state_dir, gate, &body)?;
     Ok(rendered)
 }
@@ -3789,6 +3792,84 @@ mod tests {
         );
         assert!(!normal.contains(CANARY), "{normal}");
         assert!(!failing.contains(CANARY), "{failing}");
+    }
+
+    /// Blocker (r4): the fixed label `Sheet path: ` must not itself be masked.
+    /// Registering that label as a value must leave the record's structure intact
+    /// for a normal run and a revalidation-failing run alike.
+    #[test]
+    fn the_sheet_path_label_survives_when_it_is_a_registered_value() {
+        use crate::sensitive_data::{SecretCatalog, install_scope, reset_scopes_for_tests};
+
+        const LABEL: &str = "Sheet path: ";
+        let temp = tempfile::tempdir().unwrap();
+        let workspace = temp.path().join("workspace");
+        let extension = temp.path().join("extension");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let bytes = pack_selection::tests::assist("canary-pack", "1.0.0", "r4-label");
+        let hash = pack_selection::tests::write_pack(&extension, "canary-pack", "1.0.0", &bytes);
+
+        let mut config = Config::from_cli(crate::cli::Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            workspace.to_str().unwrap(),
+            "--profile",
+            "python-cli",
+            "--intent",
+            "create",
+        ]))
+        .unwrap();
+        config.state_dir = temp.path().join("state");
+        let context =
+            pack_selection::ReplPackContext::new(workspace.clone(), Some(extension.clone()));
+        let selection = crate::tui::boundary_shell::confirmation::PackSelection::Pinned {
+            id: "canary-pack".to_string(),
+            version: "1.0.0".to_string(),
+            hash,
+            point: "cli-validation".to_string(),
+            source: crate::planner::pack::catalog::PackSource::Local,
+        };
+        let identity = selection_identity_for(&workspace, Some(&extension), &selection);
+        let terminal = terminal_for(&identity, false);
+        let generated = crate::tui::boundary_shell::sheet::GeneratedSheet {
+            markdown: "# sheet".to_string(),
+            full: false,
+            section5: Some("failed".to_string()),
+        };
+        let sheet_path =
+            crate::tui::boundary_shell::sheet::persist(&config.state_dir, &identity, &generated)
+                .unwrap();
+
+        reset_scopes_for_tests();
+        let mut catalog = SecretCatalog::new();
+        catalog.register_credential("SYNTHETIC_KEY", LABEL).unwrap();
+        let _scope = install_scope(catalog, Some(&workspace), None);
+
+        let normal =
+            present_and_record_terminal(&config, &identity, &terminal, &context, &sheet_path)
+                .unwrap();
+        std::fs::rename(
+            extension.join("canary-pack"),
+            extension.join("canary-pack-moved"),
+        )
+        .unwrap();
+        let failing =
+            present_and_record_terminal(&config, &identity, &terminal, &context, &sheet_path)
+                .unwrap();
+        reset_scopes_for_tests();
+
+        let transcript =
+            std::fs::read_to_string(config.state_dir.join("boundary-transcript.md")).unwrap();
+        // The structure is intact: the label is not rewritten to a marker.
+        assert_eq!(
+            transcript.matches("Sheet path: ").count(),
+            2,
+            "the Sheet path label was masked: {transcript}"
+        );
+        assert!(!transcript.contains("<redacted>Sheet path"), "{transcript}");
+        // The terminal output is the render, which never carries the label.
+        assert!(!normal.contains(LABEL), "{normal}");
+        assert!(!failing.contains(LABEL), "{failing}");
     }
 
     /// The confirmed identity of `pack` for the python-cli filter route, as the
