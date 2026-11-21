@@ -78,10 +78,11 @@ pub(crate) struct TerminalReport {
     /// projected string, so a registered value equal to a fixed action word is
     /// hidden too.
     pub(crate) next_action: Option<String>,
-    /// The "acceptance unverified" decision, taken from the *original*
-    /// `next_action` before it was masked, so masking the displayed string
-    /// cannot erase the decision.
-    pub(crate) acceptance_unverified: bool,
+    /// Whether the *original* projected `next_action` is the acceptance-unverified
+    /// action, taken before it was masked. The renderer combines this with the
+    /// status it actually displays, so masking the displayed string cannot erase
+    /// the decision.
+    pub(crate) next_action_unverified: bool,
     pub(crate) changed_files: Vec<String>,
     pub(crate) verifications: Vec<VerificationObservation>,
     pub(crate) exit_code: Option<i32>,
@@ -135,8 +136,8 @@ pub(crate) fn project(
     let stop_reason = mask_projected(context.as_ref(), stop_reason, CLOSED_STOP_REASON);
     // The "acceptance unverified" decision is taken from the original value;
     // only the string that is displayed is masked, closed action words included.
-    let acceptance_unverified = status == Some(TerminalStatus::Completed)
-        && next_action.as_deref() == Some(super::ACCEPTANCE_UNVERIFIED_NEXT_ACTION);
+    let next_action_unverified =
+        next_action.as_deref() == Some(super::ACCEPTANCE_UNVERIFIED_NEXT_ACTION);
     let next_action = mask_projected_text_opt(context.as_ref(), next_action);
     let changed_files = workspace
         .as_deref()
@@ -160,7 +161,7 @@ pub(crate) fn project(
         gate,
         stop_reason,
         next_action,
-        acceptance_unverified,
+        next_action_unverified,
         changed_files,
         verifications,
         exit_code,

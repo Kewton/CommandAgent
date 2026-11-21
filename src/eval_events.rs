@@ -197,11 +197,11 @@ pub fn write_run_summary(path: Option<&Path>, text: &str) {
         return;
     };
     let summary = parent.join("summary.md");
-    let fallback_acceptance_unverified = human_summary::body_acceptance_unverified(text);
+    let fallback_next_action_unverified = human_summary::body_next_action_unverified(text);
     let content = human_summary::render(
         path,
         &summary_body(path, text),
-        fallback_acceptance_unverified,
+        fallback_next_action_unverified,
     );
     if let Err(err) = std::fs::create_dir_all(parent) {
         eprintln!("warning: failed to create run summary directory: {err}");
@@ -225,12 +225,14 @@ pub fn append_run_summary(path: Option<&Path>, text: &str) {
         eprintln!("warning: failed to create run summary directory: {err}");
         return;
     }
-    let existing = std::fs::read_to_string(&summary).unwrap_or_default();
-    let existing = human_summary::machine_body(&existing);
-    // Decide "acceptance unverified" from this call's fallback body before it is
-    // masked for display; the displayed body is masked, but the result must not
-    // claim a plain completion.
-    let fallback_acceptance_unverified = human_summary::body_acceptance_unverified(text);
+    let previous_document = std::fs::read_to_string(&summary).unwrap_or_default();
+    let existing = human_summary::machine_body(&previous_document);
+    // The display takes the newest next action in the joined body, so the
+    // decision does too: this call's text when it states one, otherwise the
+    // verdict the previous summary recorded in its fixed `Result:` line (its
+    // machine body may already have masked the value on disk).
+    let fallback_next_action_unverified = human_summary::body_next_action_unverified(text)
+        .or_else(|| human_summary::document_result_unverified(&previous_document).then_some(true));
     // The body read back from disk may predate this writer (or come from
     // another writer), so mask it with the events-path scope before it is
     // re-rendered; a fixed `Status:`/`Result:` value stays protected. Masking
@@ -242,7 +244,7 @@ pub fn append_run_summary(path: Option<&Path>, text: &str) {
     } else {
         format!("{}\n---\n\n{}", existing.trim_end(), content.trim())
     };
-    let rendered = human_summary::render(path, &combined, fallback_acceptance_unverified);
+    let rendered = human_summary::render(path, &combined, fallback_next_action_unverified);
     if let Err(err) = std::fs::write(summary, format!("{rendered}\n")) {
         eprintln!("warning: failed to append run summary: {err}");
     }
