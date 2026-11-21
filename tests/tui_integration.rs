@@ -972,6 +972,18 @@ fn tui_resume_runs_recovery_plan_remaining_phases_and_records_lineage() {
     );
 }
 
+/// Issue #1048 control: `/plan` renders the activity and progress glyphs of the other TUI
+/// displays, so the same body under `LC_ALL=C` expects them through
+/// `tui::glyphs::for_locale(.., false)`.
+#[test]
+fn tui_resume_runs_recovery_plan_remaining_phases_and_records_lineage_ascii() {
+    own_locale_process::run(
+        "tui_resume_runs_recovery_plan_remaining_phases_and_records_lineage_ascii",
+        Glyphs::Ascii,
+        tui_resume_runs_recovery_plan_remaining_phases_and_records_lineage_body,
+    );
+}
+
 fn tui_resume_runs_recovery_plan_remaining_phases_and_records_lineage_body() {
     let dir = tempfile::tempdir().unwrap();
     let events_path = dir.path().join(".anvil/runs/current/events.jsonl");
@@ -1117,7 +1129,17 @@ phases:
     assert!(plan_output.contains("repair-phase"), "{plan_output}");
     assert!(plan_output.contains("verify-recovery"), "{plan_output}");
     assert!(
-        plan_output.contains("Current activity: ✓ Write ok"),
+        plan_output.contains(&own_locale_process::expected("1. ✓ repair-phase")),
+        "{plan_output}"
+    );
+    assert!(
+        plan_output.contains(&own_locale_process::expected("2. ✓ verify-recovery")),
+        "{plan_output}"
+    );
+    assert!(
+        plan_output.contains(&own_locale_process::expected(
+            "Current activity: ✓ Write ok"
+        )),
         "{plan_output}"
     );
 }
