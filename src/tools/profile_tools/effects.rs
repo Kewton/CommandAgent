@@ -11101,6 +11101,8 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                         "tui_command_start",
                         "resume_start",
                         "tui_command_stop",
+                        // Issue #1062: every stop is followed by its time_profile line.
+                        "time_profile",
                         "loop_stop"
                     ]
                 );
