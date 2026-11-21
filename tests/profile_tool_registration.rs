@@ -2752,6 +2752,9 @@ struct OffRun {
     events: Vec<String>,
     /// The key paths of the `time_profile` event, when the run recorded one.
     time_profile_keys: Option<Vec<String>>,
+    /// Whether this run is of the current CLI, which always records `time_profile` after the
+    /// stop (Issue #1062). Only a past control, recorded before that change, may lack it.
+    current_cli: bool,
 }
 
 /// Every key of `value`, as sorted dotted paths.
@@ -2771,10 +2774,11 @@ fn key_paths(value: &Value) -> Vec<String> {
     paths
 }
 
-/// Where two runs differ. They must match byte for byte, apart from whether
-/// `time_profile` was recorded: the base records it only when `total_ms() > 0`
-/// (104a166b `src/lib.rs:645`), so the run's duration decides that. When both recorded
-/// it, it must have the same keys.
+/// Where two runs differ. They must match byte for byte, apart from whether a *past control*
+/// recorded `time_profile`: before Issue #1062 the base wrote it only when `total_ms() > 0`
+/// (104a166b `src/lib.rs:645`). The current CLI writes it after every stop, so a current run
+/// without it is a difference even against such a control. When both recorded it, it must have
+/// the same keys.
 fn off_run_difference(run: &OffRun, control: &OffRun) -> Option<String> {
     for (name, left, right) in [
         (
@@ -2799,16 +2803,25 @@ fn off_run_difference(run: &OffRun, control: &OffRun) -> Option<String> {
             return Some(format!("{name}:\n{left}\n--- control ---\n{right}"));
         }
     }
-    let (Some(keys), Some(expected)) = (&run.time_profile_keys, &control.time_profile_keys) else {
-        return None;
-    };
-    if keys != expected {
-        return Some(format!("time_profile keys: {keys:?}, control {expected:?}"));
+    match (&run.time_profile_keys, &control.time_profile_keys) {
+        (Some(keys), Some(expected)) => {
+            if keys != expected {
+                return Some(format!("time_profile keys: {keys:?}, control {expected:?}"));
+            }
+            ["lifecycle_stage", "command", "profile"]
+                .iter()
+                .find(|key| !keys.iter().any(|path| path == *key))
+                .map(|key| format!("time_profile has no `{key}`: {keys:?}"))
+        }
+        // Only a past control may lack the line; that absence alone is not a difference.
+        (None, Some(_)) if !run.current_cli => None,
+        (Some(_), None) if !control.current_cli => None,
+        (None, None) if !run.current_cli && !control.current_cli => None,
+        _ => Some(format!(
+            "time_profile: a current CLI run records it after the stop; run {:?}, control {:?}",
+            run.time_profile_keys, control.time_profile_keys
+        )),
     }
-    ["lifecycle_stage", "command", "profile"]
-        .iter()
-        .find(|key| !keys.iter().any(|path| path == *key))
-        .map(|key| format!("time_profile has no `{key}`: {keys:?}"))
 }
 
 fn assert_same_off_run(run: &OffRun, control: &OffRun) {
@@ -2818,7 +2831,7 @@ fn assert_same_off_run(run: &OffRun, control: &OffRun) {
 }
 
 #[test]
-fn only_the_presence_of_time_profile_may_differ_between_two_off_runs() {
+fn only_a_past_control_may_lack_time_profile_between_two_off_runs() {
     let keys = |extra: &str| {
         let mut keys = vec![
             "command".to_string(),
@@ -2829,42 +2842,74 @@ fn only_the_presence_of_time_profile_may_differ_between_two_off_runs() {
         keys.push(extra.to_string());
         Some(keys)
     };
-    let run = |events: &[&str], time_profile_keys: Option<Vec<String>>| OffRun {
+    let run = |events: &[&str], time_profile_keys: Option<Vec<String>>, current_cli: bool| OffRun {
         code: Some(0),
         stdout: "out".to_string(),
         stderr: "err".to_string(),
         requests: vec!["request".to_string()],
         events: events.iter().map(ToString::to_string).collect(),
         time_profile_keys,
+        current_cli,
     };
-    let control = run(&["run_start"], keys("profile.total_ms"));
+    let control = run(&["run_start"], keys("profile.total_ms"), true);
     assert_eq!(
-        off_run_difference(&run(&["run_start"], keys("profile.total_ms")), &control),
+        off_run_difference(
+            &run(&["run_start"], keys("profile.total_ms"), true),
+            &control
+        ),
         None
     );
-    // Absent from either side: the duration decided that.
+    // A past control may have been recorded without the line: that alone is not a difference.
     assert_eq!(
-        off_run_difference(&run(&["run_start"], None), &control),
+        off_run_difference(
+            &run(&["run_start"], keys("profile.total_ms"), true),
+            &run(&["run_start"], None, false)
+        ),
         None
     );
     assert_eq!(
-        off_run_difference(&control, &run(&["run_start"], None)),
+        off_run_difference(
+            &run(&["run_start"], None, false),
+            &run(&["run_start"], keys("profile.total_ms"), true)
+        ),
         None
+    );
+    assert_eq!(
+        off_run_difference(
+            &run(&["run_start"], None, false),
+            &run(&["run_start"], None, false)
+        ),
+        None
+    );
+    // The current CLI writes it after every stop: a current run without it differs.
+    assert!(off_run_difference(&run(&["run_start"], None, true), &control).is_some());
+    assert!(
+        off_run_difference(
+            &run(&["run_start"], None, true),
+            &run(&["run_start"], None, true)
+        )
+        .is_some()
     );
     // Recorded by both with other keys, or missing a key: a difference.
-    assert!(off_run_difference(&run(&["run_start"], keys("profile.other_ms")), &control).is_some());
+    assert!(
+        off_run_difference(
+            &run(&["run_start"], keys("profile.other_ms"), true),
+            &control
+        )
+        .is_some()
+    );
     let without_command = Some(vec!["event".to_string(), "profile".to_string()]);
     assert!(
         off_run_difference(
-            &run(&["run_start"], without_command.clone()),
-            &run(&["run_start"], without_command)
+            &run(&["run_start"], without_command.clone(), true),
+            &run(&["run_start"], without_command, true)
         )
         .is_some()
     );
     // Any other event is compared, whatever the time profile did.
-    assert!(off_run_difference(&run(&["run_stop"], None), &control).is_some());
-    assert!(off_run_difference(&run(&[], keys("profile.total_ms")), &control).is_some());
-    let mut other = run(&["run_start"], None);
+    assert!(off_run_difference(&run(&["run_stop"], None, true), &control).is_some());
+    assert!(off_run_difference(&run(&[], keys("profile.total_ms"), true), &control).is_some());
+    let mut other = run(&["run_start"], None, true);
     other.requests.clear();
     assert!(off_run_difference(&other, &control).is_some());
 }
@@ -2976,6 +3021,7 @@ fn off_cli_run(
         requests: requests.iter().map(|body| stable(body)).collect(),
         events,
         time_profile_keys,
+        current_cli: true,
     }
 }
 
@@ -3044,6 +3090,11 @@ fn assert_off_run_answered(label: &str, run: &OffRun) {
         run.events.iter().any(|event| event.contains("run_start")),
         "{label}: {:?}",
         run.events
+    );
+    // Issue #1062: the current CLI records `time_profile` after every stop, a 0 ms run too.
+    assert!(
+        run.time_profile_keys.is_some(),
+        "{label}: the current CLI recorded no time_profile line"
     );
 }
 

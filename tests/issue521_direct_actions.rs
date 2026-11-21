@@ -120,7 +120,6 @@ fn event_lines(workspace: &Path) -> Vec<String> {
     }
     files.sort();
     let mut lines = Vec::new();
-    let mut after_stop = false;
     for file in files {
         let Ok(text) = std::fs::read_to_string(file) else {
             continue;
@@ -136,13 +135,6 @@ fn event_lines(workspace: &Path) -> Vec<String> {
             ) {
                 continue;
             }
-            // `time_profile` is emitted only when the summed time exceeds 0 ms, so drop at
-            // most one right after the stop; any other one stays in the sequence and fails.
-            if name == "time_profile" && after_stop {
-                after_stop = false;
-                continue;
-            }
-            after_stop = name == "tui_command_stop";
             let field = |key: &str| value[key].as_str().unwrap_or("-").to_owned();
             lines.push(match name {
                 "run_start" => format!("run_start action={}", field("action")),
@@ -244,6 +236,7 @@ fn provider_failure_snapshot(
          run_start action={action}\nintent_resolved\nplan_preset_resolved\n{turns}\
          tui_command_stop command={command} status=failed failure_kind=direct_cli_command_failed \
          stop_reason={cause} {HINT}\n\
+         time_profile\n\
          run_stop status=failed failure_kind=process_failure stop_reason={cause} {HINT}\n"
     )
 }
@@ -258,6 +251,7 @@ fn prompt_runs_the_session_loop_against_the_executor_provider() {
          step_obligation_scope\nprovider_turn_duration\nfallback_decision\n\
          tui_command_stop command=--prompt status=failed failure_kind=direct_cli_command_failed \
          stop_reason={REQUEST_FAILED} {HINT}\n\
+         time_profile\n\
          run_stop status=failed failure_kind=process_failure \
          stop_reason={REQUEST_FAILED} {HINT}\n"
     );
@@ -276,6 +270,7 @@ fn plan_steps_generates_a_step_plan_with_the_planner_provider() {
          provider_turn_duration\nprovider_turn_duration\n\
          tui_command_stop command=--plan-steps status=failed \
          failure_kind=direct_cli_command_failed stop_reason={reason}\n\
+         time_profile\n\
          run_stop status=failed failure_kind=process_failure stop_reason={reason}\n"
     );
     assert_eq!(run_snapshot(&["--plan-steps", "g"]), expected);
@@ -331,6 +326,7 @@ fn plan_file_failure(action: &str, command: &str, error: &str, stop_reason: &str
          --events--\nrun_start action={action}\nintent_resolved\nplan_preset_resolved\n\
          tui_command_stop command={command} status=failed \
          failure_kind=direct_cli_command_failed stop_reason={stop_reason}\n\
+         time_profile\n\
          run_stop status=failed failure_kind=process_failure stop_reason={stop_reason}\n"
     )
 }
@@ -417,6 +413,7 @@ fn model_probe_drives_both_provider_roles_and_prints_the_card() {
             "plan_preset_resolved",
             "tui_command_stop command=--model-probe status=completed failure_kind= \
              stop_reason=completed",
+            "time_profile",
             "run_stop status=completed failure_kind= stop_reason=completed",
         ]
     );
@@ -459,6 +456,7 @@ fn community_failure(violation: &str) -> String {
          community_profile_verification\n\
          tui_command_stop command=--prompt status=failed \
          failure_kind=direct_cli_command_failed stop_reason={reason}\n\
+         time_profile\n\
          run_stop status=failed failure_kind=community_profile_violation stop_reason={reason}\n"
     )
 }
@@ -517,6 +515,7 @@ fn setup_interaction_probe_never_starts_a_provider() {
          run_start action=SetupInteractionProbe\nintent_resolved\nplan_preset_resolved\n\
          tui_command_stop command=--setup-interaction-probe status=failed \
          failure_kind=direct_cli_command_failed stop_reason=failed to spawn npm\n\
+         time_profile\n\
          run_stop status=failed failure_kind=process_failure stop_reason=failed to spawn npm\n";
     assert_eq!(run_snapshot(&["--setup-interaction-probe"]), expected);
 }
@@ -714,12 +713,16 @@ fn lines_for(names: &[&str]) -> Vec<String> {
 }
 
 #[test]
-fn event_lines_drops_only_one_time_profile_right_after_the_stop() {
+fn event_lines_keeps_time_profile_where_the_run_put_it() {
     let without = lines_for(&["run_start", "tui_command_stop", "run_stop"]);
+    // Issue #1062: the line is part of the comparison, so a run with it differs from one
+    // without it, at the position the run recorded it.
+    let with = lines_for(&["run_start", "tui_command_stop", "time_profile", "run_stop"]);
     assert_eq!(
-        lines_for(&["run_start", "tui_command_stop", "time_profile", "run_stop"]),
-        without
+        with,
+        [&without[0], &without[1], "time_profile", &without[2]]
     );
+    assert_ne!(with, without);
     assert_eq!(
         lines_for(&["run_start", "time_profile", "tui_command_stop", "run_stop"]),
         [&without[0], "time_profile", &without[1], &without[2]]
@@ -732,7 +735,13 @@ fn event_lines_drops_only_one_time_profile_right_after_the_stop() {
             "time_profile",
             "run_stop"
         ]),
-        [&without[0], &without[1], "time_profile", &without[2]]
+        [
+            &without[0],
+            &without[1],
+            "time_profile",
+            "time_profile",
+            &without[2]
+        ]
     );
 }
 

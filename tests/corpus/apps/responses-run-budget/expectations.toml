@@ -1,5 +1,5 @@
 case_id = "responses-run-budget"
-source = "Issue #1006 (G5): synthetic runs of the binary and the clients against disposable 127.0.0.1 fakes, with synthetic prices and replies; the off rows were recorded from the production code of base ff920681b8bfa9d6e11560837a83ffd96f6340bd before the feature existed; not a model-capability or bench measurement"
+source = "Issue #1006 (G5): synthetic runs of the binary and the clients against disposable 127.0.0.1 fakes, with synthetic prices and replies; the off rows were recorded from the production code of base ff920681b8bfa9d6e11560837a83ffd96f6340bd before the feature existed; Issue #1062 keeps every stop followed by its time_profile line, a 0 ms run included; not a model-capability or bench measurement"
 required_paths = []
 verify_commands = []
 required_capabilities = []

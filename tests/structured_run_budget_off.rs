@@ -15,6 +15,8 @@ use serde_json::{Value, json};
 
 const CORPUS: &str = "tests/corpus/apps/structured-run-budget";
 const OFF_GOLDEN: &str = include_str!("corpus/apps/structured-run-budget/fixtures/off-golden.json");
+const OFF_GOLDEN_V010: &str =
+    include_str!("corpus/apps/structured-run-budget/fixtures/off-golden-v0.1.0.json");
 const FIXED_ROOT_LENGTH: usize = 128;
 /// The items of `responses-run-budget/fixtures/off-golden.json` (#1006), word for word.
 const NORMALIZED: [&str; 8] = [
@@ -126,16 +128,21 @@ fn tool_call(prefix: &str) -> Replies {
     vec![first, chat_reply(&format!("{prefix}2"), done, "stop")]
 }
 
-/// (id, provider, replies, chat retries). ordinary-reply and client-error are excluded: see the
-/// corpus README, "Excluded paths".
+/// (id, provider, replies, chat retries). Issue #1062 returns `compatible-chat-ordinary-reply`
+/// and `compatible-chat-client-error`: every stop now writes its `time_profile` line, so the
+/// presence of that line no longer depends on the clock.
 #[rustfmt::skip]
-fn paths() -> [(&'static str, &'static str, Replies, &'static str); 3] {
+fn paths() -> [(&'static str, &'static str, Replies, &'static str); 5] {
     let done = json!({"role": "assistant", "content": "done"});
-    let retry = vec![(500, "{}".to_string()), chat_reply("c-x1", done, "stop")];
+    let retry = vec![(500, "{}".to_string()), chat_reply("c-x1", done.clone(), "stop")];
+    let ordinary = vec![chat_reply("c-o1", done, "stop")];
+    let client_error = vec![(400, "{}".to_string())];
     [
         ("compatible-chat-tool-call", "openai-compatible", tool_call("c-t"), "0"),
         ("compatible-chat-retry", "openai-compatible", retry, "1"),
         ("lm-studio-chat-tool-call", "lm-studio", tool_call("l-t"), "0"),
+        ("compatible-chat-ordinary-reply", "openai-compatible", ordinary, "0"),
+        ("compatible-chat-client-error", "openai-compatible", client_error, "0"),
     ]
 }
 
@@ -285,18 +292,18 @@ fn record(id: &str, provider: &str, replies: Replies, retries: &str, on: bool) -
     })
 }
 
-/// Every path once, as the bytes of `off-golden.json`.
+/// Every path once, as the bytes of the v0.1.0 record. Issue #1062 records all five paths: the
+/// `time_profile` line no longer depends on the clock.
 fn record_all(on: bool) -> String {
     let paths =
         paths().map(|(id, provider, replies, retries)| record(id, provider, replies, retries, on));
-    let record = json!({"issue": "#976", "kind": "structured-run-budget-off",
+    let record = json!({"issue": "#1062", "kind": "structured-run-budget-off",
                         "normalization": NORMALIZED, "paths": paths});
     serde_json::to_string_pretty(&record).unwrap() + "\n"
 }
 
 /// The recorder (see the corpus README): `STRUCTURED_RUN_BUDGET_OFF_OUT=<file>` runs the binary
 /// on every path and writes the record there, raw when `STRUCTURED_RUN_BUDGET_OFF_RAW` is set.
-/// Without it the test does nothing: no live run is compared here (README, Known limits).
 #[test]
 fn records_the_off_golden() {
     if let Some(out) = std::env::var_os("STRUCTURED_RUN_BUDGET_OFF_OUT") {
@@ -336,6 +343,36 @@ fn ac6_the_committed_golden_has_the_digest_every_build_recorded() {
     );
 }
 
+/// Issue #1062: the v0.1.0 record and its cases table are the fixtures the v0.1.0 manifest names,
+/// and every repeat of the recording gave the record's digest.
+#[test]
+fn ac6_the_v010_fixtures_have_the_digests_of_their_manifest() {
+    let root = format!("{}/{CORPUS}", env!("CARGO_MANIFEST_DIR"));
+    let read = |name: &str| std::fs::read(format!("{root}/{name}")).unwrap();
+    let manifest: Value = serde_json::from_slice(&read("source-manifest-v0.1.0.json")).unwrap();
+    for name in ["cases-v0.1.0.json", "off-golden-v0.1.0.json"] {
+        let digest = sha256(&read(&format!("fixtures/{name}")));
+        assert_eq!(manifest["fixture_sha256"][name], digest, "{name}");
+    }
+    let recorded = manifest["normalized_sha256"].as_object().unwrap();
+    assert!(!recorded.is_empty());
+    for (label, digest) in recorded {
+        assert_eq!(digest, &sha256(OFF_GOLDEN_V010.as_bytes()), "{label}");
+    }
+    assert_eq!(manifest["repeats"]["differing"], 0);
+}
+
+/// Issue #1062: every stop writes its `time_profile` line, so a live off run of all five paths is
+/// the v0.1.0 record byte for byte. This is the live comparison #976 had to leave out.
+#[test]
+fn ac6_a_current_off_run_is_the_v010_record_byte_for_byte() {
+    assert_eq!(
+        record_all(true),
+        OFF_GOLDEN_V010,
+        "a current off run differs from off-golden-v0.1.0.json"
+    );
+}
+
 /// Each `path::name` of cases.json whose file has no `fn <name>(`.
 fn missing_tests(cases: &Value) -> Vec<&str> {
     let tests = cases["cases"].as_array().unwrap().iter();
@@ -350,20 +387,27 @@ fn missing_tests(cases: &Value) -> Vec<&str> {
         .collect()
 }
 
-#[test]
-fn every_test_cases_json_names_exists_and_a_made_up_one_is_caught() {
-    let path = format!(
-        "{}/{CORPUS}/fixtures/cases.json",
-        env!("CARGO_MANIFEST_DIR")
-    );
+fn assert_cases_table(file: &str) {
+    let path = format!("{}/{CORPUS}/fixtures/{file}", env!("CARGO_MANIFEST_DIR"));
     let mut cases: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
     let criteria: Vec<&str> = (cases["cases"].as_array().unwrap().iter())
         .inspect(|case| assert!(!case["tests"].as_array().unwrap().is_empty(), "{case}"))
         .map(|case| case["criterion"].as_str().unwrap())
         .collect();
-    assert_eq!(criteria, ["AC1", "AC2", "AC3", "AC4", "AC5", "AC6"]);
-    assert_eq!(missing_tests(&cases), Vec::<&str>::new());
+    assert_eq!(
+        criteria,
+        ["AC1", "AC2", "AC3", "AC4", "AC5", "AC6"],
+        "{file}"
+    );
+    assert_eq!(missing_tests(&cases), Vec::<&str>::new(), "{file}");
     let made_up = "tests/structured_run_budget_off.rs::no_such_test";
     cases["cases"][0]["tests"][0] = json!(made_up);
-    assert_eq!(missing_tests(&cases), [made_up]);
+    assert_eq!(missing_tests(&cases), [made_up], "{file}");
+}
+
+#[test]
+fn every_test_cases_json_names_exists_and_a_made_up_one_is_caught() {
+    for file in ["cases.json", "cases-v0.1.0.json"] {
+        assert_cases_table(file);
+    }
 }

@@ -212,6 +212,19 @@ pub struct TimeProfile {
     pub phases: Vec<PhaseTimeProfile>,
 }
 
+/// The `time_profile` event that follows a command's stop, whatever its measured total.
+///
+/// Issue #1062: a run that rounds to 0 ms records the line too, so the sequence of events does
+/// not depend on the clock. The schema is unchanged; an unobserved value stays `null`.
+pub fn event_json(lifecycle_stage: &str, command: &str, profile: &TimeProfile) -> Value {
+    json!({
+        "event": "time_profile",
+        "lifecycle_stage": lifecycle_stage,
+        "command": command,
+        "profile": profile.to_event_json(),
+    })
+}
+
 impl TimeProfile {
     pub fn total_ms(&self) -> u64 {
         self.provider
@@ -1062,6 +1075,32 @@ mod tests {
         assert!(block.contains("| full-file Write | 20 | 2s | 1 | 128B | 0B |"));
         assert!(block.contains("| Edit | 30 | 3s | 1 | 0B | 45B |"));
         assert!(block.contains("| tool-call | 40 | 4s | 1 | 0B | 0B |"));
+    }
+
+    #[test]
+    fn a_zero_total_event_keeps_the_schema_of_a_positive_one() {
+        let zero = event_json("direct_cli_command", "--prompt", &TimeProfile::default());
+        assert_eq!(zero["event"], "time_profile");
+        assert_eq!(zero["lifecycle_stage"], "direct_cli_command");
+        assert_eq!(zero["command"], "--prompt");
+        assert_eq!(zero["profile"]["total_ms"], 0);
+        assert!(zero["profile"]["provider_prompt_eval_duration"].is_null());
+
+        let mut positive = TimeProfile::default();
+        positive.provider.executor_ms = 7;
+        let positive = event_json("tui_command", "/plan-steps", &positive);
+        assert_eq!(positive["profile"]["total_ms"], 7);
+
+        let keys = |value: &Value| {
+            value
+                .as_object()
+                .unwrap()
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(keys(&zero), keys(&positive));
+        assert_eq!(keys(&zero["profile"]), keys(&positive["profile"]));
     }
 
     #[test]
