@@ -197,7 +197,7 @@ pub fn write_run_summary(path: Option<&Path>, text: &str) {
         return;
     };
     let summary = parent.join("summary.md");
-    let content = human_summary::render(path, &summary_body(text));
+    let content = human_summary::render(path, &summary_body(path, text));
     if let Err(err) = std::fs::create_dir_all(parent) {
         eprintln!("warning: failed to create run summary directory: {err}");
         return;
@@ -215,7 +215,7 @@ pub fn append_run_summary(path: Option<&Path>, text: &str) {
         return;
     };
     let summary = parent.join("summary.md");
-    let content = summary_body(text);
+    let content = summary_body(path, text);
     if let Err(err) = std::fs::create_dir_all(parent) {
         eprintln!("warning: failed to create run summary directory: {err}");
         return;
@@ -2853,13 +2853,16 @@ fn truncate_whole_tokens(value: &str, limit: usize) -> String {
     }
 }
 
-fn summary_body(body: &str) -> String {
+fn summary_body(events_path: &Path, body: &str) -> String {
     // A `Status:`/`Result:` value is protected only when it is a fixed machine
     // identifier; any other value (free text, or a secret) is scrubbed like the
     // rest of the body. The full body is still scrubbed as one string so a
-    // multiline secret cannot survive as two fragments.
+    // multiline secret cannot survive as two fragments. The scope is resolved
+    // from the events path as well as the thread, so a caller that registered
+    // the scope by path (and cleared the thread-local one) still gets the body
+    // scrubbed.
     let (protected, fixed) = protect_fixed_summary_values(body);
-    let scrubbed = crate::sensitive_data::scrub_active(&protected);
+    let scrubbed = scrub_summary_body(events_path, &protected);
     let clean = scrubbed.replace("\r\n", "\n").replace('\r', "\n");
     let clean = redact_home_paths(&clean);
     let mut out = String::new();
@@ -2878,6 +2881,15 @@ fn summary_body(body: &str) -> String {
         len += line_len;
     }
     restore_fixed_summary_values(&out, &fixed)
+}
+
+/// Scrub summary body text with the scope registered for the events path,
+/// falling back to the thread-local scope.
+fn scrub_summary_body(events_path: &Path, body: &str) -> String {
+    match crate::sensitive_data::active_for(Some(events_path)) {
+        Some(context) => context.scrub_text(body),
+        None => body.to_string(),
+    }
 }
 
 /// Replace a *fixed* `Status:`/`Result:` machine value with a placeholder so the
@@ -3064,7 +3076,10 @@ mod tests {
         let body = format!("{}{}", "日本語".repeat(220), "除外");
         let snippet = body_snippet(&body);
         assert!(snippet.chars().count() <= SNIPPET_LIMIT);
-        let summary = summary_body(&format!("{}\n{}", "日本語".repeat(1_000), body));
+        let summary = summary_body(
+            std::path::Path::new("/tmp/h05-caps/events.jsonl"),
+            &format!("{}\n{}", "日本語".repeat(1_000), body),
+        );
         assert!(summary.chars().count() <= SUMMARY_LIMIT);
     }
 
@@ -3085,7 +3100,13 @@ mod tests {
         assert!(!body_snippet(multiline).contains("H05_NEWLINE"));
         assert!(!body_snippet(spaced).contains("H05_SPACE"));
         assert!(!body_tail_snippet(multiline).contains("H05_NEWLINE"));
-        assert!(!summary_body(multiline).contains("H05_NEWLINE"));
+        assert!(
+            !summary_body(
+                std::path::Path::new("/tmp/h05-summary/events.jsonl"),
+                multiline
+            )
+            .contains("H05_NEWLINE")
+        );
         let preview = argument_value_summary("command", &json!(multiline)).to_string();
         assert!(!preview.contains("H05_NEWLINE"), "{preview}");
         crate::sensitive_data::reset_scopes_for_tests();
