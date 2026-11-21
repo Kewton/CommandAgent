@@ -1879,6 +1879,42 @@ fn ac7_the_preprocessing_does_not_hide_a_changed_type_or_a_bad_line() {
     assert!(!off_control::differences(&base, &current).is_empty());
 }
 
+/// Issue #1062: the base's record already has one `time_profile` line right after each stop, and
+/// the live comparison above now holds it for any measured total, 0 ms included.
+#[test]
+fn ac7_every_recorded_path_has_time_profile_right_after_its_stop() {
+    let golden: Value =
+        serde_json::from_str(&std::fs::read_to_string(off_control::GOLDEN).unwrap()).unwrap();
+    for path in golden["paths"].as_array().unwrap() {
+        let events: Vec<Value> = path["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|line| serde_json::from_str(line.as_str().unwrap()).unwrap())
+            .collect();
+        let stop = events
+            .iter()
+            .position(|event| event["event"] == "tui_command_stop")
+            .unwrap_or_else(|| panic!("{}: no stop", path["id"]));
+        assert_eq!(
+            events[stop + 1]["event"],
+            "time_profile",
+            "{}: {:?}",
+            path["id"],
+            events
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event["event"] == "time_profile")
+                .count(),
+            1,
+            "{}",
+            path["id"]
+        );
+    }
+}
+
 /// The base's record of its ordinary Responses path, and the index of its first line of `event`.
 fn off_ordinary_reply() -> Value {
     let golden: Value =

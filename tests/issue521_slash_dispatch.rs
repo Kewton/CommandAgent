@@ -155,17 +155,13 @@ struct Outcome {
 }
 
 impl Outcome {
-    // `time_profile` is emitted only when the summed time exceeds 0 ms, so drop the one after the stop.
+    // Issue #1062: every stop is followed by one `time_profile` line, whatever the measured
+    // total, so the sequence is compared as the run wrote it.
     fn names(&self) -> Vec<&str> {
-        let mut names: Vec<&str> = Vec::new();
-        for event in &self.events {
-            let name = event["event"].as_str().unwrap_or("");
-            if name == "time_profile" && names.last() == Some(&"tui_command_stop") {
-                continue;
-            }
-            names.push(name);
-        }
-        names
+        self.events
+            .iter()
+            .map(|event| event["event"].as_str().unwrap_or(""))
+            .collect()
     }
 
     fn event(&self, name: &str) -> &serde_json::Value {
@@ -588,6 +584,7 @@ fn goal_inference_emits_profile_inferred_before_the_command_start() {
             "provider_turn_duration",
             "provider_turn_duration",
             "tui_command_stop",
+            "time_profile",
             "loop_stop"
         ]
     );
@@ -620,6 +617,7 @@ fn each_executing_command_reports_its_own_failure_with_ordered_events() {
         "provider_turn_duration",
         "provider_turn_duration",
         "tui_command_stop",
+        "time_profile",
         "loop_stop",
     ];
     let generation_failure_events = vec![
@@ -628,9 +626,15 @@ fn each_executing_command_reports_its_own_failure_with_ordered_events() {
         "provider_turn_duration",
         "provider_turn_duration",
         "tui_command_stop",
+        "time_profile",
         "loop_stop",
     ];
-    let pre_run_events = vec!["tui_command_start", "tui_command_stop", "loop_stop"];
+    let pre_run_events = vec![
+        "tui_command_start",
+        "tui_command_stop",
+        "time_profile",
+        "loop_stop",
+    ];
     // (line, event order, planner calls, reason)
     let cases = [
         (
@@ -709,7 +713,7 @@ fn model_probe_runs_as_a_command_without_a_terminal_summary() {
     let outcome = run("/model-probe", false);
     assert_eq!(
         outcome.names(),
-        vec!["tui_command_start", "tui_command_stop"]
+        vec!["tui_command_start", "tui_command_stop", "time_profile"]
     );
     assert_eq!(outcome.planner_calls, 2);
     assert_eq!(outcome.execution_calls, 10);
@@ -765,8 +769,8 @@ fn interrupt_is_classified_for_every_executing_command_and_ignored_by_the_rest()
             "{line}"
         );
         assert_eq!(
-            &outcome.names()[outcome.names().len() - 2..],
-            ["tui_command_stop", "loop_stop"],
+            &outcome.names()[outcome.names().len() - 3..],
+            ["tui_command_stop", "time_profile", "loop_stop"],
             "{line}"
         );
         let stop = stop_fields(&outcome);
@@ -787,7 +791,10 @@ fn interrupt_is_classified_for_every_executing_command_and_ignored_by_the_rest()
     // /model-probe succeeds even when the flag is raised: only an error result
     // is reclassified as interrupted.
     let probe = run("/model-probe", true);
-    assert_eq!(probe.names(), vec!["tui_command_start", "tui_command_stop"]);
+    assert_eq!(
+        probe.names(),
+        vec!["tui_command_start", "tui_command_stop", "time_profile"]
+    );
     assert!(probe.result.is_ok());
 }
 
@@ -966,6 +973,7 @@ fn resume_with_yes_passes_confirmation_and_starts_the_recovery_run() {
             "recovery_prompt_saved",
             "ultra_partial_artifact_summary",
             "tui_command_stop",
+            "time_profile",
             "loop_stop"
         ]
     );
@@ -1002,7 +1010,12 @@ fn resume_without_yes_on_a_non_terminal_stdin_requires_confirmation_before_any_p
     let outcome = run_with("/resume 018f6666", false, false, write_resumable_run);
     assert_eq!(
         outcome.names(),
-        vec!["tui_command_start", "tui_command_stop", "loop_stop"]
+        vec![
+            "tui_command_start",
+            "tui_command_stop",
+            "time_profile",
+            "loop_stop"
+        ]
     );
     assert_eq!(outcome.planner_calls, 0);
     assert_eq!(outcome.execution_calls, 0);

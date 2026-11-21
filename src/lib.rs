@@ -666,17 +666,12 @@ fn emit_direct_command_stop_with_status(
             "time_profile": time_profile_event,
         }),
     );
-    if time_profile.total_ms() > 0 {
-        eval_events::emit(
-            config.eval_events_path.as_deref(),
-            json!({
-                "event": "time_profile",
-                "lifecycle_stage": "direct_cli_command",
-                "command": command,
-                "profile": time_profile.to_event_json(),
-            }),
-        );
-    }
+    // Issue #1062: one line for every stop, whatever the measured total, so the event sequence
+    // does not depend on the clock.
+    eval_events::emit(
+        config.eval_events_path.as_deref(),
+        time_profile::event_json("direct_cli_command", command, &time_profile),
+    );
     eval_events::write_tui_command_completion_summary(
         config.eval_events_path.as_deref(),
         command,
@@ -2237,6 +2232,64 @@ mod tests {
             Action::Workflow(PathBuf::from("def.yaml"), PathBuf::from("origin")),
         ] {
             assert!(action_uses_write_sandbox(&action), "{action:?}");
+        }
+    }
+
+    /// Issue #1062: a run whose measured time is 0 ms records the `time_profile` line too, right
+    /// after the stop, on success, failure and interruption. The clock is the recorded 0 ms.
+    #[test]
+    fn a_zero_millisecond_direct_run_records_time_profile_right_after_each_stop() {
+        for (status, result) in [
+            (DirectCommandStatus::Completed, Ok(())),
+            (
+                DirectCommandStatus::Failed,
+                Err(anyhow::anyhow!("provider failed")),
+            ),
+            (
+                DirectCommandStatus::Interrupted,
+                Err(anyhow::anyhow!("interrupted by user")),
+            ),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let events = dir.path().join(".anvil/runs/test-run/events.jsonl");
+            std::fs::create_dir_all(events.parent().unwrap()).unwrap();
+            let mut cfg = config(dir.path().to_path_buf());
+            cfg.eval_events_path = Some(events.clone());
+            eval_events::emit(
+                cfg.eval_events_path.as_deref(),
+                json!({
+                    "event": "provider_turn_duration",
+                    "caller_scope": "executor",
+                    "duration_ms": 0,
+                }),
+            );
+
+            emit_direct_command_stop_with_status(&cfg, "--prompt", &result, status);
+
+            let recorded: Vec<Value> = std::fs::read_to_string(&events)
+                .unwrap()
+                .lines()
+                .map(|line| serde_json::from_str(line).unwrap())
+                .collect();
+            let names: Vec<&str> = recorded
+                .iter()
+                .map(|event| event["event"].as_str().unwrap())
+                .collect();
+            let stop = names
+                .iter()
+                .position(|name| *name == "tui_command_stop")
+                .unwrap();
+            assert_eq!(names[stop + 1], "time_profile", "{status:?}: {names:?}");
+            assert_eq!(
+                names.iter().filter(|name| **name == "time_profile").count(),
+                1,
+                "{status:?}: {names:?}"
+            );
+            let profile = &recorded[stop + 1];
+            assert_eq!(profile["lifecycle_stage"], "direct_cli_command");
+            assert_eq!(profile["command"], "--prompt");
+            assert_eq!(profile["profile"]["total_ms"], 0);
+            assert!(profile["profile"]["provider_prompt_eval_duration"].is_null());
         }
     }
 
