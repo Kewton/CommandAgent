@@ -860,6 +860,77 @@ mod tests {
         }
     }
 
+    /// r6 blocker 1: appending re-renders the body read back from `summary.md`,
+    /// and that body grows with every append. Masking it must not apply
+    /// `summary_body`'s 8,000-character cap, or the accumulated previous body
+    /// is truncated the next time the summary is appended to. The registered
+    /// value is still masked.
+    #[test]
+    fn appending_does_not_truncate_the_existing_body() {
+        crate::eval_events::summary_language::with_language_for_test(
+            crate::eval_events::summary_language::SummaryLanguage::English,
+            append_keeps_existing_body,
+        );
+    }
+
+    fn append_keeps_existing_body() {
+        let secret = "SYNTHETIC_APPEND_SECRET_42";
+        let written = format!(
+            "Status: failed\nWRITE_HEAD_1059\n{}\nWRITE_TAIL_1059\nvalue: {secret}",
+            "x".repeat(4_500)
+        );
+        let appended = format!(
+            "APPENDED_HEAD_1059\n{}\nAPPENDED_TAIL_1059",
+            "y".repeat(4_500)
+        );
+
+        let root = tempfile::tempdir().unwrap();
+        let path = root
+            .path()
+            .join(".commandagent/runs/append-truncation/events.jsonl");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let event = json!({
+            "event": "run_stop", "ok": false, "status": "failed",
+            "stop_reason": "verification failed",
+            "next_action": "resume_or_rerun_command",
+        });
+        std::fs::write(&path, format!("{event}\n")).unwrap();
+
+        let mut catalog = crate::sensitive_data::SecretCatalog::new();
+        catalog.register(secret);
+        crate::sensitive_data::install_scope(catalog, Some(root.path()), Some(&path));
+
+        // Saved twice, then appended to twice. After the first append the body
+        // read back on the second append is already over 8,000 characters.
+        crate::eval_events::write_run_summary(Some(&path), &written);
+        crate::eval_events::write_run_summary(Some(&path), &written);
+        crate::eval_events::append_run_summary(Some(&path), &appended);
+        crate::eval_events::append_run_summary(Some(&path), "TUI command failed: phase failed");
+        let summary = std::fs::read_to_string(path.parent().unwrap().join("summary.md")).unwrap();
+
+        assert!(summary.contains("WRITE_HEAD_1059"), "{summary}");
+        assert!(summary.contains("WRITE_TAIL_1059"), "{summary}");
+        assert!(
+            summary.contains("APPENDED_HEAD_1059"),
+            "the appended body was truncated: {}",
+            summary.chars().count()
+        );
+        assert!(
+            summary.contains("APPENDED_TAIL_1059"),
+            "the previous body's tail was truncated: {}",
+            summary.chars().count()
+        );
+        assert!(!summary.contains(secret), "{summary}");
+        assert!(summary.contains("<redacted>"), "{summary}");
+        assert!(
+            summary.contains("---\n\nTUI command failed: phase failed"),
+            "{summary}"
+        );
+
+        // Only this test's scope is restored.
+        crate::sensitive_data::set_current(None);
+    }
+
     /// r5 blocker 2: `append_run_summary` reads the previous `summary.md` body
     /// back and re-renders it. A value already sitting in that body (written
     /// before the scope, or by another writer) must be masked before the

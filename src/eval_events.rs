@@ -197,7 +197,12 @@ pub fn write_run_summary(path: Option<&Path>, text: &str) {
         return;
     };
     let summary = parent.join("summary.md");
-    let content = human_summary::render(path, &summary_body(path, text));
+    let fallback_acceptance_unverified = human_summary::body_acceptance_unverified(text);
+    let content = human_summary::render(
+        path,
+        &summary_body(path, text),
+        fallback_acceptance_unverified,
+    );
     if let Err(err) = std::fs::create_dir_all(parent) {
         eprintln!("warning: failed to create run summary directory: {err}");
         return;
@@ -222,16 +227,22 @@ pub fn append_run_summary(path: Option<&Path>, text: &str) {
     }
     let existing = std::fs::read_to_string(&summary).unwrap_or_default();
     let existing = human_summary::machine_body(&existing);
+    // Decide "acceptance unverified" from this call's fallback body before it is
+    // masked for display; the displayed body is masked, but the result must not
+    // claim a plain completion.
+    let fallback_acceptance_unverified = human_summary::body_acceptance_unverified(text);
     // The body read back from disk may predate this writer (or come from
     // another writer), so mask it with the events-path scope before it is
-    // re-rendered; a fixed `Status:`/`Result:` value stays protected.
-    let existing = summary_body(path, &existing);
+    // re-rendered; a fixed `Status:`/`Result:` value stays protected. Masking
+    // is not capped here, because the limit applies to text being written, and
+    // truncating the previous body would lose it.
+    let existing = masked_summary_body(path, &existing);
     let combined = if existing.trim().is_empty() {
         content
     } else {
         format!("{}\n---\n\n{}", existing.trim_end(), content.trim())
     };
-    let rendered = human_summary::render(path, &combined);
+    let rendered = human_summary::render(path, &combined, fallback_acceptance_unverified);
     if let Err(err) = std::fs::write(summary, format!("{rendered}\n")) {
         eprintln!("warning: failed to append run summary: {err}");
     }
@@ -2858,6 +2869,29 @@ fn truncate_whole_tokens(value: &str, limit: usize) -> String {
 }
 
 fn summary_body(events_path: &Path, body: &str) -> String {
+    let clean = masked_summary_body(events_path, body);
+    let mut out = String::new();
+    let mut len = 0usize;
+    for line in clean.lines() {
+        let line_len = line.chars().count();
+        let next_len = len + usize::from(!out.is_empty()) + line_len;
+        if next_len > SUMMARY_LIMIT {
+            break;
+        }
+        if !out.is_empty() {
+            out.push('\n');
+            len += 1;
+        }
+        out.push_str(line);
+        len += line_len;
+    }
+    out
+}
+
+/// Mask the summary body without applying [`SUMMARY_LIMIT`]. `append_run_summary`
+/// re-renders a body it read back from disk and must not truncate it; the limit
+/// applies only to newly written text, so masking is separate from capping.
+fn masked_summary_body(events_path: &Path, body: &str) -> String {
     // A `Status:`/`Result:` value is protected only when it is a fixed machine
     // identifier; any other value (free text, or a secret) is scrubbed like the
     // rest of the body. The full body is still scrubbed as one string so a
@@ -2869,22 +2903,12 @@ fn summary_body(events_path: &Path, body: &str) -> String {
     let scrubbed = scrub_summary_body(events_path, &protected);
     let clean = scrubbed.replace("\r\n", "\n").replace('\r', "\n");
     let clean = redact_home_paths(&clean);
-    let mut out = String::new();
-    let mut len = 0usize;
-    for line in clean.lines().map(redact_secret_like) {
-        let line_len = line.chars().count();
-        let next_len = len + usize::from(!out.is_empty()) + line_len;
-        if next_len > SUMMARY_LIMIT {
-            break;
-        }
-        if !out.is_empty() {
-            out.push('\n');
-            len += 1;
-        }
-        out.push_str(&line);
-        len += line_len;
-    }
-    restore_fixed_summary_values(&out, &fixed)
+    let clean = clean
+        .lines()
+        .map(redact_secret_like)
+        .collect::<Vec<_>>()
+        .join("\n");
+    restore_fixed_summary_values(&clean, &fixed)
 }
 
 /// Scrub summary body text with the scope registered for the events path,

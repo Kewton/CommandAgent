@@ -5,14 +5,30 @@ use super::terminal_report::{self, TerminalReport, VerificationObservation, Veri
 
 const MACHINE_DETAILS_HEADING: &str = "## Machine details";
 
-pub(super) fn render(events_path: &Path, machine_body: &str) -> String {
+pub(super) fn render(
+    events_path: &Path,
+    machine_body: &str,
+    fallback_acceptance_unverified: bool,
+) -> String {
     let events = terminal_report::read_events(Some(events_path));
     let report = terminal_report::project(&events, Some(events_path), None, None, None);
     render_document(
         machine_body,
         SummaryLanguage::from_process_locale(),
         &report,
+        fallback_acceptance_unverified,
     )
+}
+
+/// Decide "acceptance unverified" from a body's *original* `Status:` and
+/// `Next action:` values. A caller that masks the body before rendering must
+/// take the decision first, because a registered value is masked in the body
+/// while the display must still not claim a plain completion.
+pub(super) fn body_acceptance_unverified(body: &str) -> bool {
+    machine_value(body, &["Status:"])
+        .is_some_and(|status| status == terminal_report::TerminalStatus::Completed.as_str())
+        && machine_value(body, &["Next action:", "Recovery next action:"])
+            .is_some_and(|next_action| next_action == super::ACCEPTANCE_UNVERIFIED_NEXT_ACTION)
 }
 
 pub(super) fn machine_body(document: &str) -> String {
@@ -31,6 +47,7 @@ fn render_document(
     machine_body: &str,
     language: SummaryLanguage,
     report: &TerminalReport,
+    fallback_acceptance_unverified: bool,
 ) -> String {
     let status = report
         .status
@@ -62,7 +79,15 @@ fn render_document(
         .exit_code
         .map(|code| code.to_string())
         .unwrap_or_else(|| language.unavailable().to_string());
-    let result = if report.acceptance_unverified {
+    // The status can come from the events projection or from the body's
+    // fallback. Each source decides "acceptance unverified" from its own
+    // original values, before this body was masked for display.
+    let acceptance_unverified = if report.status.is_some() {
+        report.acceptance_unverified
+    } else {
+        fallback_acceptance_unverified
+    };
+    let result = if acceptance_unverified {
         language.acceptance_unverified_result().to_string()
     } else {
         language.status(&status).into_owned()
@@ -233,6 +258,7 @@ mod tests {
             "Status: failed\ncompletion_contract_verification_enabled=false",
             SummaryLanguage::English,
             &report(),
+            false,
         );
         let first_ten = rendered.lines().take(10).collect::<Vec<_>>().join("\n");
         assert!(first_ten.contains("- Result: failed"), "{rendered}");
@@ -260,6 +286,7 @@ mod tests {
             "Status: failed\nFailure kind: direct_cli_command_failed",
             SummaryLanguage::Japanese,
             &report(),
+            false,
         );
         assert!(rendered.contains("# 実行結果"), "{rendered}");
         assert!(rendered.contains("- 結果: 失敗"), "{rendered}");
@@ -282,7 +309,7 @@ mod tests {
         let report = terminal_report::project(&events, Some(&path), None, None, None);
         assert_eq!(report.exit_code, Some(0));
 
-        let english = render_document("", SummaryLanguage::English, &report);
+        let english = render_document("", SummaryLanguage::English, &report, false);
         let header = english.lines().take(10).collect::<Vec<_>>().join("\n");
         assert!(
             header.contains("- Result: acceptance unverified (process completed)"),
@@ -295,7 +322,7 @@ mod tests {
         assert!(!header.contains("- Result: completed"), "{english}");
         assert!(!header.contains("- Next action: none"), "{english}");
 
-        let japanese = render_document("", SummaryLanguage::Japanese, &report);
+        let japanese = render_document("", SummaryLanguage::Japanese, &report, false);
         let header = japanese.lines().take(10).collect::<Vec<_>>().join("\n");
         assert!(
             header.contains("- 結果: 受入未検証（処理は終了）"),
@@ -315,14 +342,73 @@ mod tests {
         let mut report = report();
         report.status = Some(TerminalStatus::Completed);
         report.next_action = Some("none".to_string());
-        let rendered = render_document("", SummaryLanguage::Japanese, &report);
+        let rendered = render_document("", SummaryLanguage::Japanese, &report, false);
         assert!(rendered.contains("- 結果: 完了"), "{rendered}");
         assert!(rendered.contains("- 次の一手: 追加操作なし"), "{rendered}");
     }
 
+    /// r6 blocker 2: with no terminal event, the status and next action come
+    /// from the body fallback. The "acceptance unverified" decision must use
+    /// the fallback's *original* values, not the events projection, and the
+    /// displayed next action stays masked when it is registered. Through both
+    /// writers.
+    #[test]
+    fn fallback_body_keeps_acceptance_unverified_result() {
+        crate::eval_events::summary_language::with_language_for_test(
+            SummaryLanguage::English,
+            fallback_body_acceptance_unverified,
+        );
+    }
+
+    fn fallback_body_acceptance_unverified() {
+        let secret = crate::eval_events::ACCEPTANCE_UNVERIFIED_NEXT_ACTION;
+        let body = format!("Status: completed\nNext action: {secret}");
+        let root = tempfile::tempdir().unwrap();
+        let path = root
+            .path()
+            .join(".commandagent/runs/fallback-acceptance/events.jsonl");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        // Only `run_start`: no terminal event, so the fallback supplies both.
+        let start = serde_json::json!({"event": "run_start", "ok": true, "status": "running"});
+        std::fs::write(&path, format!("{start}\n")).unwrap();
+
+        let mut catalog = crate::sensitive_data::SecretCatalog::new();
+        catalog.register(secret);
+        crate::sensitive_data::install_scope(catalog, Some(root.path()), Some(&path));
+
+        let check = |summary: &str, stage: &str| {
+            assert!(
+                summary.contains("- Result: acceptance unverified (process completed)"),
+                "{stage}: decision lost: {summary}"
+            );
+            assert!(
+                !summary.contains("- Result: completed"),
+                "{stage}: {summary}"
+            );
+            assert!(!summary.contains(secret), "{stage}: {summary}");
+            assert!(summary.contains("<redacted>"), "{stage}: {summary}");
+        };
+
+        crate::eval_events::write_run_summary(Some(&path), &body);
+        let summary = std::fs::read_to_string(path.parent().unwrap().join("summary.md")).unwrap();
+        check(&summary, "after write");
+
+        crate::eval_events::append_run_summary(Some(&path), &body);
+        let summary = std::fs::read_to_string(path.parent().unwrap().join("summary.md")).unwrap();
+        check(&summary, "after append");
+
+        // Only this test's scope is restored.
+        crate::sensitive_data::set_current(None);
+    }
+
     #[test]
     fn machine_body_unwraps_new_and_legacy_documents() {
-        let rendered = render_document("Status: completed", SummaryLanguage::English, &report());
+        let rendered = render_document(
+            "Status: completed",
+            SummaryLanguage::English,
+            &report(),
+            false,
+        );
         assert_eq!(machine_body(&rendered), "Status: completed");
         assert_eq!(
             machine_body(&format!(
