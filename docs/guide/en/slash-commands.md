@@ -48,6 +48,13 @@ execution commands such as `/ultra-plan-run <goal>` and `/plan-run <goal>`
 instead point back to this Gate 1 flow. Planning command failures are reported
 without leaving the REPL.
 
+`/plan` follows the terminal glyph rules of the other TUI displays. The locale
+comes from `LC_ALL`, then `LANG`. In a UTF-8 locale the plan card and current
+activity show `✓`, `▶`, `○`, `→`, and `·`. In an ASCII locale such as
+`LC_ALL=C` those presentation glyphs are replaced with `ok`, `>`, `o`, `->`,
+and `|`, so a plain ASCII terminal never receives them. This is the same rule
+the banner, footer, and activity lines use.
+
 The full hash is always accepted. By default, a canonical `sha256:` prefix of
 8 through 63 lowercase hexadecimal digits is accepted only when it matches the
 latest pending Gate 1 card. `COMMANDAGENT_STRICT_CONFIRM=1` restores full-hash

@@ -46,6 +46,12 @@
 `/plan-run <goal>` などを直接入力した場合も、この Gate 1 フローへ戻る案内を表示します。
 plan コマンドの失敗は REPL を終了せずに報告されます。
 
+`/plan` もほかの TUI 表示と同じ端末 glyph の規則に従います。locale は `LC_ALL`、次に `LANG`
+から決まります。UTF-8 の locale では plan カードと現在の activity に `✓`、`▶`、`○`、`→`、
+`·` を表示し、`LC_ALL=C` などの ASCII の locale ではこれらの表示用 glyph を `ok`、`>`、
+`o`、`->`、`|` に置き換えます。そのため ASCII 端末にこれらの glyph は送出しません。
+バナー、footer、activity 行と同じ規則です。
+
 完全 hash は常に受け付けます。既定では、8〜63 桁の小文字 16 進数を持つ canonical な
 `sha256:` 前方一致を、最新の確認待ち Gate 1 カードに一致する場合だけ受け付けます。
 `COMMANDAGENT_STRICT_CONFIRM=1` で完全 hash 一致へ戻せます。保存と event 出力には前方一致では
