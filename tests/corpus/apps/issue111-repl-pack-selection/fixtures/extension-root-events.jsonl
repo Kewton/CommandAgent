@@ -1,0 +1,2 @@
+{"card_hash":"sha256:fixture","event":"route_confirmed","profile":"python-cli","intent":"create","schema_version":"1","task_family":"filter"}
+{"card_hash":"sha256:fixture","event":"pack_injected","lifecycle_stage":"tui_confirmed_dispatch","pack_hash":"sha256:extension-fixture","pack_id":"cli-assist","pack_point":"cli-validation","pack_source":"local","pack_version":"1.1.0","schema_version":"1"}

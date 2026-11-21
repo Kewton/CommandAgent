@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
@@ -224,13 +225,15 @@ impl PackLocator {
                 self.repository_root.join(pack.relative_directory)
             }
             PackSource::Repository => self.repository_root.join("packs").join(id).join(version),
-            PackSource::Local => self
-                .extension_root
-                .as_deref()
-                .context("local pack selection requires an extension root")?
-                .join("packs")
-                .join(id)
-                .join(version),
+            PackSource::Local => {
+                let root = self
+                    .extension_root
+                    .as_deref()
+                    .context("local pack selection requires an extension root")?;
+                existing_local_pack(root, id, version).with_context(|| {
+                    format!("local pack `{id}@{version}` is not under the extension root")
+                })?
+            }
         };
         if is_retired(&directory) {
             bail!("pack `{id}@{version}` is retired and cannot be selected")
@@ -249,9 +252,11 @@ impl PackLocator {
         expected_hash: Option<&str>,
     ) -> anyhow::Result<LocatedPack> {
         validate_identity(id, version)?;
-        let source = if self.extension_root.as_deref().is_some_and(|root| {
-            std::fs::symlink_metadata(root.join("packs").join(id).join(version)).is_ok()
-        }) {
+        let source = if self
+            .extension_root
+            .as_deref()
+            .is_some_and(|root| existing_local_pack(root, id, version).is_some())
+        {
             PackSource::Local
         } else {
             PackSource::Repository
@@ -270,18 +275,18 @@ impl PackLocator {
         expected_hash: Option<&str>,
     ) -> anyhow::Result<LocatedPack> {
         let directory = self.locate(source, id, version)?;
-        validate_directory_chain(
-            match source {
-                PackSource::Local => self
-                    .extension_root
-                    .as_deref()
-                    .context("local pack selection requires an extension root")?,
-                PackSource::Admitted | PackSource::Repository => &self.repository_root,
-            },
-            id,
-            version,
-        )
-        .with_context(|| format!("locate {source} pack `{id}@{version}`"))?;
+        let root = match source {
+            PackSource::Local => self
+                .extension_root
+                .as_deref()
+                .context("local pack selection requires an extension root")?,
+            PackSource::Admitted | PackSource::Repository => &self.repository_root,
+        };
+        // A local pack may sit directly under the root as well as under `packs/`,
+        // so the chain is checked from whichever root this directory resolved
+        // under, never only from the `packs/` layout.
+        validate_resolved_chain(root, &directory)
+            .with_context(|| format!("locate {source} pack `{id}@{version}`"))?;
         let loaded = super::load_directory(&directory)
             .with_context(|| format!("load {source} pack {}", directory.display()))?;
         if loaded.id() != id || loaded.identity.version != version {
@@ -372,6 +377,39 @@ impl PackLocator {
         })
     }
 
+    /// Every selector a card can choose under these roots for `profile` ×
+    /// `intent`, each resolved exactly as a selection resolves it. One selector
+    /// appears once even when several roots hold a copy, and with the bytes the
+    /// selection would freeze: the extension root shadows the workspace, and an
+    /// invalid higher candidate is skipped rather than falling back to a lower
+    /// one. `/packs` and the Gate 1 alternatives both read this list, so a
+    /// listing and a card cannot name different supply sources for one selector.
+    pub fn selectable(&self, profile: &str, intent: &str) -> Vec<LocatedPack> {
+        let mut selectors = BTreeSet::new();
+        for pack in ADMITTED_PACKS {
+            selectors.insert((pack.id.to_string(), pack.version.to_string()));
+        }
+        if let Some(root) = self.extension_root.as_deref() {
+            collect_selectors(root, true, &mut selectors);
+            collect_selectors(&root.join("packs"), false, &mut selectors);
+        }
+        collect_selectors(&self.repository_root.join("packs"), false, &mut selectors);
+        selectors
+            .into_iter()
+            .filter_map(|(id, version)| {
+                let located = self.locate_pinned(&id, &version, None).ok()?;
+                let pack_profile = super::PackProfile::parse(&located.profile)?;
+                if !profile_is_compatible(located.source, profile, pack_profile)
+                    || located.intent != intent
+                    || located.point.is_none()
+                {
+                    return None;
+                }
+                Some(located)
+            })
+            .collect()
+    }
+
     pub fn observed_hash(
         &self,
         source: PackSource,
@@ -444,9 +482,15 @@ fn validate_identity(id: &str, version: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn validate_directory_chain(root: &Path, id: &str, version: &str) -> anyhow::Result<()> {
+fn validate_resolved_chain(root: &Path, directory: &Path) -> anyhow::Result<()> {
+    let relative = directory.strip_prefix(root).with_context(|| {
+        format!(
+            "pack directory `{}` is not under its supply root",
+            directory.display()
+        )
+    })?;
     let mut current = root.to_path_buf();
-    for component in ["packs", id, version] {
+    for component in relative.components() {
         current.push(component);
         let metadata = std::fs::symlink_metadata(&current)
             .with_context(|| format!("inspect pack directory {}", current.display()))?;
@@ -458,6 +502,60 @@ fn validate_directory_chain(root: &Path, id: &str, version: &str) -> anyhow::Res
         }
     }
     Ok(())
+}
+
+/// The extension-root layouts, in the order the CLI selects from them: a pack
+/// directly under the root first, then the `packs/` compatibility layout.
+fn local_pack_directories(root: &Path, id: &str, version: &str) -> [PathBuf; 2] {
+    [
+        root.join(id).join(version),
+        root.join("packs").join(id).join(version),
+    ]
+}
+
+/// The first extension-root layout that holds `id@version`, if any.
+pub(crate) fn existing_local_pack(root: &Path, id: &str, version: &str) -> Option<PathBuf> {
+    local_pack_directories(root, id, version)
+        .into_iter()
+        .find(|candidate| std::fs::symlink_metadata(candidate).is_ok())
+}
+
+/// Add every `<id>/<version>` directory under `root` to `selectors`. Directory
+/// names only: whether the bytes are selectable is decided by resolution, so an
+/// unreadable name is skipped rather than failing the whole listing.
+fn collect_selectors(
+    root: &Path,
+    skip_namespaces: bool,
+    selectors: &mut BTreeSet<(String, String)>,
+) {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+            continue;
+        }
+        let Some(id) = entry.file_name().to_str().map(str::to_string) else {
+            continue;
+        };
+        if skip_namespaces
+            && (id == super::PACKS_DIRECTORY
+                || id == crate::planner::profile_manifest::source::EXTENSION_PROFILES_DIRECTORY)
+        {
+            continue;
+        }
+        let Ok(versions) = std::fs::read_dir(entry.path()) else {
+            continue;
+        };
+        for version in versions.flatten() {
+            if !version.file_type().is_ok_and(|kind| kind.is_dir()) {
+                continue;
+            }
+            if let Some(version) = version.file_name().to_str() {
+                selectors.insert((id.clone(), version.to_string()));
+            }
+        }
+    }
 }
 
 #[cfg(test)]

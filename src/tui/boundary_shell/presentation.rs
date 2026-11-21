@@ -126,18 +126,26 @@ fn render_gate_one_for_surface(
         u16::from(identity.recovery_plan_auto_runs) + 1
     ));
     render_pack(identity, pack_locator, &mut lines)?;
-    let candidates = pack_catalog::compatible(&identity.profile, &identity.intent);
-    lines.push(if candidates.is_empty() {
+    // Read the alternatives through the same locator as the selection, so the
+    // list here names the supply sources and hashes a card can actually choose.
+    let candidates = pack_locator.selectable(&identity.profile, &identity.intent);
+    let alternatives = candidates
+        .iter()
+        .filter(|pack| match &identity.pack {
+            PackSelection::Pinned { id, version, .. } => pack.id != *id || pack.version != *version,
+            PackSelection::None => true,
+        })
+        .map(|pack| {
+            format!(
+                "{}@{} / {} / {}",
+                pack.id, pack.version, pack.hash, pack.source
+            )
+        })
+        .collect::<Vec<_>>();
+    lines.push(if alternatives.is_empty() {
         "- ほかに利用可能な検証パック: なし".to_string()
     } else {
-        format!(
-            "- ほかに利用可能な検証パック: {}",
-            candidates
-                .iter()
-                .map(|pack| format!("{}@{} / {}", pack.id, pack.version, pack.hash))
-                .collect::<Vec<_>>()
-                .join("; ")
-        )
+        format!("- ほかに利用可能な検証パック: {}", alternatives.join("; "))
     });
     lines.extend([
         String::new(),

@@ -119,3 +119,97 @@ fn no_footer_flag_reaches_config() {
     let config = Config::from_cli(cli).unwrap();
     assert!(config.no_footer);
 }
+
+const ASSIST: &str = r#"schema_version: commandagent.pack.assist/v0
+pack:
+  id: nextjs-acme
+  version: 1.0.0
+  profile: nextjs
+  intent: create
+inject:
+  - point: build-verification
+    source: browser_interaction
+    required: true
+    params:
+      fields:
+        - dispatched_inputs
+        - observed_state
+        - hook_status
+        - surface
+        - outcome
+"#;
+
+fn write_extension_pack(extension: &std::path::Path) {
+    let directory = extension.join("nextjs-acme/1.0.0");
+    std::fs::create_dir_all(&directory).unwrap();
+    std::fs::write(directory.join("assist.yaml"), ASSIST).unwrap();
+    let hash = commandagent::planner::pack::exact_byte_hash(Some(ASSIST.as_bytes()), None);
+    std::fs::write(directory.join("pack.sha256"), format!("{hash}\n")).unwrap();
+}
+
+/// Issue #1057: the REPL selects its Gate 1 pack through the CLI's roots. A
+/// pack that exists only under `--extension-root` is the bytes the CLI resolves,
+/// and the REPL context resolves the same selector to the same source and hash.
+#[test]
+fn repl_pack_context_reads_the_extension_root_like_the_cli() {
+    let workspace = tempfile::tempdir().unwrap();
+    let extension = workspace.path().join("extensions");
+    write_extension_pack(&extension);
+
+    let cli = Cli::parse_from([
+        "commandagent",
+        "--cwd",
+        workspace.path().to_str().unwrap(),
+        "--profile",
+        "nextjs",
+        "--intent",
+        "create",
+        "--extension-root",
+        extension.to_str().unwrap(),
+        "--pack",
+        "nextjs-acme@1.0.0",
+    ]);
+    let config = Config::from_cli(cli.clone()).unwrap();
+
+    // The CLI resolves it from the extension root.
+    let resolved = commandagent::planner::pack::catalog::PackLocator::with_extension_root(
+        &config.workspace_root,
+        Some(extension.clone()),
+    )
+    .locate_pinned("nextjs-acme", "1.0.0", None)
+    .unwrap();
+    assert_eq!(
+        resolved.source,
+        commandagent::planner::pack::catalog::PackSource::Local
+    );
+
+    // A selection through the same roots freezes that same local source and
+    // hash; nothing here reads the workspace copy, which does not exist.
+    let context = commandagent::tui::repl::pack_selection::ReplPackContext::new(
+        config.workspace_root.clone(),
+        Some(extension.clone()),
+    );
+    let selection = context
+        .select("nextjs", "create", "nextjs-acme@1.0.0")
+        .unwrap();
+    assert!(matches!(
+        selection,
+        commandagent::tui::boundary_shell::confirmation::PackSelection::Pinned {
+            source: commandagent::planner::pack::catalog::PackSource::Local,
+            hash,
+            ..
+        } if hash == resolved.hash
+    ));
+
+    // Without the extension root the same selector is unreadable, and the
+    // refusal names the selector without quoting the pack.
+    let workspace_only = commandagent::tui::repl::pack_selection::ReplPackContext::new(
+        config.workspace_root.clone(),
+        None,
+    );
+    assert!(
+        workspace_only
+            .select("nextjs", "create", "nextjs-acme@1.0.0")
+            .is_err()
+    );
+}

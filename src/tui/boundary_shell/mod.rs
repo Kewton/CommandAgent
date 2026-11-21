@@ -286,10 +286,39 @@ impl BoundaryShell {
         previous: &ConfirmationIdentity,
         pack: PackSelection,
     ) -> anyhow::Result<&ConfirmationIdentity> {
+        self.begin_pack_change_inner(previous, pack, None)
+    }
+
+    /// [`Self::begin_pack_change`] for a REPL or GUI that reads packs from more
+    /// than the admitted catalog: the selection is validated against the exact
+    /// bytes the same locator sees, not only against the admitted tuple.
+    pub fn begin_pack_change_with_locator(
+        &mut self,
+        previous: &ConfirmationIdentity,
+        pack: PackSelection,
+        locator: &PackLocator,
+    ) -> anyhow::Result<&ConfirmationIdentity> {
+        self.begin_pack_change_inner(previous, pack, Some(locator))
+    }
+
+    fn begin_pack_change_inner(
+        &mut self,
+        previous: &ConfirmationIdentity,
+        pack: PackSelection,
+        locator: Option<&PackLocator>,
+    ) -> anyhow::Result<&ConfirmationIdentity> {
         if !matches!(self.state, BoundaryState::FailureReady(_)) {
             bail!("pack changes are available only at Gate 4");
         }
-        pack_catalog::validate_selection(&previous.profile, &previous.intent, &pack)?;
+        match locator {
+            Some(locator) => pack_catalog::validate_selection_with_locator(
+                &previous.profile,
+                &previous.intent,
+                &pack,
+                locator,
+            )?,
+            None => pack_catalog::validate_selection(&previous.profile, &previous.intent, &pack)?,
+        }
         self.select_next_action(NextAction::PackChange)?;
         let mut identity = previous.clone();
         identity.pack = pack;

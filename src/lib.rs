@@ -184,12 +184,23 @@ pub fn run_with_provider_options(
         }
     }
     let pack = resolved_pack?;
+    // The REPL reads its Gate 1 and Gate 4 packs from the same roots its
+    // `--pack` resolved from (Issue #1057). Hand it the resolved startup pack
+    // before the guard installs it, so the REPL keeps one pack held for its life.
+    let repl_pack_context = matches!(config.action, Action::Repl).then(|| {
+        crate::tui::repl::pack_selection::ReplPackContext::from_cli(
+            &pack_cli,
+            &config,
+            pack.clone(),
+        )
+    });
     let _pack_environment = cli_pack::RuntimeEnvironmentGuard::install(pack.as_ref())?;
     planner::artifact_contract_checks::preflight(&config.workspace_root, &config.profile)
         .map_err(|reason| cli_argument_error(anyhow::anyhow!(reason)))?;
     let summary_source = (summary_json && action_may_project_summary(&config.action))
         .then(|| headless_summary::Source::from_config(&config, pack.as_ref()));
-    let result = run_resolved_config_with_summary(config, summary_source.clone());
+    let result =
+        run_resolved_config_with_summary(config, summary_source.clone(), repl_pack_context);
     if let Some(source) = summary_source
         && (source.has_persisted_events() || source.has_selected_pack())
     {
@@ -229,12 +240,13 @@ pub fn cli_error_exit_code(error: &anyhow::Error) -> i32 {
 
 #[cfg(test)]
 fn run_resolved_config(config: Config) -> anyhow::Result<()> {
-    run_resolved_config_with_summary(config, None)
+    run_resolved_config_with_summary(config, None, None)
 }
 
 fn run_resolved_config_with_summary(
     config: Config,
     summary_source: Option<headless_summary::Source>,
+    repl_pack_context: Option<crate::tui::repl::pack_selection::ReplPackContext>,
 ) -> anyhow::Result<()> {
     let _workspace_lock = action_uses_workspace_lock(&config.action)
         .then(|| {
@@ -246,7 +258,9 @@ fn run_resolved_config_with_summary(
         Action::Runs(_) | Action::UxDemo | Action::ModelProbe
     ))
     .then(|| tools::git_state::RunReporter::start(&config.workspace_root));
-    cli_panic_boundary::catch_cli_run(&config, || run_config(config.clone(), summary_source))
+    cli_panic_boundary::catch_cli_run(&config, || {
+        run_config(config.clone(), repl_pack_context, summary_source)
+    })
 }
 
 pub(crate) fn run_resolved_config_for_workflow(config: Config) -> anyhow::Result<()> {
@@ -270,11 +284,12 @@ pub(crate) fn run_resolved_config_for_workflow(config: Config) -> anyhow::Result
         &config.profile,
     )
     .map_err(|reason| cli_argument_error(anyhow::anyhow!(reason)))?;
-    run_config(config, None)
+    run_config(config, None, None)
 }
 
 fn run_config(
     config: Config,
+    repl_pack_context: Option<crate::tui::repl::pack_selection::ReplPackContext>,
     summary_source: Option<headless_summary::Source>,
 ) -> anyhow::Result<()> {
     if let Action::Workflow(definition, origin) = &config.action {
@@ -315,7 +330,7 @@ fn run_config(
     cli_panic_boundary::inject_test_fault_if_requested();
     let result = (|| -> anyhow::Result<()> {
         preflight::run_for_action(&config)?;
-        direct_action_dispatch::run(&config)
+        direct_action_dispatch::run(&config, repl_pack_context)
     })();
     if let Some(guard) = direct_command_guard.as_ref() {
         guard.finalize(&result);
