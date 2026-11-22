@@ -46,6 +46,12 @@
 `/plan-run <goal>` などを直接入力した場合も、この Gate 1 フローへ戻る案内を表示します。
 plan コマンドの失敗は REPL を終了せずに報告されます。
 
+`/plan` もほかの TUI 表示と同じ端末 glyph の規則に従います。locale は `LC_ALL`、次に `LANG`
+から決まります。UTF-8 の locale では plan カードと現在の activity に `✓`、`▶`、`○`、`→`、
+`·` を表示し、`LC_ALL=C` などの ASCII の locale ではこれらの表示用 glyph を `ok`、`>`、
+`o`、`->`、`|` に置き換えます。そのため ASCII 端末にこれらの glyph は送出しません。
+バナー、footer、activity 行と同じ規則です。
+
 完全 hash は常に受け付けます。既定では、8〜63 桁の小文字 16 進数を持つ canonical な
 `sha256:` 前方一致を、最新の確認待ち Gate 1 カードに一致する場合だけ受け付けます。
 `COMMANDAGENT_STRICT_CONFIRM=1` で完全 hash 一致へ戻せます。保存と event 出力には前方一致では
@@ -112,10 +118,19 @@ pack を指すときは、導入し直さずにそのまま dispatch します�
 Gate 3 または Gate 4 のままです。その pack を使うには、`--pack` を付けずに REPL を
 起動し直してください。
 
-REPL は、Gate 1 と Gate 4 のカードの pack を、`--extension-root` ではなく workspace の
-`packs/<id>/<version>` から読みます。`--pack` で extension root から保持した pack を
-それらのカードで表示・選択するには、同じ pack が workspace のその場所にも必要です。
-`/packs` の一覧は、設定された extension root の pack も含みます。
+REPL は、Gate 1 と Gate 4 のカードの pack を、CLI の `--pack` と同じ根と順序で読みます。
+まず `--extension-root`（その直下の `<id>/<version>` と `packs/<id>/<version>` の両方）、
+次に workspace の `packs/<id>/<version>` です。したがって `--pack` で extension root から
+保持した pack は、その根からカードに表示・dispatch され、供給元は `local`
+（`admitted` にはなりません）のままです。`/packs` も同じ根で各 selector を解決するので、
+一覧は実際にカードから選べる bytes を指します。複数の根が同じ selector を持つ場合、
+一覧には 1 件だけ出て、selection が報告する供給元を添えます。
+
+根が選択した pack を読めないとき、またはその profile / intent が route と合わないときは、
+理由つきで拒否します（理由に pack の内容は含めません）。別の根の同名 pack に切り替えず、
+入力を続けられます。`--pack` 付きで起動した REPL は、selector を書かない Gate 1 の依頼に
+その pack を固定します。route がその pack を使えない場合は、REPL を終わらせずに
+理由つきで依頼を拒否します。
 
 ## ゴールのテキストと引用符
 

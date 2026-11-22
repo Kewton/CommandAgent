@@ -391,17 +391,8 @@ fn run_json(root: &Path, run: &RunInventoryItem) -> Value {
 }
 
 fn filtered_events(path: &Path, filter: Option<&str>) -> anyhow::Result<Vec<Value>> {
-    let text = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read run events {}", path.display()))?;
-    let mut events = Vec::new();
-    for (index, line) in text.lines().enumerate() {
-        let event = serde_json::from_str::<Value>(line).with_context(|| {
-            format!("failed to parse run event {}:{}", path.display(), index + 1)
-        })?;
-        if filter.is_none_or(|filter| event_matches_filter(&event, filter)) {
-            events.push(event);
-        }
-    }
+    let mut events = crate::eval_events::event_reader::read_strict(path)?;
+    events.retain(|event| filter.is_none_or(|filter| event_matches_filter(event, filter)));
     Ok(events)
 }
 
@@ -827,11 +818,7 @@ fn find_run_by_recovery_yaml(root: &Path, yaml_path: &Path) -> Option<RunInvento
 }
 
 fn read_events(path: &Path) -> Vec<Value> {
-    std::fs::read_to_string(path)
-        .unwrap_or_default()
-        .lines()
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .collect()
+    crate::eval_events::event_reader::read_lenient(path)
 }
 
 fn latest_terminal_event(events: &[Value]) -> Option<&Value> {

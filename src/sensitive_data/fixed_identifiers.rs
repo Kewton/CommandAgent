@@ -168,6 +168,8 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "check_unknown",
     "closed",
     "code",
+    "collect_missing_final_acceptance_evidence",
+    "collect_missing_release_evidence_or_continue_release_recovery",
     "command_timeout_repetition",
     "commandagent.eval.score/v0",
     "commandagent.extensions/v1",
@@ -267,6 +269,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "final_repair_attempts",
     "final_repair_seconds",
     "first_request",
+    "fix_command_failure",
     "fix_evidence_recorded",
     "fix_plan_synthesized",
     "fix_regression_contract_bound",
@@ -303,10 +306,14 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "input_revision_unavailable",
     "input_zero",
     "inspect_command_normalized",
+    "inspect_internal_panic",
     "inspect_mutation_tool_rejected",
+    "inspect_process_tree",
+    "inspect_summary_and_resume_or_rerun",
     "insufficient_remaining_iterations",
     "intent_resolved",
     "interrupted",
+    "interrupted by user",
     "interrupted_after_start",
     "invalid",
     "invalid_descriptor",
@@ -349,13 +356,16 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "no_successful_edit",
     "no_tool_call_at_output_limit",
     "no_unresolved_failure",
+    "none",
     "normal_final_after_successful_edit",
     "normal_marker",
+    "not_applicable",
     "not_applied",
     "not_checked",
     "not_checked_by_design",
     "not_provided",
     "not_ready",
+    "not_recorded",
     "not_run",
     "note_chars",
     "notice",
@@ -492,6 +502,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "recovery_verifier_plan_admission",
     "recovery_verifier_plan_return_rejected",
     "recovery_verifier_repairability",
+    "reduced",
     "registry_unavailable",
     "released",
     "remaining_calls",
@@ -499,7 +510,9 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "remaining_iterations",
     "repair_applied",
     "repair_binding",
+    "repair_final_acceptance_failure",
     "repair_regeneration",
+    "repair_release_gate_failure",
     "repair_start_write_guidance_queued",
     "repair_target_reclassified",
     "repair_unreachable",
@@ -519,12 +532,15 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "response_malformed",
     "result_rejected",
     "result_sha256",
+    "resume_or_rerun_command",
     "resume_start",
     "resumed_conversation",
+    "retry_once",
     "route_confirmed",
     "route_proposed",
     "route_unbound_recovery",
     "row_status",
+    "run_acceptance_or_review_changes",
     "run_budget",
     "run_budget.controls",
     "run_budget.declaration",
@@ -538,6 +554,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "run_failed",
     "run_interrupted",
     "run_nonce",
+    "run_setup_interaction_probe_to_enable_interaction_release_checks",
     "run_start",
     "run_stop",
     "running",
@@ -575,6 +592,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "stage_run_ended",
     "stage_schema_refusal_limit",
     "state_binding_diagnosis",
+    "static",
     "step_capability_evidence_check",
     "step_completion_blocked",
     "step_obligation_scope",
@@ -599,6 +617,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "targets",
     "tariff_inconsistent",
     "temporary_parent",
+    "terminal_handoff",
     "test_node_event",
     "time_profile",
     "too_few_items",
@@ -865,6 +884,123 @@ mod profile_tool_effect_tests {
             let text = format!("{word} {credential}");
             assert_eq!(catalog.scrub(&text), format!("{word} <redacted>"));
         }
+    }
+}
+
+/// Issue #1059: the values the summary's projection treats as closed — the
+/// assurance level, release-gate status, stop reason, and next action
+/// vocabularies. Registering one as a credential would hide the very value the
+/// acceptance decision compares and the display shows, so they are fixed
+/// identifiers: a credential equal to one (or a fragment of one) is refused,
+/// and a schema value equal to one is preserved rather than scrubbed.
+#[cfg(test)]
+mod summary_closed_value_tests {
+    use super::{FIXED_IDENTIFIERS, collides_with_fixed_identifier, is_fixed_identifier};
+    use crate::sensitive_data::{
+        MIN_GENERIC_SECRET_LEN, RegistrationRefusal, ReservedKind, SecretCatalog,
+    };
+
+    /// The summary vocabularies from `eval_events`: assurance, gate, stop
+    /// reason, and next action.
+    const CLOSED: [&str; 19] = [
+        "static",
+        "reduced",
+        "not_applicable",
+        "not_recorded",
+        "interrupted by user",
+        "none",
+        "fix_command_failure",
+        "resume_or_rerun_command",
+        "inspect_summary_and_resume_or_rerun",
+        "inspect_process_tree",
+        "inspect_internal_panic",
+        "run_acceptance_or_review_changes",
+        "run_setup_interaction_probe_to_enable_interaction_release_checks",
+        "collect_missing_release_evidence_or_continue_release_recovery",
+        "collect_missing_final_acceptance_evidence",
+        "repair_release_gate_failure",
+        "repair_final_acceptance_failure",
+        "terminal_handoff",
+        "retry_once",
+    ];
+
+    #[test]
+    fn each_closed_value_is_fixed_once_and_cannot_be_a_credential() {
+        for value in CLOSED {
+            assert!(is_fixed_identifier(value), "{value}");
+            assert_eq!(
+                FIXED_IDENTIFIERS
+                    .iter()
+                    .filter(|fixed| **fixed == value)
+                    .count(),
+                1,
+                "{value}"
+            );
+            // A closed value shorter than the secret minimum is already refused
+            // as TooShort; the longer ones are refused as a fixed identifier.
+            let error = SecretCatalog::new()
+                .register_credential("DUMMY_API_KEY", value)
+                .unwrap_err();
+            if value.chars().count() < MIN_GENERIC_SECRET_LEN {
+                assert_eq!(
+                    error,
+                    RegistrationRefusal::TooShort {
+                        name: "DUMMY_API_KEY".to_string(),
+                    },
+                    "{value}"
+                );
+            } else {
+                assert_eq!(
+                    error,
+                    RegistrationRefusal::Reserved {
+                        name: "DUMMY_API_KEY".to_string(),
+                        kind: ReservedKind::FixedIdentifier,
+                    },
+                    "{value}"
+                );
+            }
+            // A credential that merely contains the closed value is not refused.
+            let longer = format!("synthetic-{value}-credential-0123456789");
+            assert!(!collides_with_fixed_identifier(&longer), "{value}");
+        }
+    }
+
+    #[test]
+    fn a_fragment_of_a_closed_value_is_refused() {
+        for value in CLOSED {
+            if value.chars().count() <= MIN_GENERIC_SECRET_LEN {
+                continue;
+            }
+            let fragment = &value[..MIN_GENERIC_SECRET_LEN];
+            assert!(collides_with_fixed_identifier(fragment), "{fragment}");
+            assert!(
+                SecretCatalog::new()
+                    .register_credential("DUMMY_API_KEY", fragment)
+                    .is_err(),
+                "{fragment}"
+            );
+        }
+    }
+}
+
+/// Issue #1059: the summary's `Status:`/`Result:` protection reads
+/// `is_fixed_identifier`, so a closed value is preserved on the display without
+/// masking while a free-text value is still scrubbed.
+#[cfg(test)]
+mod summary_closed_value_display_tests {
+    use super::is_fixed_identifier;
+
+    #[test]
+    fn the_closed_values_the_summary_displays_are_recognized() {
+        for value in [
+            "completed",
+            "interrupted by user",
+            "none",
+            "fix_command_failure",
+        ] {
+            assert!(is_fixed_identifier(value), "{value}");
+        }
+        assert!(!is_fixed_identifier("resume_with SYNTHETIC_SECRET_42"));
     }
 }
 

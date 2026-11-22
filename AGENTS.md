@@ -44,26 +44,34 @@ user → PM → development leader → workers, defined in
 `docs/dev/parallel-dev-harness.md`. The Codex `$orchestrate` and `$pm` skills
 remain available when the user invokes them by name.
 
-- **PM**: the Claude Code session `commandagent-develop` / `claude`
-  (see `CLAUDE.md`). It delegates with `cmate-delegate`.
-- **Development leader**: the Claude Code session `commandagent-develop` /
-  `claude-3` (alias `Claude_Dev`, Claude Sonnet 5.5). It runs `cmate-orchestrate` with the `rust-commandagent`
-  profile on the PM's briefs, supervises workers, and reports to the PM. It
-  may delegate helper tasks with `cmate-delegate`. It runs with auto-yes and a
-  stop pattern; prompts that stay open go to the PM, and it does not ask the
-  user directly. auto-yes answers tool prompts only and does not grant the
-  authority described below.
-- **Helpers**: they keep the leader and workers moving and do not take their
-  work over. Codex_Sub (`codex-3`) investigates what blocks them: unclear
-  requirements, root causes, unexpected behavior, and plan review, returning
-  findings with `file:line` evidence. Claude 4 (`claude-4`) takes clear,
-  mechanical tasks (Antigravity is not part of the team; see the harness
-  document, section 1). Helpers follow the brief they receive and do not implement
-  Issue code.
-- **Workers**: Command Code sessions in each Issue worktree. A worker
-  implements exactly one Issue, follows the dispatch contract and
-  `cmate-worker-development`, does not delegate to other sessions, and does not
-  push, create PRs, or merge.
+Instances (all in the base worktree `commandagent-develop`, branch `develop`,
+except workers); `CLAUDE.md` has the full Team table:
+
+- **PM** (`pm`, 窓口): the Claude Code session `commandagent-develop` /
+  `claude-2`. It talks to the user and delegates with `cmate-delegate`.
+- **Development leader** (`dev-lead`, 管理): the Claude Code session
+  `commandagent-develop` / `claude-3`. It runs `cmate-orchestrate` with the
+  `rust-commandagent` profile on the PM's briefs, supervises workers, and
+  reports to the PM. It runs with auto-yes and a stop pattern; prompts that
+  stay open go to the PM, and it does not ask the user directly. auto-yes
+  answers tool prompts only and does not grant the authority described below.
+- **Reviewer** (`reviewer`): the Codex session `commandagent-develop` /
+  `codex`. It reads and does not change files: it answers APPROVE or REJECT
+  on a diff, and investigates what blocks the PM or the leader (unclear
+  requirements, root causes, plan review) with `file:line` evidence. It never
+  reviews work it did.
+- **Judge** (`judge`): the Claude Code session `commandagent-develop` /
+  `claude-4`. On the PM's request it checks the integrated `develop` or a
+  milestone against each Issue's acceptance criteria and reports GO or NO-GO
+  per Issue. It does not change files.
+- **Workers** (`worker`): Command Code sessions in each Issue worktree. A
+  worker implements exactly one Issue, follows the task contract and
+  `cmate-worker-development`, does not delegate to other sessions, and does
+  not push, create PRs, or merge. Worker auto-yes follows harness section 4.
+
+Every session runs `commandmate whoami` first. Antigravity is not part of the
+team (harness document, section 1). "Done" means `commandmate wait
+<worktree> --instance <id> --verify` exited 0.
 
 Authority in this chain:
 

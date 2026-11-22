@@ -15,6 +15,9 @@ workspace/management/runs/**/run*.log
 # cmate-orchestrate run artifacts (runtime state)
 /.commandmate/orchestrate/
 # CommandMate / Command Code tool state installed per worktree (not deliverables)
+/.commandmate/*
+!/.commandmate/verify.yaml
+/.claude/settings.local.json
 /.commandcode/
 /.claude/skills/cmate-*/
 /.agents/skills/cmate-*/

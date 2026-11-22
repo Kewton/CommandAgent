@@ -183,13 +183,26 @@ pub fn run_with_provider_options(
             eprintln!("warning: {warning}");
         }
     }
-    let pack = resolved_pack?;
+    // A startup refusal is displayed before any display boundary exists, so it
+    // is masked with the accepted config's registered scope here (Issue #1057).
+    let pack = resolved_pack.map_err(cli_argument_error)?;
+    // The REPL reads its Gate 1 and Gate 4 packs from the same roots its
+    // `--pack` resolved from (Issue #1057). Hand it the resolved startup pack
+    // before the guard installs it, so the REPL keeps one pack held for its life.
+    let repl_pack_context = matches!(config.action, Action::Repl).then(|| {
+        crate::tui::repl::pack_selection::ReplPackContext::from_cli(
+            &pack_cli,
+            &config,
+            pack.clone(),
+        )
+    });
     let _pack_environment = cli_pack::RuntimeEnvironmentGuard::install(pack.as_ref())?;
     planner::artifact_contract_checks::preflight(&config.workspace_root, &config.profile)
         .map_err(|reason| cli_argument_error(anyhow::anyhow!(reason)))?;
     let summary_source = (summary_json && action_may_project_summary(&config.action))
         .then(|| headless_summary::Source::from_config(&config, pack.as_ref()));
-    let result = run_resolved_config_with_summary(config, summary_source.clone());
+    let result =
+        run_resolved_config_with_summary(config, summary_source.clone(), repl_pack_context);
     if let Some(source) = summary_source
         && (source.has_persisted_events() || source.has_selected_pack())
     {
@@ -229,12 +242,13 @@ pub fn cli_error_exit_code(error: &anyhow::Error) -> i32 {
 
 #[cfg(test)]
 fn run_resolved_config(config: Config) -> anyhow::Result<()> {
-    run_resolved_config_with_summary(config, None)
+    run_resolved_config_with_summary(config, None, None)
 }
 
 fn run_resolved_config_with_summary(
     config: Config,
     summary_source: Option<headless_summary::Source>,
+    repl_pack_context: Option<crate::tui::repl::pack_selection::ReplPackContext>,
 ) -> anyhow::Result<()> {
     let _workspace_lock = action_uses_workspace_lock(&config.action)
         .then(|| {
@@ -246,7 +260,9 @@ fn run_resolved_config_with_summary(
         Action::Runs(_) | Action::UxDemo | Action::ModelProbe
     ))
     .then(|| tools::git_state::RunReporter::start(&config.workspace_root));
-    cli_panic_boundary::catch_cli_run(&config, || run_config(config.clone(), summary_source))
+    cli_panic_boundary::catch_cli_run(&config, || {
+        run_config(config.clone(), repl_pack_context, summary_source)
+    })
 }
 
 pub(crate) fn run_resolved_config_for_workflow(config: Config) -> anyhow::Result<()> {
@@ -270,11 +286,12 @@ pub(crate) fn run_resolved_config_for_workflow(config: Config) -> anyhow::Result
         &config.profile,
     )
     .map_err(|reason| cli_argument_error(anyhow::anyhow!(reason)))?;
-    run_config(config, None)
+    run_config(config, None, None)
 }
 
 fn run_config(
     config: Config,
+    repl_pack_context: Option<crate::tui::repl::pack_selection::ReplPackContext>,
     summary_source: Option<headless_summary::Source>,
 ) -> anyhow::Result<()> {
     if let Action::Workflow(definition, origin) = &config.action {
@@ -315,7 +332,7 @@ fn run_config(
     cli_panic_boundary::inject_test_fault_if_requested();
     let result = (|| -> anyhow::Result<()> {
         preflight::run_for_action(&config)?;
-        direct_action_dispatch::run(&config)
+        direct_action_dispatch::run(&config, repl_pack_context)
     })();
     if let Some(guard) = direct_command_guard.as_ref() {
         guard.finalize(&result);
@@ -666,17 +683,12 @@ fn emit_direct_command_stop_with_status(
             "time_profile": time_profile_event,
         }),
     );
-    if time_profile.total_ms() > 0 {
-        eval_events::emit(
-            config.eval_events_path.as_deref(),
-            json!({
-                "event": "time_profile",
-                "lifecycle_stage": "direct_cli_command",
-                "command": command,
-                "profile": time_profile.to_event_json(),
-            }),
-        );
-    }
+    // Issue #1062: one line for every stop, whatever the measured total, so the event sequence
+    // does not depend on the clock.
+    eval_events::emit(
+        config.eval_events_path.as_deref(),
+        time_profile::event_json("direct_cli_command", command, &time_profile),
+    );
     eval_events::write_tui_command_completion_summary(
         config.eval_events_path.as_deref(),
         command,
@@ -2237,6 +2249,89 @@ mod tests {
             Action::Workflow(PathBuf::from("def.yaml"), PathBuf::from("origin")),
         ] {
             assert!(action_uses_write_sandbox(&action), "{action:?}");
+        }
+    }
+
+    /// Issue #1062: the direct CLI's terminal writer records the same event sequence at 0 ms and
+    /// at a positive total: exactly one `time_profile` right after the stop, on success, failure
+    /// and interruption. Only the measured value differs; an unobserved value stays null.
+    #[test]
+    fn a_direct_run_records_the_same_event_sequence_at_0_and_7_ms_after_each_stop() {
+        for (status, result) in [
+            (DirectCommandStatus::Completed, Ok(())),
+            (
+                DirectCommandStatus::Failed,
+                Err(anyhow::anyhow!("provider failed")),
+            ),
+            (
+                DirectCommandStatus::Interrupted,
+                Err(anyhow::anyhow!("interrupted by user")),
+            ),
+        ] {
+            let mut sequences: Vec<Vec<String>> = Vec::new();
+            for duration_ms in [0_u64, 7] {
+                let dir = tempfile::tempdir().unwrap();
+                let events = dir.path().join(".anvil/runs/test-run/events.jsonl");
+                std::fs::create_dir_all(events.parent().unwrap()).unwrap();
+                let mut cfg = config(dir.path().to_path_buf());
+                cfg.eval_events_path = Some(events.clone());
+                eval_events::emit(
+                    cfg.eval_events_path.as_deref(),
+                    json!({
+                        "event": "provider_turn_duration",
+                        "caller_scope": "executor",
+                        "duration_ms": duration_ms,
+                    }),
+                );
+
+                emit_direct_command_stop_with_status(&cfg, "--prompt", &result, status);
+
+                let recorded: Vec<Value> = std::fs::read_to_string(&events)
+                    .unwrap()
+                    .lines()
+                    .map(|line| serde_json::from_str(line).unwrap())
+                    .collect();
+                let names: Vec<String> = recorded
+                    .iter()
+                    .map(|event| event["event"].as_str().unwrap().to_string())
+                    .collect();
+                let stop = names
+                    .iter()
+                    .position(|name| name == "tui_command_stop")
+                    .unwrap();
+                assert_eq!(
+                    names[stop + 1],
+                    "time_profile",
+                    "{status:?} at {duration_ms} ms: {names:?}"
+                );
+                assert_eq!(
+                    names.iter().filter(|name| *name == "time_profile").count(),
+                    1,
+                    "{status:?} at {duration_ms} ms: {names:?}"
+                );
+                let profile = &recorded[stop + 1];
+                assert_eq!(profile["lifecycle_stage"], "direct_cli_command");
+                assert_eq!(profile["command"], "--prompt");
+                assert_eq!(profile["profile"]["total_ms"], duration_ms);
+                for key in [
+                    "provider_prompt_eval_duration",
+                    "provider_eval_duration",
+                    "provider_load_duration",
+                    "provider_total_duration",
+                    "prompt_eval_count",
+                    "eval_count",
+                ] {
+                    assert!(
+                        profile["profile"][key].is_null(),
+                        "{status:?} at {duration_ms} ms: {key} is not null"
+                    );
+                }
+                sequences.push(names);
+            }
+            assert_eq!(
+                sequences[0], sequences[1],
+                "{status:?}: the event sequence changed with the measured total"
+            );
         }
     }
 

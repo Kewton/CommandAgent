@@ -48,6 +48,13 @@ execution commands such as `/ultra-plan-run <goal>` and `/plan-run <goal>`
 instead point back to this Gate 1 flow. Planning command failures are reported
 without leaving the REPL.
 
+`/plan` follows the terminal glyph rules of the other TUI displays. The locale
+comes from `LC_ALL`, then `LANG`. In a UTF-8 locale the plan card and current
+activity show `✓`, `▶`, `○`, `→`, and `·`. In an ASCII locale such as
+`LC_ALL=C` those presentation glyphs are replaced with `ok`, `>`, `o`, `->`,
+and `|`, so a plain ASCII terminal never receives them. This is the same rule
+the banner, footer, and activity lines use.
+
 The full hash is always accepted. By default, a canonical `sha256:` prefix of
 8 through 63 lowercase hexadecimal digits is accepted only when it matches the
 latest pending Gate 1 card. `COMMANDAGENT_STRICT_CONFIRM=1` restores full-hash
@@ -121,10 +128,21 @@ confirmation of such a card. A `/directive` for a run of such a pack is refused
 the same way before it is proposed, so no proposal is made and the run stays at
 its Gate 3 or Gate 4. To use that pack, restart the REPL without `--pack`.
 
-The REPL reads the pack of a Gate 1 or Gate 4 card from `packs/<id>/<version>`
-in the workspace, not from `--extension-root`. A pack that `--pack` holds from
-an extension root must also be present there for such a card to show and select
-it; the `/packs` list also includes packs under the configured extension root.
+The REPL reads the pack of a Gate 1 or Gate 4 card from the same roots and in
+the same order as the CLI `--pack`: `--extension-root` first (both `<id>/<version>`
+directly under it and `packs/<id>/<version>`), then `packs/<id>/<version>` in
+the workspace. A pack that `--pack` holds from an extension root therefore shows
+and dispatches from that root on those cards, and its supply source stays
+`local` (never `admitted`). `/packs` resolves each selector through the same
+roots, so its list names the bytes a card can actually choose; a selector that
+several roots hold appears once, with the source the selection would report.
+
+When the roots cannot read the selected pack, or its profile or intent does not
+match the route, the REPL refuses with the reason (which never quotes the pack's
+contents), does not fall back to a same-named pack in another root, and keeps
+reading input. A REPL started with `--pack` fixes that pack on a Gate 1 request
+that names no selector; if the route cannot use it, the request is refused with
+the reason rather than ending the REPL.
 
 ## Goal text and quoting
 

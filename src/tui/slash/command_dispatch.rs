@@ -61,7 +61,9 @@ pub(super) fn immediate_result(
         SlashCommandKind::Pack => Some(Err(anyhow::anyhow!(
             "/pack is available only from Gate 4; use /pack <id@version>"
         ))),
-        SlashCommandKind::Plan => Some(Ok(crate::tui::presentation::render_current_plan())),
+        SlashCommandKind::Plan => Some(Ok(crate::tui::glyphs::for_current_locale(
+            &crate::tui::presentation::render_current_plan(),
+        ))),
         SlashCommandKind::Runs => Some(Ok(crate::runs::render_runs_table(&config.workspace_root))),
         SlashCommandKind::Exit => Some(Ok(String::new())),
         SlashCommandKind::Resume

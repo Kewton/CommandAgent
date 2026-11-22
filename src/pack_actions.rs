@@ -109,6 +109,26 @@ pub(crate) fn render_list(
     Ok(format!("{}\n", lines.join("\n")))
 }
 
+/// The REPL `/packs` list, read through the same locator a card uses: one line
+/// per selector a card can actually choose, resolved to the bytes a selection
+/// would freeze. A selector that several roots hold appears once, with the
+/// supply source the selection would report, so the list and a card cannot read
+/// different packs for one selector (Issue #1057).
+pub(crate) fn render_repl_list(
+    requested_profile: &str,
+    requested_intent: &str,
+    locator: &crate::planner::pack::catalog::PackLocator,
+) -> String {
+    let mut lines = vec!["PACK\tHASH\tSOURCE".to_string()];
+    for located in locator.selectable(requested_profile, requested_intent) {
+        lines.push(format!(
+            "{}@{}\t{}\t{}",
+            located.id, located.version, located.hash, located.source
+        ));
+    }
+    format!("{}\n", lines.join("\n"))
+}
+
 fn local_pack_directories(extension_root: &Path) -> anyhow::Result<Vec<PathBuf>> {
     if !extension_root.is_dir() {
         bail!(

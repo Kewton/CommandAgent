@@ -6,14 +6,19 @@ text, live reply, key or host path; not a capability measurement.
 ## Files
 
 - `fixtures/cases.json`: each acceptance criterion (AC1–AC6) and the tests that hold it, as
-  `file::name`. `tests/structured_run_budget_off.rs` fails when a listed test does not exist.
-- `fixtures/off-golden.json`: recorded v1 (Chat Completions) runs of the binary, no wallet.
-- `source-manifest.json`: how the golden was recorded, and the normalized sha256 of each build.
+  `file::name`, for the #976 manifest. `tests/structured_run_budget_off.rs` fails when a listed
+  test does not exist.
+- `fixtures/off-golden.json`: recorded v1 (Chat Completions) runs of the binary, no wallet, on
+  the three paths #976 could compare then.
+- `source-manifest.json`: how that record was made, and the normalized sha256 of each build.
+- `fixtures/cases-v0.1.0.json`, `fixtures/off-golden-v0.1.0.json`,
+  `source-manifest-v0.1.0.json`: the Issue #1062 record, covering all five paths and compared
+  live. The #976 case table and record stay as they were.
 
 ## Off golden (AC6)
 
 `off-golden.json` is a record, not a live comparison. The recorder `records_the_off_golden` in
-`tests/structured_run_budget_off.rs` runs the binary on three paths against a fake on 127.0.0.1
+`tests/structured_run_budget_off.rs` runs the binary on `paths()` against a fake on 127.0.0.1
 with no wallet selected, and keeps every request (line, body), event line, workspace file, the
 outcome and the ledger file count:
 
@@ -22,9 +27,11 @@ outcome and the ledger file count:
 | `compatible-chat-tool-call` | a Write call, then text | 0 |
 | `compatible-chat-retry` | 500, then text | 1 |
 | `lm-studio-chat-tool-call` | a Write call, then text (`--lm-studio-host`) | 0 |
+| `compatible-chat-ordinary-reply` | text | 0 |
+| `compatible-chat-client-error` | HTTP 400 | 0 |
 
 To record: `STRUCTURED_RUN_BUDGET_OFF_OUT=<file> cargo test --test structured_run_budget_off --
---exact records_the_off_golden` (`STRUCTURED_RUN_BUDGET_OFF_RAW=1`: raw); unset, it does nothing.
+--exact records_the_off_golden` (`STRUCTURED_RUN_BUDGET_OFF_RAW=1`: raw).
 
 The normalization is the eight items of `responses-run-budget` (#1006), word for word: the root
 and the loopback address, the seven timing keys, `build_*`, the lock's `pid` and `run_id`, the
@@ -43,21 +50,29 @@ In the repository, without the binary: the committed fixtures have the digests o
 not. A control that drops the normalization needs a raw record; one is not committed (it holds the
 run's temporary root and pid, and does not fit this corpus).
 
-## Excluded paths
+## The v0.1.0 record (#1062)
 
-`compatible-chat-ordinary-reply` and `compatible-chat-client-error` are not in the golden: the
-base writes its `time_profile` event only when `time_profile.total_ms() > 0`, and these paths take
-1–8 ms (stage 0: one of 94 records lacked the line). They are not compared in any weaker form.
+The base wrote its `time_profile` event only when `time_profile.total_ms() > 0`. On a path that
+takes 1–8 ms the line was there or not by the clock, so #976 left `compatible-chat-ordinary-reply`
+and `compatible-chat-client-error` out of the golden and compared no live run. Issue #1062 writes
+one `time_profile` line after every stop, whatever the total, so the line no longer decides a
+record.
+
+`off-golden-v0.1.0.json` is the recorder's record of all five paths, and
+`ac6_a_current_off_run_is_the_v010_record_byte_for_byte` compares a live run with it byte for
+byte, normalization included. `source-manifest-v0.1.0.json` holds the digests and the repeats: the
+recorder ran 12 times and the 12 records were identical (`differing: 0`); the client-error path,
+which the base could record without the line, records `total_ms` 0 with the line present.
+
+`fixtures/cases.json` and `off-golden.json` remain the #976 record and are still checked
+(`ac6_the_committed_golden_has_the_digest_every_build_recorded`). `fixtures/cases-v0.1.0.json`
+keeps the same AC1–AC6 table for the returned paths and points AC6 at the new record.
 
 ## Known limits
 
-- **No live byte comparison of off in the tests.** The kept paths have the same base condition
-  (`src/lib.rs:669`; the same `> 0` test is in `src/eval_events.rs` and `src/tui/slash.rs`): with
-  a fake that answers at once their `time_profile_total_ms` is 1–2 ms, and a run whose provider
-  turns all take under 1 ms has no `time_profile` line. A comparison of today's binary with the
-  golden lacked it in 2 of 11 `cargo test` runs and 9 of 30 direct runs. Widening the
-  normalization or slowing the fake is not done. Issue #1062 takes up the base; add the byte test
-  once it is fixed.
+- The v0.1.0 live comparison runs the binary five times. A host whose prompt-size estimates differ
+  would be seen as a difference; the fixed 128-byte root keeps them equal across hosts, as for
+  #1006.
 - Profile tool effects (`effects.rs`), a structured stage send and the planner prefetch are not
   in this golden. Their CLI runs need an extension root, a registry of host tool scripts and a
   generated plan, which do not fit this corpus. Their off is held by goldens recorded before

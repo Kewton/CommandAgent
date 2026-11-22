@@ -1,7 +1,22 @@
 use crate::config::Config;
+use crate::tui::repl::pack_selection::ReplPackContext;
 
+/// The public REPL entry: the pack roots are the workspace and the configured
+/// top-level `extension_root`.
 pub fn run_repl(config: Config) -> anyhow::Result<()> {
-    crate::tui::repl::run(config)
+    let context = ReplPackContext::from_config(&config);
+    crate::tui::repl::run_with_pack_context(config, context)
+}
+
+/// The entry a CLI start uses: the pack roots and startup pack its `--pack`
+/// resolution used, so a REPL and the CLI cannot read different packs for one
+/// selector (Issue #1057).
+pub(crate) fn run_repl_with_pack_context(
+    config: Config,
+    context: Option<ReplPackContext>,
+) -> anyhow::Result<()> {
+    let context = context.unwrap_or_else(|| ReplPackContext::from_config(&config));
+    crate::tui::repl::run_with_pack_context(config, context)
 }
 
 pub use crate::tui::slash::expand_goal_references;

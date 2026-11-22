@@ -1,7 +1,7 @@
 # Team operating notes
 
 Rules, pitfalls and standing user decisions for the PM, the development leader,
-helpers and workers. They add to
+the reviewer, the judge and workers. They add to
 [`parallel-dev-harness.md`](parallel-dev-harness.md); where this file records a
 later user decision, this file wins until the harness document is updated.
 
@@ -12,8 +12,17 @@ Lessons and procedures that every session must follow belong here.
 
 ## 1. Standing user decisions that update the harness
 
+- **Team reorganized to the CommandMate team-setup layout** (2026-11-21,
+  「ガイドの標準構成（claude-2 を PM にするなど）に合わせ」「推奨で良い」). The PM is
+  `claude-2`, the development leader `claude-3`, the reviewer `codex`, the
+  judge `claude-4`, and workers are Command Code (`worker` role is the
+  repository default for Command Code). The helpers (`codex-3` / Codex_Sub,
+  `claude-4` / Claude 4) are retired: investigation goes to the reviewer
+  `codex`. The PR-creation and merge delegations now belong to `claude-2`.
+  Entries below that name the old instances are marked as replaced.
 - **Workers are Claude Code sessions for now** (2026-10-17, 「しばらくはclaudeを
-  使用して下さい」). Dispatch them with auto-yes and the harness stop pattern.
+  使用して下さい」; replaced on 2026-11-21: workers are Command Code again, see
+  the first entry). Dispatch them with auto-yes and the harness stop pattern.
   Going back to Command Code is the user's call. If a worker's quality is low
   (repeated verification failures, scope or gate violations, a false report, a
   stall), the user allowed Codex `gpt-6.2-sol` with reasoning high as the
@@ -21,10 +30,9 @@ Lessons and procedures that every session must follow belong here.
   gpt6.2-sol highに変えてください」, and was Codex `gpt-6.1-Sol` medium before).
   Antigravity is never used (harness section 1).
 - **Claude Code sessions run Opus 5.5 with effort medium** (2026-11-18,
-  「なるべく opus5.5 medium として」). This covers the development leader
-  (`claude-3`), the helpers and the workers. `CLAUDE.md` and `AGENTS.md` still
-  name Claude Sonnet 5.5 for the leader; this decision wins until they are
-  updated.
+  「なるべく opus5.5 medium として」). This covers every Claude Code
+  session in the team: the PM (`claude-2`), the development leader
+  (`claude-3`) and the judge (`claude-4`).
 - **Codex runs `gpt-6.2-sol` with reasoning high** (2026-11-18, 「Codexのモデルを
   gpt6.2-sol highに変えてください」). This replaces Codex `gpt-6.1-Sol` medium
   everywhere it was named, including the worker fallback above.
@@ -36,12 +44,15 @@ Lessons and procedures that every session must follow belong here.
   セッションの停止と起動を許可します」). Record each in the ledger. Starting or
   stopping the CommandMate server stays with the user.
 - **Reviewers** (2026-10-30, 「Issueのレビューはcodex-3で、Musubi の factory は
-  codexにレビュー依頼して」). Issue and PR reviews go to `codex-3`. If `codex-3`
+  codexにレビュー依頼して」; since 2026-11-21 the reviewer is `codex` and the
+  `claude-2` fallback below is withdrawn because `claude-2` is the PM: when
+  `codex` stops midway, the PM tells the user). Issue and PR reviews go to `codex-3`. If `codex-3`
   stops midway (a hang, or the OpenAI filter "This content can't be shown"),
   move that task to `claude-2` without asking, then tell the user and record
   it (2026-10-04).
 - **Red team with `claude-2`** (2026-10-31, 「Claude_Sub（fable 5.1）への依頼を
-  上手く活用してください」). For a security-sensitive guard, have `claude-2`
+  上手く活用してください」; replaced on 2026-11-21: `claude-2` is the PM, so this
+  practice is retired until the user assigns another session). For a security-sensitive guard, have `claude-2`
   enumerate bypasses by family into cases the worker turns into tests before
   the next `codex-3` recheck, instead of looping fix → review.
 - **Codex weekly limit** (2026-11-02, 「リセット可能なので、気にしなくて良いです。
@@ -50,7 +61,7 @@ Lessons and procedures that every session must follow belong here.
 - **Review budget** (2026-09-29). An independent pre-merge review is only for
   secret- or security-related Issues, at most one full review per Issue, scoped
   and time-boxed. After rework, check only the fixed points. Fixes that touch
-  only tests skip the helper check; the PM reads the diff to confirm no
+  only tests skip the reviewer check; the PM reads the diff to confirm no
   assertion was removed.
 - **Reporting** (2026-10-09, 「私の判断が必要になったら教えてください。」). Do not
   answer relayed prompt notices one by one. Speak to the user only for a
@@ -68,16 +79,14 @@ Lessons and procedures that every session must follow belong here.
   not with a loop on `git rev-parse HEAD`; a stop without a commit never moves
   HEAD (#972, 2026-11-02).
 - A Claude Code session cannot run `/compact` on itself. At Issue boundaries
-  the PM sends `/compact` to `claude-3` (and `claude-2`) and checks the pane
+  the PM sends `/compact` to `claude-3` (and `claude-4`) and checks the pane
   for "Compacted". Watchers also match "maximum context length" and
   "Type continue". Make every brief self-contained.
 - When the PM session's auto-mode classifier denies an action (merge, starting
-  a helper with auto-yes, permission edits), do not rephrase and retry. Offer
+  a session with auto-yes, permission edits), do not rephrase and retry. Offer
   the user `! <command>`; the user runs the PM in accept-edits mode.
-- Start the leader with `--model sonnet` on the send that starts the session
-  and confirm the pane header shows the model. Since 2026-11-18 the leader runs
-  Opus 5.5 with effort medium (section 1): start it on Opus 5.5 instead of
-  `--model sonnet`, set effort medium, and confirm both in the pane.
+- Start the leader on Opus 5.5 with effort medium (section 1) on the send
+  that starts the session, and confirm both in the pane header.
 - Pitfalls from the 2026-11-18 and 2026-11-19 runs (leader and PM operating
   errors), each with the step that prevents it:
   - A brief's verify rule named a gate id that does not exist, and

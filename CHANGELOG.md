@@ -8,6 +8,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-22
+
+First stable release, graduating from the `v0.1.0-rc.*` tags. It includes
+every change listed below since this file began.
+
 - Stop repeated output-limit responses without tool calls after two occurrences
   since the last successful Write/Edit, retaining Recovery handoff and per-turn
   execution telemetry (#440).
@@ -48,7 +53,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   identity-bound confirmation, with normal monitoring, cancellation, and
   reasoned drift/treatment/pending-request/lease/stale-hash refusals.
 
+### Changed
+
+- Emit exactly one `time_profile` event right after every `stop` in the direct
+  CLI and the TUI (success, error and interrupt), also when the total rounds to
+  0 ms; unobserved values stay `null` (#1062).
+
 ### Fixed
+
+- Read pack candidates in the REPL from the same roots and in the same order as
+  the CLI (`--extension-root` direct layout, `packs/<id>/<version>`, then the
+  workspace), refuse candidates that fail pin or supply-source checks with a
+  reason, and re-validate the confirmed pack before recording or dispatching
+  (#1057). Gate 1 refusals for pin mismatches, symlinks out of the root and
+  unreadable pin files now say why the pack was refused (#1082).
+- Read events files line by line so a cut UTF-8 character or broken JSON line
+  no longer hides its valid neighbours: strict readers fail with the line
+  number, tolerant readers skip the line. Mask registered values in the
+  projected run summary fields (#1059).
+- Apply the locale glyph rules to `/plan` output, so ASCII locales such as
+  `LC_ALL=C` show ASCII forms of ✓ and ▶ (#1048).
 
 - Retry eligible rejected Recovery treatments from retained control within the
   configured run limit, with fresh diagnostics, safe continuation plans and

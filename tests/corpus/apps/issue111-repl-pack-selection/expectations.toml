@@ -1,5 +1,5 @@
 case_id = "issue111-repl-pack-selection"
-source = "Issue 111 confirmed REPL pack injection contract"
+source = "Issue 111 confirmed REPL pack injection contract; Issue 1057 shares the CLI pack roots"
 required_paths = []
 verify_commands = []
 required_capabilities = []
@@ -32,9 +32,22 @@ fixtures/pack-events.jsonl = [
   "\"pack_point\":\"cli-validation\"",
   "\"pack_source\":\"admitted\""
 ]
+fixtures/extension-root-events.jsonl = [
+  "\"event\":\"pack_injected\"",
+  "\"lifecycle_stage\":\"tui_confirmed_dispatch\"",
+  "\"pack_id\":\"cli-assist\"",
+  "\"pack_version\":\"1.1.0\"",
+  "\"pack_hash\":\"sha256:extension-fixture\"",
+  "\"pack_point\":\"cli-validation\"",
+  "\"pack_source\":\"local\""
+]
 
 [fixture_ordered]
 fixtures/pack-events.jsonl = [
+  "\"event\":\"route_confirmed\"",
+  "\"event\":\"pack_injected\""
+]
+fixtures/extension-root-events.jsonl = [
   "\"event\":\"route_confirmed\"",
   "\"event\":\"pack_injected\""
 ]
