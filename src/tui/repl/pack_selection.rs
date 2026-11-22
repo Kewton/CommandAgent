@@ -302,9 +302,13 @@ pub(crate) fn refusal_reason(error: &anyhow::Error) -> String {
             return conformance_error_reason(conformance);
         }
     }
-    // Locator, pin, retirement, identity, and compatibility refusals are written
-    // from paths and identities only; they never embed member bytes.
-    error.to_string()
+    // `locate_pinned_from` wraps the verification reason (pin mismatch, a
+    // symlink component, and the like) in a `locate {source} pack` context.
+    // `to_string()` prints only that context, so return the root cause: the
+    // refusal must name the check that failed. Locator, pin, retirement,
+    // identity, and compatibility refusals are written from paths and
+    // identities only; they never embed member bytes.
+    error.root_cause().to_string()
 }
 
 fn pack_error_reason(error: &PackError) -> String {
