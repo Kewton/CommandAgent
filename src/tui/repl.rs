@@ -3872,6 +3872,168 @@ mod tests {
         assert!(!failing.contains(LABEL), "{failing}");
     }
 
+    // ---- Issue #1082 regressions (Gate 1 keeps its refusal reason) ----
+
+    /// Issue #1082: a local pack whose pin disagrees with its bytes is refused
+    /// by Gate 1 with the pin-mismatch reason, without adopting the workspace
+    /// copy and without quoting the pin value or the pack's bytes.
+    #[test]
+    fn gate_one_refuses_a_pin_mismatch_with_its_reason() {
+        const PIN_CANARY: &str = "PACK_CANARY_1082_pin_7d2";
+        const BODY_CANARY: &str = "PACK_CANARY_1082_body_3e9";
+        let temp = tempfile::tempdir().unwrap();
+        let workspace = temp.path().join("workspace");
+        let extension = temp.path().join("extension");
+        std::fs::create_dir_all(&workspace).unwrap();
+        pack_selection::tests::write_pack(
+            &extension,
+            "canary-pack",
+            "1.0.0",
+            &pack_selection::tests::assist("canary-pack", "1.0.0", BODY_CANARY),
+        );
+        // A same-named workspace candidate that must not be adopted.
+        pack_selection::tests::write_pack(
+            &workspace.join("packs"),
+            "canary-pack",
+            "1.0.0",
+            &pack_selection::tests::assist("canary-pack", "1.0.0", "workspace-fallback"),
+        );
+        // Break the higher candidate's pin, carrying a value that must not be
+        // transcribed.
+        std::fs::write(
+            extension.join("canary-pack/1.0.0/pack.sha256"),
+            format!("{PIN_CANARY}\n"),
+        )
+        .unwrap();
+
+        let context =
+            pack_selection::ReplPackContext::new(workspace.clone(), Some(extension.clone()));
+        let refused = gate_one_pack(
+            &context,
+            Some(&python_cli_route()),
+            Some("canary-pack@1.0.0".to_string()),
+        )
+        .unwrap_err();
+
+        assert!(
+            refused.contains("pin does not match its bytes"),
+            "the refusal dropped the reason: {refused}"
+        );
+        assert!(!refused.contains(PIN_CANARY), "{refused}");
+        assert!(!refused.contains(BODY_CANARY), "{refused}");
+        assert!(!refused.contains("workspace-fallback"), "{refused}");
+        assert!(
+            context
+                .locator()
+                .selectable("python-cli", "create")
+                .iter()
+                .all(|pack| pack.id != "canary-pack"),
+            "the invalid candidate fell back to another pack"
+        );
+    }
+
+    /// Issue #1082: a pack directory that is a symlink out of its supply root
+    /// is refused by Gate 1 with the non-symlink-directory reason, without
+    /// quoting the pack's bytes.
+    #[cfg(unix)]
+    #[test]
+    fn gate_one_refuses_a_symlink_out_of_the_root_with_its_reason() {
+        const BODY_CANARY: &str = "PACK_CANARY_1082_symlink_c41";
+        let temp = tempfile::tempdir().unwrap();
+        let workspace = temp.path().join("workspace");
+        let extension = temp.path().join("extension");
+        let outside = temp.path().join("outside");
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::create_dir_all(extension.join("canary-pack")).unwrap();
+        // A real pack outside the root, reachable only through the symlink.
+        pack_selection::tests::write_pack(
+            &outside,
+            "canary-pack",
+            "1.0.0",
+            &pack_selection::tests::assist("canary-pack", "1.0.0", BODY_CANARY),
+        );
+        // Replace the in-root directory with a symlink to the pack outside it.
+        std::fs::remove_dir(extension.join("canary-pack")).unwrap();
+        std::os::unix::fs::symlink(outside.join("canary-pack"), extension.join("canary-pack"))
+            .unwrap();
+
+        let context =
+            pack_selection::ReplPackContext::new(workspace.clone(), Some(extension.clone()));
+        let refused = gate_one_pack(
+            &context,
+            Some(&python_cli_route()),
+            Some("canary-pack@1.0.0".to_string()),
+        )
+        .unwrap_err();
+
+        assert!(
+            refused.contains("is not a non-symlink directory"),
+            "the refusal dropped the reason: {refused}"
+        );
+        assert!(!refused.contains(BODY_CANARY), "{refused}");
+        assert!(
+            context
+                .locator()
+                .selectable("python-cli", "create")
+                .iter()
+                .all(|pack| pack.id != "canary-pack"),
+            "the symlinked candidate fell back to another pack"
+        );
+    }
+
+    /// Issue #1082 follow-up: a pack without `pack.sha256` is refused by Gate 1
+    /// with both the pack it named and the cause, without adopting another
+    /// candidate and without quoting the pack's bytes.
+    #[test]
+    fn gate_one_refuses_a_missing_pin_with_the_pack_and_the_cause() {
+        const BODY_CANARY: &str = "PACK_CANARY_1082_nopin_5a8";
+        let temp = tempfile::tempdir().unwrap();
+        let workspace = temp.path().join("workspace");
+        let extension = temp.path().join("extension");
+        std::fs::create_dir_all(&workspace).unwrap();
+        pack_selection::tests::write_pack(
+            &extension,
+            "canary-pack",
+            "1.0.0",
+            &pack_selection::tests::assist("canary-pack", "1.0.0", BODY_CANARY),
+        );
+        // A pack with no pin: resolution must name the pack and the missing
+        // file, not print a bare OS error.
+        std::fs::remove_file(extension.join("canary-pack/1.0.0/pack.sha256")).unwrap();
+        // A same-named workspace candidate that must not be adopted.
+        pack_selection::tests::write_pack(
+            &workspace.join("packs"),
+            "canary-pack",
+            "1.0.0",
+            &pack_selection::tests::assist("canary-pack", "1.0.0", "workspace-fallback"),
+        );
+
+        let context =
+            pack_selection::ReplPackContext::new(workspace.clone(), Some(extension.clone()));
+        let refused = gate_one_pack(
+            &context,
+            Some(&python_cli_route()),
+            Some("canary-pack@1.0.0".to_string()),
+        )
+        .unwrap_err();
+
+        assert!(refused.contains("canary-pack@1.0.0"), "{refused}");
+        assert!(
+            refused.contains("No such file or directory"),
+            "the refusal dropped the cause: {refused}"
+        );
+        assert!(!refused.contains(BODY_CANARY), "{refused}");
+        assert!(!refused.contains("workspace-fallback"), "{refused}");
+        assert!(
+            context
+                .locator()
+                .selectable("python-cli", "create")
+                .iter()
+                .all(|pack| pack.id != "canary-pack"),
+            "the unreadable candidate fell back to another pack"
+        );
+    }
+
     /// The confirmed identity of `pack` for the python-cli filter route, as the
     /// run loop builds it, validated through the same roots the pack was read
     /// from.
