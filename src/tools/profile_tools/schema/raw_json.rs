@@ -90,6 +90,15 @@ struct Decoder<'a> {
     limits: DecodeLimits,
 }
 
+/// Whether a byte can begin a JSON value. `]`, `}`, `,` and end of input cannot,
+/// so a trailing comma or a run-off stays malformed rather than counting a value.
+fn starts_value(byte: u8) -> bool {
+    matches!(
+        byte,
+        b'{' | b'[' | b'"' | b't' | b'f' | b'n' | b'-' | b'0'..=b'9'
+    )
+}
+
 impl Decoder<'_> {
     fn skip_whitespace(&mut self) {
         while matches!(self.peek(), Some(b' ' | b'\t' | b'\n' | b'\r')) {
@@ -102,6 +111,13 @@ impl Decoder<'_> {
     }
 
     fn value(&mut self, depth: usize) -> Result<Value, DecodeError> {
+        // Confirm a value starts here before counting it. End of input and a
+        // trailing comma's `]` or `}` are malformed, not a value past the limit,
+        // so the reported count never exceeds the values this walk confirmed.
+        let byte = self.peek().ok_or(DecodeError::Malformed)?;
+        if !starts_value(byte) {
+            return Err(DecodeError::Malformed);
+        }
         self.elements += 1;
         if self.elements > self.limits.elements {
             // The walk stops here, so the count is a floor of the document's total.
@@ -112,7 +128,7 @@ impl Decoder<'_> {
             ));
             return Err(DecodeError::TooManyElements);
         }
-        match self.peek().ok_or(DecodeError::Malformed)? {
+        match byte {
             b'{' => self.object(depth + 1),
             b'[' => self.array(depth + 1),
             b'"' => self.string().map(Value::String),
@@ -383,6 +399,37 @@ mod tests {
         let (code, measured) = decode_measured("{'a':1}", LIMITS).unwrap_err();
         assert_eq!(code, DecodeError::Malformed);
         assert_eq!(measured, None);
+    }
+
+    /// Issue #1087 review fix 1: at exactly the limit, a trailing comma or a run-off is
+    /// malformed, not a value past the limit. Before the fix the count added the position
+    /// it failed to read, so it reported `at least 9 elements, limit 8` with no 9th value.
+    #[test]
+    fn a_trailing_comma_or_ended_input_at_the_limit_is_malformed_not_a_count() {
+        use super::super::{SizeDetail, UNIT_ELEMENTS};
+        use super::decode_measured;
+
+        // `LIMITS.elements` is 8: an array plus seven items, or an object plus seven members,
+        // fills it. The position after the trailing comma, and the end of input, are not a
+        // value, so neither may be counted.
+        for raw in [
+            "[1,2,3,4,5,6,7,]",
+            "[1,2,3,4,5,6,7,   ]",
+            "[1,2,3,4,5,6,7",
+            r#"{"a":1,"b":2,"c":3,"d":4,"e":5,"f":6,"g":7,}"#,
+            r#"{"a":1,"b":2,"c":3,"d":4,"e":5,"f":6,"g":7"#,
+        ] {
+            let (code, measured) = decode_measured(raw, LIMITS).unwrap_err();
+            assert_eq!(code, DecodeError::Malformed, "{raw}");
+            assert_eq!(measured, None, "{raw}");
+        }
+        // The same documents without the trailing comma or run-off are accepted, unchanged.
+        assert!(decode("[1,2,3,4,5,6,7]", LIMITS).is_ok());
+        assert!(decode(r#"{"a":1,"b":2,"c":3,"d":4,"e":5,"f":6,"g":7}"#, LIMITS).is_ok());
+        // A genuine eighth item is still past the limit and is counted, as a floor.
+        let (code, measured) = decode_measured("[1,2,3,4,5,6,7,8]", LIMITS).unwrap_err();
+        assert_eq!(code, DecodeError::TooManyElements);
+        assert_eq!(measured, Some(SizeDetail::floor(9, 8, UNIT_ELEMENTS)));
     }
 
     #[test]

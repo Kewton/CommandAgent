@@ -45,5 +45,22 @@
       "code": "arguments_too_large",
       "detail": "11 bytes, limit 10"
     }
+  ],
+  "malformed_at_limit": [
+    {
+      "id": "closing bracket after the value at the limit",
+      "ending": "close",
+      "note": "a value at the limit closed by its container is accepted, not refused"
+    },
+    {
+      "id": "trailing comma and closing bracket after the value at the limit",
+      "ending": "comma_close",
+      "note": "malformed_json; the count must not add a value the walk never read"
+    },
+    {
+      "id": "end of input after the value at the limit",
+      "ending": "end",
+      "note": "malformed_json; the count must not add a value the walk never read"
+    }
   ]
 }

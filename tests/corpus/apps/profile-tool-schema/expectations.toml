@@ -64,7 +64,9 @@ fixtures/size-limit-cases.json = [
   "\"detail\": \"at least 513 elements, limit 512\"",
   "\"detail\": \"65537 bytes, limit 65536\"",
   "\"route\": \"raw\"",
-  "\"route\": \"validate\""
+  "\"route\": \"validate\"",
+  "\"ending\": \"comma_close\"",
+  "\"ending\": \"end\""
 ]
 fixtures/off-golden.json = [
   "\"id\": \"chat-native-recovery-and-last-value\"",

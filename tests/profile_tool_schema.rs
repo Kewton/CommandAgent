@@ -1968,6 +1968,67 @@ fn a_size_refusal_on_the_validate_path_reports_the_limit_and_the_measured_value(
     set_env(REGISTRY_ENV, None);
 }
 
+/// Issue #1087 review fix 1, through the real tool: at exactly the element limit, a
+/// trailing comma or a run-off is malformed, not a phantom 513th element. The refused
+/// text carries the code alone, never an invented `at least 513 elements, limit 512`.
+#[test]
+fn a_value_at_the_element_limit_is_accepted_and_an_ending_is_not_a_phantom_count() {
+    let _guard = lock();
+    let cases: Value = serde_json::from_str(SIZE_LIMIT_CASES).unwrap();
+    let schema = schema_declaration(closed(json!({
+        "a": {"type": "array", "items": {"type": "integer"}},
+    })));
+    // The root, the array, and 510 items fill the 512-element limit exactly.
+    let items = 510;
+    for row in cases["malformed_at_limit"].as_array().unwrap() {
+        let ending = row["ending"].as_str().unwrap();
+        let trailing = match ending {
+            "close" => "",
+            "comma_close" => ",",
+            "end" => {
+                // Drop the closing bracket of the array and of the root.
+                let raw = format!(r#"{{"a":[{}]"#, vec!["1"; items].join(","));
+                let env = Env::new();
+                env.write_tool(schema.clone());
+                let run = session(
+                    &env,
+                    Wire::Native,
+                    vec![Wire::Native.call(CONFIG_TOOL, &raw), text_reply("done")],
+                    None,
+                );
+                assert_rejected(&env, Wire::Native, &run, "malformed_json", "end");
+                assert!(
+                    !run.last_message(1).contains("too_many_elements"),
+                    "{}",
+                    row["id"]
+                );
+                continue;
+            }
+            other => panic!("unknown ending {other}"),
+        };
+        let raw = format!(r#"{{"a":[{}{trailing}]}}"#, vec!["1"; items].join(","));
+        let env = Env::new();
+        env.write_tool(schema.clone());
+        let run = session(
+            &env,
+            Wire::Native,
+            vec![Wire::Native.call(CONFIG_TOOL, &raw), text_reply("done")],
+            None,
+        );
+        if ending == "close" {
+            assert_eq!(run.executed, vec![parsed(&raw)], "{}", row["id"]);
+        } else {
+            assert_rejected(&env, Wire::Native, &run, "malformed_json", ending);
+            assert!(
+                !run.last_message(1).contains("too_many_elements"),
+                "{}",
+                row["id"]
+            );
+        }
+    }
+    set_env(REGISTRY_ENV, None);
+}
+
 // ---------------------------------------------------------------------------
 // Acceptance 2: the binding is the host's, adopted once.
 // ---------------------------------------------------------------------------
