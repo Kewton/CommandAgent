@@ -8,7 +8,7 @@ use commandagent::eval_events::body_snippet_whole_tokens;
 use commandagent::minimal_loop::compact::compact_if_needed;
 use commandagent::minimal_loop::prompt::{ToolPromptMode, build_request_messages};
 use commandagent::sensitive_data::{SecretCatalog, install_scope, set_current};
-use commandagent::state::{ConversationMessage, SessionSnapshot, SessionStore};
+use commandagent::state::{ConversationMessage, SessionSnapshot, SessionStore, ToolCall};
 use commandagent::tools::bash::{self, BashOutcome, BashOutcomeKind, format_outcome};
 use commandagent::tools::registry::ToolRegistry;
 use serde_json::Value;
@@ -369,4 +369,76 @@ fn other_tools_and_event_snippets_keep_the_500_character_policy() {
     let event = body_snippet_whole_tokens(&bash_raw);
     assert!(event.chars().count() <= 500);
     assert!(!event.contains('\n'));
+}
+
+fn bash_call_group(ids: &[&str]) -> ConversationMessage {
+    ConversationMessage::assistant(
+        String::new(),
+        ids.iter()
+            .map(|id| ToolCall {
+                id: (*id).to_string(),
+                name: "Bash".to_string(),
+                arguments: serde_json::json!({"command": "true"}),
+            })
+            .collect(),
+    )
+}
+
+fn bash_success_output(id: &str, body: &str) -> ConversationMessage {
+    let raw = format!("outcome: Success\nstatus: exit status: 0\nstdout:\n{body}");
+    ConversationMessage::tool_result("Bash", Some(id.to_string()), raw.as_str())
+}
+
+/// The pre-send correlation rule `check_correlation` enforces (Issue #1005), mirrored here
+/// without loosening it: every call ID is used once, every tool output names an earlier call
+/// and answers it once, and every call is answered exactly once.
+fn correlation_holds(messages: &[ConversationMessage]) -> bool {
+    let mut calls = std::collections::BTreeSet::new();
+    let mut answered = std::collections::BTreeSet::new();
+    for message in messages {
+        for call in &message.tool_calls {
+            if call.id.is_empty() || !calls.insert(call.id.as_str()) {
+                return false;
+            }
+        }
+        if message.role != "tool" {
+            continue;
+        }
+        let Some(id) = message.tool_call_id.as_deref() else {
+            return false;
+        };
+        if !calls.contains(id) || !answered.insert(id) {
+            return false;
+        }
+    }
+    answered.len() == calls.len()
+}
+
+/// Issue #1088: a multi-call turn whose outputs straddle the compact budget. Removing the
+/// call message alone would leave outputs naming no call; the whole turn goes together, so
+/// every surviving call keeps exactly one output.
+#[test]
+fn compaction_does_not_split_a_multi_call_bash_turn() {
+    let padding = "stdout line that matters\n".repeat(400);
+    let mut history = vec![
+        ConversationMessage::system("system"),
+        bash_call_group(&["c1", "c2", "c3"]),
+        bash_success_output("c1", &padding),
+        bash_success_output("c2", &padding),
+        bash_success_output("c3", &padding),
+        ConversationMessage::user("latest"),
+        ConversationMessage::assistant("tail".repeat(400), Vec::new()),
+    ];
+    let total: usize = history.iter().map(|m| m.content.len()).sum();
+    // The budget lands mid-turn: room for less than the whole turn, more than none of it.
+    let context_budget = total.saturating_sub(2_000).div_ceil(4);
+    compact_if_needed(&mut history, context_budget);
+
+    assert!(correlation_holds(&history), "{history:#?}");
+    assert_eq!(
+        history.iter().map(|m| m.tool_calls.len()).sum::<usize>(),
+        history.iter().filter(|m| m.role == "tool").count(),
+    );
+    // A protected tail user message and answer survive.
+    assert!(history.iter().any(|m| m.content == "latest"));
 }

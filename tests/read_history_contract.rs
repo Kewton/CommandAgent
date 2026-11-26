@@ -512,3 +512,136 @@ fn compact_only_drops_whole_messages_and_keeps_read_content_intact() {
     }
     assert!(tight.iter().any(|m| m.content == "latest user"));
 }
+
+/// The pre-send `check_correlation` contract (Issue #1005), mirrored without loosening it:
+/// every call ID is non-empty and used once, every tool output names an earlier call and
+/// answers it once, and every call is answered.
+fn correlation_holds(messages: &[ConversationMessage]) -> bool {
+    let mut calls = std::collections::BTreeSet::new();
+    let mut answered = std::collections::BTreeSet::new();
+    for message in messages {
+        for call in &message.tool_calls {
+            if call.id.is_empty() || !calls.insert(call.id.as_str()) {
+                return false;
+            }
+        }
+        if message.role != "tool" {
+            continue;
+        }
+        let Some(id) = message.tool_call_id.as_deref() else {
+            return false;
+        };
+        if !calls.contains(id) || !answered.insert(id) {
+            return false;
+        }
+    }
+    answered.len() == calls.len()
+}
+
+fn bash_success(id: &str) -> ConversationMessage {
+    ConversationMessage::tool_result(
+        "Bash",
+        Some(id.to_string()),
+        format!(
+            "outcome: Success\nstatus: exit status: 0\nstdout:\n{}",
+            "line of output\n".repeat(300)
+        ),
+    )
+}
+
+fn bash_calls(ids: &[&str]) -> ConversationMessage {
+    ConversationMessage::assistant(
+        String::new(),
+        ids.iter()
+            .map(|id| ToolCall {
+                id: (*id).to_string(),
+                name: "Bash".to_string(),
+                arguments: json!({"command": "true"}),
+            })
+            .collect(),
+    )
+}
+
+fn read_calls(ids: &[&str]) -> ConversationMessage {
+    ConversationMessage::assistant(
+        String::new(),
+        ids.iter()
+            .map(|id| ToolCall {
+                id: (*id).to_string(),
+                name: "Read".to_string(),
+                arguments: json!({"path": "src/a.ts"}),
+            })
+            .collect(),
+    )
+}
+
+/// Issue #1088: when the compact budget falls inside a multi-call turn, dropping the call
+/// message alone would leave its outputs without their calls. The call and its outputs are
+/// removed together, so every surviving call keeps exactly one output.
+#[test]
+fn compaction_never_leaves_a_tool_output_without_its_call() {
+    let mut messages = vec![
+        ConversationMessage::system("system"),
+        bash_calls(&["b1", "b2", "b3"]),
+        bash_success("b1"),
+        bash_success("b2"),
+        bash_success("b3"),
+        read_calls(&["r1", "r2"]),
+        ConversationMessage::tool_result("Read", Some("r1"), "src/a.ts\nanchor one"),
+        ConversationMessage::tool_result("Read", Some("r2"), "src/b.ts\nanchor two"),
+        ConversationMessage::user("latest user"),
+        ConversationMessage::assistant("tail".repeat(400), Vec::new()),
+    ];
+    let total: usize = messages.iter().map(|m| m.content.len()).sum();
+    // The budget boundary lands a single Bash output short of the whole turn: the old
+    // per-message removal would stop there and leave the remaining outputs orphaned.
+    let context_budget = total.saturating_sub(4_000).div_ceil(4);
+    compact_if_needed(&mut messages, context_budget);
+
+    assert!(correlation_holds(&messages), "{messages:#?}");
+    let calls: Vec<&str> = messages
+        .iter()
+        .flat_map(|m| m.tool_calls.iter().map(|c| c.id.as_str()))
+        .collect();
+    let outputs: Vec<&str> = messages
+        .iter()
+        .filter(|m| m.role == "tool")
+        .filter_map(|m| m.tool_call_id.as_deref())
+        .collect();
+    assert_eq!(calls.len(), outputs.len());
+}
+
+/// Issue #1088: an older turn that carries protected evidence is not split. Its call message
+/// stays with its outputs even when the budget presses on it.
+#[test]
+fn compaction_keeps_a_protected_evidence_turn_whole() {
+    let mut messages = vec![
+        ConversationMessage::system("system"),
+        read_calls(&["r1", "r2"]),
+        ConversationMessage::tool_result("Read", Some("r1"), "src/a.ts\nanchor one"),
+        ConversationMessage::tool_result("Read", Some("r2"), "src/b.ts\nanchor two"),
+        bash_calls(&["b1", "b2"]),
+        bash_success("b1"),
+        bash_success("b2"),
+        ConversationMessage::user("latest user"),
+        ConversationMessage::assistant("tail".repeat(400), Vec::new()),
+    ];
+    let total: usize = messages.iter().map(|m| m.content.len()).sum();
+    let bash_chars: usize = messages[4..7].iter().map(|m| m.content.len()).sum();
+    let context_budget = total.saturating_sub(bash_chars).div_ceil(4);
+    compact_if_needed(&mut messages, context_budget);
+
+    assert!(correlation_holds(&messages), "{messages:#?}");
+    assert!(
+        messages.iter().any(|m| m.content.contains("anchor one")),
+        "protected Read evidence must survive"
+    );
+    assert!(
+        messages.iter().any(|m| {
+            m.tool_calls
+                .iter()
+                .any(|call| call.id == "r1" || call.id == "r2")
+        }),
+        "the evidence's calls must survive with their outputs"
+    );
+}

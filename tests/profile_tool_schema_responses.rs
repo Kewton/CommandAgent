@@ -2555,7 +2555,8 @@ mod g2 {
     }
 
     // -----------------------------------------------------------------------------------------
-    // The loop's compaction: it removes messages one by one, not a call with its output.
+    // The loop's compaction: since Issue #1088 it removes a reply's calls and their outputs as
+    // one run, so neither outlives the other.
     // -----------------------------------------------------------------------------------------
 
     /// The context budget of the compaction tests: it compacts past 4,000 characters.
@@ -2598,12 +2599,13 @@ mod g2 {
         (call_id.to_string(), json!({"path": path}).to_string())
     }
 
-    /// Two long Reads: before the third request the compaction removes the first call and keeps
-    /// its output, a recent Read's. On Responses with a schema tool that output answers no call,
-    /// so the session ends with the correlation error, through the existing retries and without
-    /// another request. Chat Completions sends the same history as it is.
+    /// Two long Reads: before the third request the compaction runs, and both Read outputs are
+    /// protected evidence. Issue #1088: a protected output is removed together with the call it
+    /// answers, so neither output outlives its call. The history still correlates, and both
+    /// wires send a third request: on Responses with a schema tool the session goes on instead
+    /// of ending with the correlation error.
     #[test]
-    fn compaction_that_leaves_an_output_without_its_call_ends_the_responses_session() {
+    fn compaction_keeps_a_call_with_its_protected_output_and_the_responses_session_goes_on() {
         let _guard = lock();
         let long = "a line of the file\n".repeat(600);
         let calls = [
@@ -2619,47 +2621,32 @@ mod g2 {
                 .map(|(id, raw)| api.calls(&[(id.as_str(), "Read", raw.as_str())]))
                 .collect();
             let (results, requests) = sessions(&env, api, &[PROMPT], replies);
-            let third_ids = |requests: &[String]| {
-                let messages = view(&body(&requests[2]));
-                let answered = messages
+            assert_eq!(results[0].as_deref(), Ok("done"), "{api:?}");
+            assert_eq!(requests.len(), 3, "{api:?}");
+            let messages = view(&body(&requests[2]));
+            let answered = messages
+                .iter()
+                .filter_map(|message| message["tool_call_id"].as_str().map(str::to_string))
+                .collect::<Vec<_>>();
+            let called = messages
+                .iter()
+                .flat_map(|message| {
+                    message["tool_calls"]
+                        .as_array()
+                        .cloned()
+                        .unwrap_or_default()
+                })
+                .filter_map(|call| call["id"].as_str().map(str::to_string))
+                .collect::<Vec<_>>();
+            // Every call that is sent is answered, and every answer names a sent call.
+            assert_eq!(called, answered, "{api:?}");
+            assert!(called.contains(&"call_r2".to_string()), "{called:?}");
+            assert!(
+                !env.event_names()
                     .iter()
-                    .filter_map(|message| message["tool_call_id"].as_str().map(str::to_string))
-                    .collect::<Vec<_>>();
-                let called = messages
-                    .iter()
-                    .flat_map(|message| {
-                        message["tool_calls"]
-                            .as_array()
-                            .cloned()
-                            .unwrap_or_default()
-                    })
-                    .filter_map(|call| call["id"].as_str().map(str::to_string))
-                    .collect::<Vec<_>>();
-                (answered, called)
-            };
-            match api {
-                Api::Responses => {
-                    assert_eq!(requests.len(), 2);
-                    let error = results[0].as_ref().unwrap_err();
-                    assert!(
-                        error.contains("OpenAI function_call call_id correlation invalid"),
-                        "{error}"
-                    );
-                    let retries = env
-                        .event_names()
-                        .iter()
-                        .filter(|name| *name == "native_tool_parse_retry_feedback")
-                        .count();
-                    assert_eq!(retries, 2);
-                }
-                Api::Chat => {
-                    assert_eq!(results[0].as_deref(), Ok("done"));
-                    assert_eq!(requests.len(), 3);
-                    let (answered, called) = third_ids(&requests);
-                    assert!(answered.contains(&"call_r1".to_string()), "{answered:?}");
-                    assert!(!called.contains(&"call_r1".to_string()), "{called:?}");
-                }
-            }
+                    .any(|name| name == "native_tool_parse_retry_feedback"),
+                "{api:?}"
+            );
         }
         set_env(REGISTRY_ENV, None);
     }
