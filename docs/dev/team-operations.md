@@ -121,7 +121,11 @@ Lessons and procedures that every session must follow belong here.
     reviews it had been told not to read, in every dispatch of one Issue. Fix
     requests had gone as nudges while the task contract still held the old
     goal, so the worker looked for the request on its own. Write every fix
-    into the Issue fixture and re-plan instead of nudging. Put the read bans
+    into the Issue fixture and re-plan instead of nudging. The task contract
+    takes only the fixture's first line (the objective), its completion
+    conditions and its target files, so put the fix in the first line and
+    the bans in the completion conditions, and confirm that they reached the
+    contract before dispatching. Put the read bans
     in bold in every worker instruction: measurement records, team-setup
     files, the base checkout's `.commandmate/`, other sessions' conversation
     records, and evaluation material. Limit searches to the worker's own
