@@ -125,7 +125,10 @@ Lessons and procedures that every session must follow belong here.
     takes only the fixture's first line (the objective), its completion
     conditions and its target files, so put the fix in the first line and
     the bans in the completion conditions, and confirm that they reached the
-    contract before dispatching. Put the read bans
+    contract before dispatching. Word the bans without the literal strings
+    of the stop pattern (for example, write "no deletion with `rm`" rather
+    than the command itself): the goal is shown on the worker's screen, the
+    stop pattern matches it, and auto-yes disarms itself. Put the read bans
     in bold in every worker instruction: measurement records, team-setup
     files, the base checkout's `.commandmate/`, other sessions' conversation
     records, and evaluation material. Limit searches to the worker's own
