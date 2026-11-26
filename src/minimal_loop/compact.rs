@@ -7,18 +7,27 @@ pub fn compact_if_needed(messages: &mut Vec<ConversationMessage>, context_budget
     let mut total: usize = messages.iter().map(|m| m.content.len()).sum();
     while total > approx_chars && messages.len() > 4 {
         let protected = protected_indices(messages);
+        let pinned = pinned_indices(messages);
         let groups = message_groups(messages, &protected);
-        // Issue #1088: a reply's tool calls and the outputs that answer them are removed
-        // together or not at all when the reply has several calls, or when one of its outputs
-        // is protected evidence. Removing a part alone leaves an output with no call, or a call
-        // with no output, and `check_correlation` refuses such a history before the next request
-        // leaves. A single call with unprotected outputs keeps the existing per-message rule, so
-        // what is protected and the budget arithmetic are unchanged.
-        let Some(group) = groups
+        // Issue #1088: a reply's tool calls and the outputs that answer them are removed as one
+        // run when the reply has several calls or one of its outputs is protected evidence, so a
+        // part never outlives the whole and `check_correlation` never sees a call without its
+        // output or an output that names no call. A run that holds protected evidence is spared
+        // while an unprotected run can go; when only protected runs are left and the history is
+        // still over budget, the oldest protected run is removed whole too, so the budget is
+        // served first. The head system message and the latest user message never go. A single
+        // call with unprotected outputs keeps the per-message rule; its split is the remaining
+        // limit recorded in `docs/dev/profile-tools.md`.
+        let group = groups
             .iter()
-            .find(|group| group_is_removable(group, &protected))
-            .cloned()
-        else {
+            .find(|group| group.start >= 1 && !group_holds(group, &protected))
+            .or_else(|| {
+                groups
+                    .iter()
+                    .find(|group| group.start >= 1 && !group_holds(group, &pinned))
+            })
+            .cloned();
+        let Some(group) = group else {
             break;
         };
         let removed_chars: usize = messages[group.clone()]
@@ -33,22 +42,28 @@ pub fn compact_if_needed(messages: &mut Vec<ConversationMessage>, context_budget
 }
 
 /// The message runs that must be kept or removed together. An assistant message whose calls must
-/// stay with their outputs forms one run with the contiguous tool outputs that answer them:
-/// a reply with two or more calls, or a reply with at least one protected output. Every other
-/// message is its own run, so a single call with unprotected outputs keeps the per-message rule.
-/// A run that starts at the head or holds a protected message cannot be removed, so a protected
-/// tool output never loses the call it answers.
+/// stay with their outputs forms one run with the contiguous tool outputs that answer it: a reply
+/// with two or more calls, or a reply with at least one protected output. An output belongs to the
+/// run only when its `tool_call_id` is one of that assistant's calls, so a later reply's output is
+/// never mistaken for this one's. Every other message is its own run, so a single call with
+/// unprotected outputs keeps the per-message rule.
 fn message_groups(messages: &[ConversationMessage], protected: &[usize]) -> Vec<Range<usize>> {
     let mut groups = Vec::new();
     let mut start = 0;
     while start < messages.len() {
         let mut end = start + 1;
         if !messages[start].tool_calls.is_empty() {
-            while end < messages.len() && messages[end].role == "tool" {
+            let calls = &messages[start].tool_calls;
+            while end < messages.len()
+                && messages[end].role == "tool"
+                && messages[end]
+                    .tool_call_id
+                    .as_deref()
+                    .is_some_and(|id| calls.iter().any(|call| call.id == id))
+            {
                 end += 1;
             }
-            let paired = messages[start].tool_calls.len() >= 2
-                || (start..end).any(|index| protected.contains(&index));
+            let paired = calls.len() >= 2 || (start..end).any(|index| protected.contains(&index));
             if !paired {
                 end = start + 1;
             }
@@ -59,8 +74,23 @@ fn message_groups(messages: &[ConversationMessage], protected: &[usize]) -> Vec<
     groups
 }
 
-fn group_is_removable(group: &Range<usize>, protected: &[usize]) -> bool {
-    group.start >= 1 && !(group.start..group.end).any(|index| protected.contains(&index))
+fn group_holds(group: &Range<usize>, indices: &[usize]) -> bool {
+    (group.start..group.end).any(|index| indices.contains(&index))
+}
+
+/// The messages a compaction never removes: the head system prompt and the latest user message.
+fn pinned_indices(messages: &[ConversationMessage]) -> Vec<usize> {
+    let mut indices = Vec::new();
+    if messages
+        .first()
+        .is_some_and(|message| message.role == "system")
+    {
+        indices.push(0);
+    }
+    if let Some(index) = messages.iter().rposition(|message| message.role == "user") {
+        indices.push(index);
+    }
+    indices
 }
 
 fn protected_indices(messages: &[ConversationMessage]) -> Vec<usize> {
@@ -220,16 +250,14 @@ mod tests {
             ConversationMessage::assistant("tail".repeat(400), Vec::new()),
         ];
         compact_if_needed(&mut messages, 1);
-        // The protected Read output cannot be dropped, and neither can the call it answers.
-        assert!(
-            messages
-                .iter()
-                .any(|message| message.content == "src/a.ts\nanchor")
-        );
-        assert!(
-            messages
-                .iter()
-                .any(|message| message.tool_calls.iter().any(|call| call.id == "call-r"))
-        );
+        // The only uncompactable run is the protected one; the message-count floor stops before
+        // it, and when it does go its call goes with it, so no output is left without its call.
+        let call_present = messages
+            .iter()
+            .any(|message| message.tool_calls.iter().any(|call| call.id == "call-r"));
+        let output_present = messages
+            .iter()
+            .any(|message| message.tool_call_id.as_deref() == Some("call-r"));
+        assert_eq!(call_present, output_present);
     }
 }

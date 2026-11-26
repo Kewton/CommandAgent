@@ -2599,11 +2599,11 @@ mod g2 {
         (call_id.to_string(), json!({"path": path}).to_string())
     }
 
-    /// Two long Reads: before the third request the compaction runs, and both Read outputs are
-    /// protected evidence. Issue #1088: a protected output is removed together with the call it
-    /// answers, so neither output outlives its call. The history still correlates, and both
-    /// wires send a third request: on Responses with a schema tool the session goes on instead
-    /// of ending with the correlation error.
+    /// Two long Reads: before the third request the compaction serves the budget by removing the
+    /// oldest protected run whole. Issue #1088: the first Read leaves with its call, so no output
+    /// outlives its call and none is left with a call missing; the newest call and its output
+    /// stay. The history still correlates, and both wires send a third request: on Responses with
+    /// a schema tool the session goes on instead of ending with the correlation error.
     #[test]
     fn compaction_keeps_a_call_with_its_protected_output_and_the_responses_session_goes_on() {
         let _guard = lock();
@@ -2640,6 +2640,8 @@ mod g2 {
                 .collect::<Vec<_>>();
             // Every call that is sent is answered, and every answer names a sent call.
             assert_eq!(called, answered, "{api:?}");
+            // The oldest protected run went whole; the newest call keeps its output.
+            assert!(!called.contains(&"call_r1".to_string()), "{called:?}");
             assert!(called.contains(&"call_r2".to_string()), "{called:?}");
             assert!(
                 !env.event_names()

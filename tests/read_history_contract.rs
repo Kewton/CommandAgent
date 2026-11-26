@@ -645,3 +645,130 @@ fn compaction_keeps_a_protected_evidence_turn_whole() {
         "the evidence's calls must survive with their outputs"
     );
 }
+
+/// Issue #1088 (review blocker 1): a reply's output belongs to it only when its call ID answers
+/// one of that reply's calls. If a later reply is removed first, its output must go with it, not
+/// be absorbed into the earlier reply's protected run and left with no preceding call.
+#[test]
+fn compaction_does_not_absorb_a_later_replys_output_into_an_earlier_run() {
+    let mut messages = vec![
+        ConversationMessage::system("system"),
+        read_calls(&["a1", "a2"]),
+        ConversationMessage::tool_result("Read", Some("a1"), "src/a.ts\nanchor one"),
+        bash_success("a2"),
+        bash_calls(&["b1"]),
+        bash_success("b1"),
+        ConversationMessage::user("latest user"),
+        ConversationMessage::assistant("tail".repeat(400), Vec::new()),
+    ];
+    let total: usize = messages.iter().map(|m| m.content.len()).sum();
+    let b_output = messages[5].content.len();
+    // Room for the two unprotected messages of reply B, but not for reply A's protected run.
+    let context_budget = total.saturating_sub(b_output).div_ceil(4);
+    compact_if_needed(&mut messages, context_budget);
+
+    assert!(correlation_holds(&messages), "{messages:#?}");
+    let calls: std::collections::BTreeSet<&str> = messages
+        .iter()
+        .flat_map(|m| m.tool_calls.iter().map(|call| call.id.as_str()))
+        .collect();
+    for output in messages.iter().filter(|m| m.role == "tool") {
+        let id = output.tool_call_id.as_deref().unwrap_or_default();
+        assert!(calls.contains(id), "output {id} has no preceding call");
+    }
+    for call in &calls {
+        assert!(
+            messages
+                .iter()
+                .filter(|m| m.tool_call_id.as_deref() == Some(*call))
+                .count()
+                == 1,
+            "call {call} must have exactly one output"
+        );
+    }
+}
+
+/// Issue #1088 (review blocker 2): when only protected runs are left, the budget is served first,
+/// so the oldest protected run is removed whole rather than sending a history far over budget.
+/// The removed run never splits: its calls leave with their outputs.
+#[test]
+fn compaction_serves_the_budget_by_removing_the_oldest_protected_run_whole() {
+    let ids: Vec<String> = (0..24).map(|n| format!("p{n}")).collect();
+    let mut calls = Vec::new();
+    let mut outputs = Vec::new();
+    for (index, id) in ids.iter().enumerate() {
+        let name = if index % 2 == 0 { "Read" } else { "Bash" };
+        calls.push(ToolCall {
+            id: id.clone(),
+            name: name.to_string(),
+            arguments: json!({"path": "src/a.ts", "command": "true"}),
+        });
+        outputs.push(if name == "Read" {
+            ConversationMessage::tool_result(
+                "Read",
+                Some(id.as_str()),
+                format!("src/a.ts\n{}", "a line of evidence\n".repeat(200)),
+            )
+        } else {
+            bash_success(id)
+        });
+    }
+    let mut messages = vec![ConversationMessage::system("system")];
+    messages.push(ConversationMessage::assistant(String::new(), calls));
+    messages.extend(outputs);
+    messages.push(ConversationMessage::user("latest user"));
+    let budget = 8_192;
+    let base_result = per_message_compaction_len(&messages, budget);
+
+    compact_if_needed(&mut messages, budget);
+
+    let compacted: usize = messages.iter().map(|m| m.content.len()).sum();
+    assert!(compacted <= budget * 4, "{compacted} is over budget");
+    assert!(
+        compacted <= base_result,
+        "{compacted} is larger than the base result {base_result}"
+    );
+    assert!(correlation_holds(&messages), "{messages:#?}");
+}
+
+/// The base per-message compaction (`origin/develop` before Issue #1088) run to completion on a
+/// copy, returning the resulting character total. Only the length matters here, so the copy drops
+/// the same messages the base did without needing their identity.
+fn per_message_compaction_len(messages: &[ConversationMessage], context_budget: usize) -> usize {
+    let approx_chars = context_budget.saturating_mul(4);
+    let mut sizes: Vec<usize> = messages.iter().map(|m| m.content.len()).collect();
+    let mut protected: Vec<bool> = vec![false; messages.len()];
+    if messages
+        .first()
+        .is_some_and(|message| message.role == "system")
+    {
+        protected[0] = true;
+    }
+    if let Some(index) = messages.iter().rposition(|message| message.role == "user") {
+        protected[index] = true;
+    }
+    let mut seen = 0;
+    for (index, message) in messages.iter().enumerate().rev() {
+        if message.role == "tool"
+            && matches!(
+                message.name.as_deref(),
+                Some("Read") | Some("Edit") | Some("Bash")
+            )
+        {
+            protected[index] = true;
+            seen += 1;
+            if seen >= 4 {
+                break;
+            }
+        }
+    }
+    let mut total: usize = sizes.iter().sum();
+    while total > approx_chars && sizes.len() > 4 {
+        let remove_at = (1..sizes.len())
+            .find(|index| !protected[*index])
+            .unwrap_or(1);
+        total = total.saturating_sub(sizes.remove(remove_at));
+        protected.remove(remove_at);
+    }
+    total
+}
