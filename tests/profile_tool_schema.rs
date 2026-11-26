@@ -1814,6 +1814,161 @@ fn the_declared_input_limit_narrows_the_arguments_too() {
 }
 
 // ---------------------------------------------------------------------------
+// Issue #1087: a size refusal reports the limit and the measured value, on both
+// the raw decode path and the validate path. The numbers are schema limits and
+// counts, never argument content.
+// ---------------------------------------------------------------------------
+
+const SIZE_LIMIT_CASES: &str =
+    include_str!("corpus/apps/profile-tool-schema/fixtures/size-limit-cases.json");
+
+/// The schema a size row is refused against, and the raw text past its limit.
+fn size_case_raw(shape: &Value) -> (Value, String) {
+    let schema = match shape["kind"].as_str().unwrap() {
+        "depth" => nested_schema(shape["schema_depth"].as_u64().unwrap() as usize),
+        "elements" => closed(json!({"a": {"type": "array", "items": {"type": "integer"}}})),
+        "bytes" => closed(json!({"s": {"type": "string"}})),
+        other => panic!("unknown size case kind {other}"),
+    };
+    let raw = match shape["kind"].as_str().unwrap() {
+        "depth" => nested_raw(shape["raw_depth"].as_u64().unwrap() as usize),
+        "elements" => {
+            let count = shape["count"].as_u64().unwrap() as usize;
+            format!(r#"{{"a":[{}]}}"#, vec!["1"; count - 2].join(","))
+        }
+        "bytes" => {
+            let bytes = shape["bytes"].as_u64().unwrap() as usize;
+            format!(r#"{{"s":"{}"}}"#, "a".repeat(bytes - r#"{"s":""}"#.len()))
+        }
+        other => panic!("unknown size case kind {other}"),
+    };
+    (schema, raw)
+}
+
+/// The `(code, detail)` of the one violation a refusal carries, read from the
+/// model-facing text.
+fn size_violation(feedback: &str) -> (String, String) {
+    let data = feedback
+        .split_once("profile_tool_refused: schema_violation: ")
+        .unwrap_or_else(|| panic!("not a schema refusal: {feedback}"))
+        .1;
+    let value = serde_json::Deserializer::from_str(data)
+        .into_iter::<Value>()
+        .next()
+        .unwrap_or_else(|| panic!("no refusal JSON in: {data}"))
+        .unwrap_or_else(|error| panic!("refusal is not JSON ({error}): {data}"));
+    let violation = &value["violations"][0];
+    (
+        violation["code"].as_str().unwrap().to_string(),
+        violation["detail"].as_str().unwrap().to_string(),
+    )
+}
+
+/// The raw decode path (Issue #1087): a call refused while its text is decoded
+/// names the code, the limit, and the count or depth the walk stopped at, as
+/// `at least`. The raw text itself never reaches the model.
+#[test]
+fn a_size_refusal_on_the_raw_decode_path_reports_the_limit_and_the_measured_value() {
+    let _guard = lock();
+    let cases: Value = serde_json::from_str(SIZE_LIMIT_CASES).unwrap();
+    for row in cases["rows"].as_array().unwrap() {
+        if row["route"] != "raw" {
+            continue;
+        }
+        let (schema, raw) = size_case_raw(&row["shape"]);
+        let env = Env::new();
+        env.write_tool(schema_declaration(schema));
+        let run = session(
+            &env,
+            Wire::Native,
+            vec![Wire::Native.call(CONFIG_TOOL, &raw), text_reply("done")],
+            None,
+        );
+        assert_rejected(
+            &env,
+            Wire::Native,
+            &run,
+            row["code"].as_str().unwrap(),
+            row["id"].as_str().unwrap(),
+        );
+        let feedback = run.last_message(1);
+        assert!(
+            !feedback.contains(&raw),
+            "{}: the raw arguments came back",
+            row["id"]
+        );
+        assert_eq!(
+            size_violation(&feedback),
+            (
+                row["code"].as_str().unwrap().to_string(),
+                row["detail"].as_str().unwrap().to_string(),
+            ),
+            "{}",
+            row["id"]
+        );
+    }
+    set_env(REGISTRY_ENV, None);
+}
+
+/// The validate path (Issue #1087), through the public registry's execution
+/// boundary, where a value arrives without raw text: the same code, limit, and
+/// count, this time exact from the measured value.
+#[test]
+fn a_size_refusal_on_the_validate_path_reports_the_limit_and_the_measured_value() {
+    let _guard = lock();
+    let cases: Value = serde_json::from_str(SIZE_LIMIT_CASES).unwrap();
+    for row in cases["rows"].as_array().unwrap() {
+        if row["route"] != "validate" {
+            continue;
+        }
+        let shape = &row["shape"];
+        let (schema, value) = match shape["kind"].as_str().unwrap() {
+            "depth" => (
+                nested_schema(shape["schema_depth"].as_u64().unwrap() as usize),
+                parsed(&nested_raw(shape["value_depth"].as_u64().unwrap() as usize)),
+            ),
+            "elements" => {
+                let count = shape["count"].as_u64().unwrap() as usize;
+                (
+                    closed(json!({"a": {"type": "array", "items": {"type": "integer"}}})),
+                    parsed(&format!(r#"{{"a":[{}]}}"#, vec!["1"; count - 2].join(","))),
+                )
+            }
+            "bytes" => (
+                closed(json!({"s": {"type": "string"}})),
+                parsed(shape["value"].as_str().unwrap()),
+            ),
+            other => panic!("unknown size case kind {other}"),
+        };
+        let mut declaration = schema_declaration(schema);
+        if let Some(limit) = shape["max_argument_bytes"].as_u64() {
+            declaration["limits"] = json!({ "max_argument_bytes": limit });
+        }
+        let env = Env::new();
+        env.write_tool(declaration);
+        let admitted = admit_selected(&env.root, CONFIG_PROFILE, None)
+            .unwrap()
+            .unwrap();
+        let error = admitted
+            .registry()
+            .unwrap()
+            .execute(CONFIG_TOOL, &value, &registry_context(&env))
+            .unwrap_err();
+        let error = format!("{error:#}");
+        assert_eq!(
+            size_violation(&error),
+            (
+                row["code"].as_str().unwrap().to_string(),
+                row["detail"].as_str().unwrap().to_string(),
+            ),
+            "{}: {error}",
+            row["id"]
+        );
+    }
+    set_env(REGISTRY_ENV, None);
+}
+
+// ---------------------------------------------------------------------------
 // Acceptance 2: the binding is the host's, adopted once.
 // ---------------------------------------------------------------------------
 

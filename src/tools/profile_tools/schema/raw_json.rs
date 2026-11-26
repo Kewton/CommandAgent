@@ -4,6 +4,8 @@
 
 use serde_json::{Map, Value};
 
+use super::{SizeDetail, UNIT_BYTES, UNIT_ELEMENTS, UNIT_LEVELS};
+
 /// What a document may cost. A value is one element, whatever its type; a key is
 /// part of its member. An empty container is depth 1.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,21 +43,39 @@ impl DecodeError {
 }
 
 pub(crate) fn decode(raw: &str, limits: DecodeLimits) -> Result<Value, DecodeError> {
+    decode_measured(raw, limits).map_err(|(error, _)| error)
+}
+
+/// [`decode`], with the limit and the measured value a size refusal reports
+/// (Issue #1087). The decoder stops at the first value past a limit, so its count
+/// and depth are floors and are reported as such; the byte count is the whole raw
+/// text and is exact.
+pub(crate) fn decode_measured(
+    raw: &str,
+    limits: DecodeLimits,
+) -> Result<Value, (DecodeError, Option<SizeDetail>)> {
     if raw.len() > limits.bytes {
-        return Err(DecodeError::TooLarge);
+        return Err((
+            DecodeError::TooLarge,
+            Some(SizeDetail::exact(raw.len(), limits.bytes, UNIT_BYTES)),
+        ));
     }
     let mut decoder = Decoder {
         raw,
         bytes: raw.as_bytes(),
         position: 0,
         elements: 0,
+        detail: None,
         limits,
     };
     decoder.skip_whitespace();
-    let value = decoder.value(0)?;
+    let value = match decoder.value(0) {
+        Ok(value) => value,
+        Err(error) => return Err((error, decoder.detail)),
+    };
     decoder.skip_whitespace();
     if decoder.position != decoder.bytes.len() {
-        return Err(DecodeError::TrailingData);
+        return Err((DecodeError::TrailingData, None));
     }
     Ok(value)
 }
@@ -65,6 +85,8 @@ struct Decoder<'a> {
     bytes: &'a [u8],
     position: usize,
     elements: usize,
+    /// Set at the first size refusal, so `decode_measured` can report it.
+    detail: Option<SizeDetail>,
     limits: DecodeLimits,
 }
 
@@ -82,6 +104,12 @@ impl Decoder<'_> {
     fn value(&mut self, depth: usize) -> Result<Value, DecodeError> {
         self.elements += 1;
         if self.elements > self.limits.elements {
+            // The walk stops here, so the count is a floor of the document's total.
+            self.detail = Some(SizeDetail::floor(
+                self.elements,
+                self.limits.elements,
+                UNIT_ELEMENTS,
+            ));
             return Err(DecodeError::TooManyElements);
         }
         match self.peek().ok_or(DecodeError::Malformed)? {
@@ -97,6 +125,7 @@ impl Decoder<'_> {
 
     fn object(&mut self, depth: usize) -> Result<Value, DecodeError> {
         if depth > self.limits.depth {
+            self.detail = Some(SizeDetail::floor(depth, self.limits.depth, UNIT_LEVELS));
             return Err(DecodeError::TooDeep);
         }
         self.position += 1;
@@ -136,6 +165,7 @@ impl Decoder<'_> {
 
     fn array(&mut self, depth: usize) -> Result<Value, DecodeError> {
         if depth > self.limits.depth {
+            self.detail = Some(SizeDetail::floor(depth, self.limits.depth, UNIT_LEVELS));
             return Err(DecodeError::TooDeep);
         }
         self.position += 1;
@@ -319,6 +349,40 @@ mod tests {
         let exact = DecodeLimits { bytes: 2, ..LIMITS };
         assert!(decode("{}", exact).is_ok());
         assert_eq!(decode("{ }", exact), Err(DecodeError::TooLarge));
+    }
+
+    /// Issue #1087: the raw decode reports the limit and the measured value for each
+    /// size refusal. A count and a depth the walk stopped at are floors, so they say
+    /// `at least`; the byte count is the whole text and is exact.
+    #[test]
+    fn a_size_refusal_reports_the_limit_and_the_measured_value() {
+        use super::super::{SizeDetail, UNIT_BYTES, UNIT_ELEMENTS, UNIT_LEVELS};
+        use super::decode_measured;
+
+        for (raw, error, detail) in [
+            (
+                r#"{"a":{"b":[[]]}}"#,
+                DecodeError::TooDeep,
+                SizeDetail::floor(4, 3, UNIT_LEVELS),
+            ),
+            (
+                "[1,2,3,4,5,6,7,8]",
+                DecodeError::TooManyElements,
+                SizeDetail::floor(9, 8, UNIT_ELEMENTS),
+            ),
+        ] {
+            let (code, measured) = decode_measured(raw, LIMITS).unwrap_err();
+            assert_eq!(code, error, "{raw}");
+            assert_eq!(measured, Some(detail), "{raw}");
+        }
+        let exact = DecodeLimits { bytes: 2, ..LIMITS };
+        let (code, measured) = decode_measured("{ }", exact).unwrap_err();
+        assert_eq!(code, DecodeError::TooLarge);
+        assert_eq!(measured, Some(SizeDetail::exact(3, 2, UNIT_BYTES)));
+        // A refusal that is not about size carries no numbers.
+        let (code, measured) = decode_measured("{'a':1}", LIMITS).unwrap_err();
+        assert_eq!(code, DecodeError::Malformed);
+        assert_eq!(measured, None);
     }
 
     #[test]

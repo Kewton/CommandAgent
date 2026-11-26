@@ -1,0 +1,49 @@
+{
+  "issue": "#1087",
+  "kind": "synthetic",
+  "detail_format": "<measured> <unit>, limit <limit>, with \"at least \" prefixed when a count or depth is a floor because the walk stopped there",
+  "rows": [
+    {
+      "id": "depth on the raw decode path",
+      "route": "raw",
+      "shape": {"kind": "depth", "schema_depth": 32, "raw_depth": 33},
+      "code": "arguments_too_deep",
+      "detail": "at least 33 levels, limit 32"
+    },
+    {
+      "id": "elements on the raw decode path",
+      "route": "raw",
+      "shape": {"kind": "elements", "count": 513},
+      "code": "too_many_elements",
+      "detail": "at least 513 elements, limit 512"
+    },
+    {
+      "id": "bytes on the raw decode path",
+      "route": "raw",
+      "shape": {"kind": "bytes", "bytes": 65537},
+      "code": "arguments_too_large",
+      "detail": "65537 bytes, limit 65536"
+    },
+    {
+      "id": "depth on the validate path",
+      "route": "validate",
+      "shape": {"kind": "depth", "schema_depth": 32, "value_depth": 33},
+      "code": "arguments_too_deep",
+      "detail": "33 levels, limit 32"
+    },
+    {
+      "id": "elements on the validate path",
+      "route": "validate",
+      "shape": {"kind": "elements", "count": 513},
+      "code": "too_many_elements",
+      "detail": "513 elements, limit 512"
+    },
+    {
+      "id": "bytes on the validate path",
+      "route": "validate",
+      "shape": {"kind": "bytes", "value": "{\"s\":\"aaa\"}", "max_argument_bytes": 10},
+      "code": "arguments_too_large",
+      "detail": "11 bytes, limit 10"
+    }
+  ]
+}
