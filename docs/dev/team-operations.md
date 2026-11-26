@@ -121,11 +121,15 @@ Lessons and procedures that every session must follow belong here.
     reviews it had been told not to read, in every dispatch of one Issue. Fix
     requests had gone as nudges while the task contract still held the old
     goal, so the worker looked for the request on its own. Write every fix
-    into the Issue fixture and re-plan instead of nudging. The task contract
-    takes only the fixture's first line (the objective), its completion
-    conditions and its target files, so put the fix in the first line and
-    the bans in the completion conditions, and confirm that they reached the
-    contract before dispatching. Word the bans without the literal strings
+    into the Issue fixture and re-plan instead of nudging. Dispatch builds
+    the contract goal from the GitHub Issue (read again with `gh issue
+    view`): the objective is the body's first line, followed by the
+    acceptance criteria, the target files and the body's own ban section.
+    From the fixture, only the acceptance criteria and the target files
+    arrive; other added sections (cause, fix, bans) are dropped. Write the
+    fix and the working conditions (the bans) as acceptance criteria in the
+    fixture. Read the generated contract and prompt and confirm that they
+    are there before dispatching. Word the bans without the literal strings
     of the stop pattern (for example, write "no deletion with `rm`" rather
     than the command itself): the goal is shown on the worker's screen, the
     stop pattern matches it, and auto-yes disarms itself. Put the read bans
