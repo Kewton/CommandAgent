@@ -34,12 +34,78 @@ pub(crate) const MAX_ANY_OF_BRANCHES: usize = 16;
 /// most 512 × 4096 schema nodes.
 pub(crate) const MAX_UNION_PATHS: usize = 4096;
 pub(crate) const MAX_PATTERN_BYTES: usize = 512;
+/// The unit a size refusal reports. The numbers are schema limits and counts, never
+/// argument content, so they carry no user data (Issue #1087).
+pub(crate) const UNIT_ELEMENTS: &str = "elements";
+pub(crate) const UNIT_LEVELS: &str = "levels";
+pub(crate) const UNIT_BYTES: &str = "bytes";
 /// The compiled size of one pattern, in the `regex` crate's own bound.
 pub(crate) const MAX_REGEX_BYTES: usize = 1 << 20;
 pub(crate) const MAX_ENUM_VALUE_BYTES: usize = 1024;
 /// A schema's own JSON nesting: two levels per object, one per array, two per
 /// `anyOf`. This bounds recursion; `Limits::depth` is what it describes.
 pub(crate) const MAX_SCHEMA_JSON_DEPTH: usize = 96;
+
+/// The limit and the measured value a size refusal reports (Issue #1087). The numbers
+/// are schema limits and counts, never argument content, so they carry no user data.
+/// `at_least` marks a count a walk stopped counting at, so the value is a floor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SizeDetail {
+    pub(crate) measured: usize,
+    pub(crate) limit: usize,
+    pub(crate) unit: &'static str,
+    pub(crate) at_least: bool,
+}
+
+impl SizeDetail {
+    pub(crate) const fn exact(measured: usize, limit: usize, unit: &'static str) -> Self {
+        Self {
+            measured,
+            limit,
+            unit,
+            at_least: false,
+        }
+    }
+
+    pub(crate) const fn floor(measured: usize, limit: usize, unit: &'static str) -> Self {
+        Self {
+            measured,
+            limit,
+            unit,
+            at_least: true,
+        }
+    }
+
+    /// `412 elements, limit 400`, or `at least 513 elements, limit 512` for a floor.
+    pub(crate) fn phrase(&self) -> String {
+        let prefix = if self.at_least { "at least " } else { "" };
+        format!(
+            "{prefix}{} {}, limit {}",
+            self.measured, self.unit, self.limit
+        )
+    }
+
+    /// Reads a phrase back, accepting only the units this protocol writes, so a
+    /// summary never repeats words it did not choose.
+    pub(crate) fn parse_phrase(text: &str) -> Option<Self> {
+        let (at_least, rest) = text
+            .strip_prefix("at least ")
+            .map_or((false, text), |rest| (true, rest));
+        let (measured, rest) = rest.split_once(' ')?;
+        let measured = measured.parse().ok()?;
+        let (unit, limit) = rest.split_once(", limit ")?;
+        let unit = [UNIT_ELEMENTS, UNIT_LEVELS, UNIT_BYTES]
+            .into_iter()
+            .find(|known| *known == unit)?;
+        let limit = limit.parse().ok()?;
+        Some(Self {
+            measured,
+            limit,
+            unit,
+            at_least,
+        })
+    }
+}
 pub(crate) const MAX_DIAGNOSTICS: usize = 8;
 
 /// The opening limits of this protocol. An operator can only narrow them. They are

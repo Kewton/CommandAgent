@@ -1814,6 +1814,290 @@ fn the_declared_input_limit_narrows_the_arguments_too() {
 }
 
 // ---------------------------------------------------------------------------
+// Issue #1087: a size refusal reports the limit and the measured value, on both
+// the raw decode path and the validate path. The numbers are schema limits and
+// counts, never argument content.
+// ---------------------------------------------------------------------------
+
+const SIZE_LIMIT_CASES: &str =
+    include_str!("corpus/apps/profile-tool-schema/fixtures/size-limit-cases.json");
+
+/// The schema a size row is refused against, and the raw text past its limit.
+fn size_case_raw(shape: &Value) -> (Value, String) {
+    let schema = match shape["kind"].as_str().unwrap() {
+        "depth" => nested_schema(shape["schema_depth"].as_u64().unwrap() as usize),
+        "elements" => closed(json!({"a": {"type": "array", "items": {"type": "integer"}}})),
+        "bytes" => closed(json!({"s": {"type": "string"}})),
+        other => panic!("unknown size case kind {other}"),
+    };
+    let raw = match shape["kind"].as_str().unwrap() {
+        "depth" => nested_raw(shape["raw_depth"].as_u64().unwrap() as usize),
+        "elements" => {
+            let count = shape["count"].as_u64().unwrap() as usize;
+            format!(r#"{{"a":[{}]}}"#, vec!["1"; count - 2].join(","))
+        }
+        "bytes" => {
+            let bytes = shape["bytes"].as_u64().unwrap() as usize;
+            format!(r#"{{"s":"{}"}}"#, "a".repeat(bytes - r#"{"s":""}"#.len()))
+        }
+        other => panic!("unknown size case kind {other}"),
+    };
+    (schema, raw)
+}
+
+/// The `(code, detail)` of the one violation a refusal carries, read from the
+/// model-facing text.
+fn size_violation(feedback: &str) -> (String, String) {
+    let data = feedback
+        .split_once("profile_tool_refused: schema_violation: ")
+        .unwrap_or_else(|| panic!("not a schema refusal: {feedback}"))
+        .1;
+    let value = serde_json::Deserializer::from_str(data)
+        .into_iter::<Value>()
+        .next()
+        .unwrap_or_else(|| panic!("no refusal JSON in: {data}"))
+        .unwrap_or_else(|error| panic!("refusal is not JSON ({error}): {data}"));
+    let violation = &value["violations"][0];
+    (
+        violation["code"].as_str().unwrap().to_string(),
+        violation["detail"].as_str().unwrap().to_string(),
+    )
+}
+
+/// The raw decode path (Issue #1087): a call refused while its text is decoded
+/// names the code, the limit, and the count or depth the walk stopped at, as
+/// `at least`. The raw text itself never reaches the model.
+#[test]
+fn a_size_refusal_on_the_raw_decode_path_reports_the_limit_and_the_measured_value() {
+    let _guard = lock();
+    let cases: Value = serde_json::from_str(SIZE_LIMIT_CASES).unwrap();
+    for row in cases["rows"].as_array().unwrap() {
+        if row["route"] != "raw" {
+            continue;
+        }
+        let (schema, raw) = size_case_raw(&row["shape"]);
+        let env = Env::new();
+        env.write_tool(schema_declaration(schema));
+        let run = session(
+            &env,
+            Wire::Native,
+            vec![Wire::Native.call(CONFIG_TOOL, &raw), text_reply("done")],
+            None,
+        );
+        assert_rejected(
+            &env,
+            Wire::Native,
+            &run,
+            row["code"].as_str().unwrap(),
+            row["id"].as_str().unwrap(),
+        );
+        let feedback = run.last_message(1);
+        assert!(
+            !feedback.contains(&raw),
+            "{}: the raw arguments came back",
+            row["id"]
+        );
+        assert_eq!(
+            size_violation(&feedback),
+            (
+                row["code"].as_str().unwrap().to_string(),
+                row["detail"].as_str().unwrap().to_string(),
+            ),
+            "{}",
+            row["id"]
+        );
+    }
+    set_env(REGISTRY_ENV, None);
+}
+
+/// The validate path (Issue #1087), through the public registry's execution
+/// boundary, where a value arrives without raw text: the same code, limit, and
+/// count, this time exact from the measured value.
+#[test]
+fn a_size_refusal_on_the_validate_path_reports_the_limit_and_the_measured_value() {
+    let _guard = lock();
+    let cases: Value = serde_json::from_str(SIZE_LIMIT_CASES).unwrap();
+    for row in cases["rows"].as_array().unwrap() {
+        if row["route"] != "validate" {
+            continue;
+        }
+        let shape = &row["shape"];
+        let (schema, value) = match shape["kind"].as_str().unwrap() {
+            "depth" => (
+                nested_schema(shape["schema_depth"].as_u64().unwrap() as usize),
+                parsed(&nested_raw(shape["value_depth"].as_u64().unwrap() as usize)),
+            ),
+            "elements" => {
+                let count = shape["count"].as_u64().unwrap() as usize;
+                (
+                    closed(json!({"a": {"type": "array", "items": {"type": "integer"}}})),
+                    parsed(&format!(r#"{{"a":[{}]}}"#, vec!["1"; count - 2].join(","))),
+                )
+            }
+            "bytes" => (
+                closed(json!({"s": {"type": "string"}})),
+                parsed(shape["value"].as_str().unwrap()),
+            ),
+            other => panic!("unknown size case kind {other}"),
+        };
+        let mut declaration = schema_declaration(schema);
+        if let Some(limit) = shape["max_argument_bytes"].as_u64() {
+            declaration["limits"] = json!({ "max_argument_bytes": limit });
+        }
+        let env = Env::new();
+        env.write_tool(declaration);
+        let admitted = admit_selected(&env.root, CONFIG_PROFILE, None)
+            .unwrap()
+            .unwrap();
+        let error = admitted
+            .registry()
+            .unwrap()
+            .execute(CONFIG_TOOL, &value, &registry_context(&env))
+            .unwrap_err();
+        let error = format!("{error:#}");
+        assert_eq!(
+            size_violation(&error),
+            (
+                row["code"].as_str().unwrap().to_string(),
+                row["detail"].as_str().unwrap().to_string(),
+            ),
+            "{}: {error}",
+            row["id"]
+        );
+    }
+    set_env(REGISTRY_ENV, None);
+}
+
+/// Issue #1087 review fix 1, through the real tool: at exactly the element limit, a
+/// trailing comma or a run-off is malformed, not a phantom 513th element. The refused
+/// text carries the code alone, never an invented `at least 513 elements, limit 512`.
+#[test]
+fn a_value_at_the_element_limit_is_accepted_and_an_ending_is_not_a_phantom_count() {
+    let _guard = lock();
+    let cases: Value = serde_json::from_str(SIZE_LIMIT_CASES).unwrap();
+    let schema = schema_declaration(closed(json!({
+        "a": {"type": "array", "items": {"type": "integer"}},
+    })));
+    // The root, the array, and 510 items fill the 512-element limit exactly.
+    let items = 510;
+    for row in cases["malformed_at_limit"].as_array().unwrap() {
+        let ending = row["ending"].as_str().unwrap();
+        let trailing = match ending {
+            "close" => "",
+            "comma_close" => ",",
+            "end" => {
+                // Drop the closing bracket of the array and of the root.
+                let raw = format!(r#"{{"a":[{}]"#, vec!["1"; items].join(","));
+                let env = Env::new();
+                env.write_tool(schema.clone());
+                let run = session(
+                    &env,
+                    Wire::Native,
+                    vec![Wire::Native.call(CONFIG_TOOL, &raw), text_reply("done")],
+                    None,
+                );
+                assert_rejected(&env, Wire::Native, &run, "malformed_json", "end");
+                assert!(
+                    !run.last_message(1).contains("too_many_elements"),
+                    "{}",
+                    row["id"]
+                );
+                continue;
+            }
+            other => panic!("unknown ending {other}"),
+        };
+        let raw = format!(r#"{{"a":[{}{trailing}]}}"#, vec!["1"; items].join(","));
+        let env = Env::new();
+        env.write_tool(schema.clone());
+        let run = session(
+            &env,
+            Wire::Native,
+            vec![Wire::Native.call(CONFIG_TOOL, &raw), text_reply("done")],
+            None,
+        );
+        if ending == "close" {
+            assert_eq!(run.executed, vec![parsed(&raw)], "{}", row["id"]);
+        } else {
+            assert_rejected(&env, Wire::Native, &run, "malformed_json", ending);
+            assert!(
+                !run.last_message(1).contains("too_many_elements"),
+                "{}",
+                row["id"]
+            );
+        }
+    }
+    set_env(REGISTRY_ENV, None);
+}
+
+/// Issue #1087 review fix 3, through the real tool: the candidate the element limit
+/// stops the walk at is counted only when it is confirmed as a value. `n]`, `-]`, `1e]`
+/// and an unterminated string are not, so the refusal reports the 512 values the walk
+/// confirmed instead of a phantom 513th. A genuine 513th value is still a floor of 513.
+#[test]
+fn an_unconfirmed_candidate_past_the_element_limit_is_not_counted() {
+    let _guard = lock();
+    let cases: Value = serde_json::from_str(SIZE_LIMIT_CASES).unwrap();
+    let schema = schema_declaration(closed(json!({
+        "a": {"type": "array", "items": {"type": "integer"}},
+    })));
+    // The root, the array, and 510 items fill the 512-element limit exactly.
+    let items = vec!["1"; 510].join(",");
+    for row in cases["truncated_candidates"].as_array().unwrap() {
+        let ending = match row["ending"].as_str().unwrap() {
+            "n_run_off" => "n]}",
+            "minus_run_off" => "-]}",
+            "exponent_run_off" => "1e]}",
+            "unterminated_string" => "\"abc]}",
+            "value" => "1]}",
+            other => panic!("unknown ending {other}"),
+        };
+        let raw = format!(r#"{{"a":[{items},{ending}"#);
+        let env = Env::new();
+        env.write_tool(schema.clone());
+        let run = session(
+            &env,
+            Wire::Native,
+            vec![Wire::Native.call(CONFIG_TOOL, &raw), text_reply("done")],
+            None,
+        );
+        let id = row["id"].as_str().unwrap();
+        assert_rejected(&env, Wire::Native, &run, "too_many_elements", id);
+        let feedback = run.last_message(1);
+        assert!(
+            !feedback.contains(&raw),
+            "{id}: the raw arguments came back"
+        );
+        assert_eq!(
+            size_violation(&feedback),
+            (
+                "too_many_elements".to_string(),
+                row["detail"].as_str().unwrap().to_string(),
+            ),
+            "{id}"
+        );
+    }
+
+    // Exactly the limit, an empty container, and valid nesting are accepted, unchanged.
+    for raw in [
+        format!(r#"{{"a":[{items}]}}"#),
+        "{}".to_string(),
+        r#"{"a":[]}"#.to_string(),
+        r#"{"a":[1,2,3]}"#.to_string(),
+    ] {
+        let env = Env::new();
+        env.write_tool(schema.clone());
+        let run = session(
+            &env,
+            Wire::Native,
+            vec![Wire::Native.call(CONFIG_TOOL, &raw), text_reply("done")],
+            None,
+        );
+        assert_eq!(run.executed, vec![parsed(&raw)], "{raw}");
+    }
+    set_env(REGISTRY_ENV, None);
+}
+
+// ---------------------------------------------------------------------------
 // Acceptance 2: the binding is the host's, adopted once.
 // ---------------------------------------------------------------------------
 

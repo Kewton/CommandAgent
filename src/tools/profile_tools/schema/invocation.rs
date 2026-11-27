@@ -16,6 +16,7 @@ use serde_json::{Map, Value};
 use super::super::commit::CommitReceipt;
 use super::super::descriptor::{RegistryBinding, verify_descriptor_pin};
 use super::super::{ProfileToolRefusal, RefusalKind};
+use super::SizeDetail;
 use super::binding::{AdoptedInputs, Adoption};
 use super::raw_json::{self, DecodeError, DecodeLimits};
 use super::validate::{self, Violation};
@@ -179,8 +180,8 @@ impl SchemaGuard {
         let outcome = raw
             .map_err(|code| vec![violation(code)])
             .and_then(|raw| {
-                raw_json::decode(raw, self.limits())
-                    .map_err(|error: DecodeError| vec![violation(error.code())])
+                raw_json::decode_measured(raw, self.limits())
+                    .map_err(|(error, detail)| vec![violation_with_detail(error.code(), detail)])
             })
             .and_then(|value| validate::validate(self.adoption.schema(), &value).map(|()| value))
             .map_err(|violations| validate::render(STAGE_NATIVE, &violations));
@@ -194,9 +195,13 @@ impl SchemaGuard {
 }
 
 fn violation(code: &'static str) -> Violation {
-    Violation {
-        path: "/".to_string(),
-        code,
+    Violation::new("/".to_string(), code)
+}
+
+fn violation_with_detail(code: &'static str, detail: Option<SizeDetail>) -> Violation {
+    match detail {
+        Some(detail) => Violation::sized("/".to_string(), code, detail),
+        None => violation(code),
     }
 }
 

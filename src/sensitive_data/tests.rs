@@ -692,6 +692,44 @@ fn envelope_fixed_key_and_kind_are_preserved() {
 // `set_current`, so these tests never race on the process-global registry.
 // ---------------------------------------------------------------------------
 
+/// Issue #1087: a size refusal reports a schema limit and the measured count, never
+/// argument content, so it carries no user data. The numbers are digits only, the units
+/// are words the protocol writes, and a credential the model put in an argument cannot
+/// appear in the phrase. The scrub leaves such a phrase intact.
+#[test]
+fn c30_a_size_refusal_phrase_carries_counts_not_argument_content() {
+    use crate::tools::profile_tools::schema::{SizeDetail, UNIT_BYTES, UNIT_ELEMENTS, UNIT_LEVELS};
+
+    let credential = "H32_ARGUMENT_CANARY_1087";
+    let mut catalog = SecretCatalog::new();
+    catalog
+        .register_credential("DUMMY_API_KEY", credential)
+        .unwrap();
+
+    for detail in [
+        SizeDetail::exact(412, 400, UNIT_ELEMENTS),
+        SizeDetail::floor(513, 512, UNIT_ELEMENTS),
+        SizeDetail::exact(33, 32, UNIT_LEVELS),
+        SizeDetail::exact(65537, 65536, UNIT_BYTES),
+    ] {
+        let phrase = detail.phrase();
+        // The phrase is the numbers, the unit, and `limit`: nothing else can ride in.
+        let rebuilt = SizeDetail::parse_phrase(&phrase)
+            .unwrap_or_else(|| panic!("the phrase does not round-trip: {phrase}"));
+        assert_eq!(rebuilt, detail, "{phrase}");
+        assert!(!phrase.contains(credential), "{phrase}");
+        // The scrub has nothing to change in it.
+        assert_eq!(catalog.scrub(&phrase), phrase, "{phrase}");
+        // A canary the measured value would have carried is not the phrase's business:
+        // the measured value is a count, so a longer phrase that quotes an argument
+        // cannot parse back and is dropped rather than shown.
+        assert!(
+            SizeDetail::parse_phrase(&format!("{phrase} {credential}")).is_none(),
+            "{phrase}"
+        );
+    }
+}
+
 const C1: &str = "H01_CANARY_JwtStyle_NonPrefix_29486";
 const F1: [&str; 5] = [
     "completed",

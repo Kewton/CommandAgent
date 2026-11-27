@@ -6,25 +6,43 @@ use serde_json::Value;
 
 use super::MAX_DIAGNOSTICS;
 use super::admission::{CompiledSchema, Node, ScalarKind};
+use super::{SizeDetail, UNIT_BYTES, UNIT_ELEMENTS, UNIT_LEVELS};
 
 const MAX_PATH_BYTES: usize = 128;
 
 /// One reason an argument was refused. A path can hold a key the model sent, so
-/// it is bounded data and is never read as an instruction.
+/// it is bounded data and is never read as an instruction. A size refusal also
+/// carries the limit and the measured value (Issue #1087).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Violation {
     pub(crate) path: String,
     pub(crate) code: &'static str,
+    pub(crate) detail: Option<SizeDetail>,
+}
+
+impl Violation {
+    pub(crate) const fn new(path: String, code: &'static str) -> Self {
+        Self {
+            path,
+            code,
+            detail: None,
+        }
+    }
+
+    pub(crate) const fn sized(path: String, code: &'static str, detail: SizeDetail) -> Self {
+        Self {
+            path,
+            code,
+            detail: Some(detail),
+        }
+    }
 }
 
 /// At most [`MAX_DIAGNOSTICS`] violations, in the order the walk met them.
 pub(crate) fn validate(schema: &CompiledSchema, value: &Value) -> Result<(), Vec<Violation>> {
     let mut violations = Vec::new();
-    if let Some(code) = over_limit(schema, value) {
-        violations.push(Violation {
-            path: "/".to_string(),
-            code,
-        });
+    if let Some((code, detail)) = over_limit(schema, value) {
+        violations.push(Violation::sized("/".to_string(), code, detail));
         return Err(violations);
     }
     walk(schema.root(), value, "", &mut violations);
@@ -37,17 +55,28 @@ pub(crate) fn validate(schema: &CompiledSchema, value: &Value) -> Result<(), Vec
 
 /// The limits apply to a value that came without raw text as well, such as an
 /// argument given directly to the public registry.
-fn over_limit(schema: &CompiledSchema, value: &Value) -> Option<&'static str> {
+fn over_limit(schema: &CompiledSchema, value: &Value) -> Option<(&'static str, SizeDetail)> {
     let limits = schema.limits();
     let (depth, elements) = measure(value);
     if depth > limits.depth {
-        return Some("arguments_too_deep");
+        return Some((
+            "arguments_too_deep",
+            SizeDetail::exact(depth, limits.depth, UNIT_LEVELS),
+        ));
     }
     if elements > limits.elements {
-        return Some("too_many_elements");
+        return Some((
+            "too_many_elements",
+            SizeDetail::exact(elements, limits.elements, UNIT_ELEMENTS),
+        ));
     }
     let bytes = serde_json::to_vec(value).map_or(usize::MAX, |bytes| bytes.len());
-    (bytes > limits.argument_bytes).then_some("arguments_too_large")
+    (bytes > limits.argument_bytes).then(|| {
+        (
+            "arguments_too_large",
+            SizeDetail::exact(bytes, limits.argument_bytes, UNIT_BYTES),
+        )
+    })
 }
 
 fn measure(value: &Value) -> (usize, usize) {
@@ -179,10 +208,7 @@ fn push(out: &mut Vec<Violation>, path: &str, code: &'static str) {
         return;
     }
     let path = if path.is_empty() { "/" } else { path };
-    out.push(Violation {
-        path: truncate(path).to_string(),
-        code,
-    });
+    out.push(Violation::new(truncate(path).to_string(), code));
 }
 
 fn truncate(path: &str) -> &str {
@@ -194,11 +220,19 @@ fn truncate(path: &str) -> &str {
 }
 
 /// The data a refusal carries: a stage and at most [`MAX_DIAGNOSTICS`] bounded
-/// violations.
+/// violations. A size refusal adds the limit and the measured value; every other
+/// code's JSON is unchanged (Issue #1087).
 pub(crate) fn render(stage: &str, violations: &[Violation]) -> String {
     let violations = violations
         .iter()
-        .map(|violation| serde_json::json!({"path": violation.path, "code": violation.code}))
+        .map(|violation| match violation.detail {
+            Some(detail) => serde_json::json!({
+                "path": violation.path,
+                "code": violation.code,
+                "detail": detail.phrase(),
+            }),
+            None => serde_json::json!({"path": violation.path, "code": violation.code}),
+        })
         .collect::<Vec<_>>();
     serde_json::json!({"stage": stage, "violations": violations}).to_string()
 }
@@ -381,5 +415,66 @@ mod tests {
             codes(&schema, json!({"s": "0123456789"})),
             vec!["arguments_too_large"]
         );
+    }
+
+    /// Issue #1087: a size refusal carries the limit and the measured value in the
+    /// model-facing JSON, and every other code's JSON stays exactly as it was.
+    #[test]
+    fn a_size_refusal_reports_the_limit_and_the_measured_value() {
+        let limits = Limits {
+            argument_bytes: 16,
+            depth: 2,
+            elements: 3,
+            schema_bytes: Limits::OPENING.schema_bytes,
+        };
+        let schema = compile(
+            &json!({
+                "type": "object", "additionalProperties": false,
+                "properties": {"s": {"type": "string"}},
+            }),
+            limits,
+        )
+        .unwrap();
+        for (value, code, detail) in [
+            (
+                json!({"a": [[]]}),
+                "arguments_too_deep",
+                "3 levels, limit 2",
+            ),
+            (
+                json!({"a": 1, "b": 2, "c": 3}),
+                "too_many_elements",
+                "4 elements, limit 3",
+            ),
+            (
+                json!({"s": "0123456789"}),
+                "arguments_too_large",
+                "18 bytes, limit 16",
+            ),
+        ] {
+            let rendered: Value = serde_json::from_str(&render(
+                "before_execution",
+                &validate(&schema, &value).unwrap_err(),
+            ))
+            .unwrap();
+            assert_eq!(
+                rendered["violations"][0],
+                json!({"path": "/", "code": code, "detail": detail}),
+                "{value}"
+            );
+        }
+
+        // An ordinary refusal keeps its two fields, with no `detail`.
+        let settings = settings();
+        let rendered: Value = serde_json::from_str(&render(
+            "before_execution",
+            &validate(&settings, &with("mode", json!("slow"))).unwrap_err(),
+        ))
+        .unwrap();
+        assert_eq!(
+            rendered["violations"][0],
+            json!({"path": "/mode", "code": "enum_mismatch"})
+        );
+        assert!(rendered["violations"][0].get("detail").is_none());
     }
 }

@@ -4,6 +4,8 @@
 
 use serde_json::{Map, Value};
 
+use super::{SizeDetail, UNIT_BYTES, UNIT_ELEMENTS, UNIT_LEVELS};
+
 /// What a document may cost. A value is one element, whatever its type; a key is
 /// part of its member. An empty container is depth 1.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,21 +43,39 @@ impl DecodeError {
 }
 
 pub(crate) fn decode(raw: &str, limits: DecodeLimits) -> Result<Value, DecodeError> {
+    decode_measured(raw, limits).map_err(|(error, _)| error)
+}
+
+/// [`decode`], with the limit and the measured value a size refusal reports
+/// (Issue #1087). The decoder stops at the first value past a limit, so its count
+/// and depth are floors and are reported as such; the byte count is the whole raw
+/// text and is exact.
+pub(crate) fn decode_measured(
+    raw: &str,
+    limits: DecodeLimits,
+) -> Result<Value, (DecodeError, Option<SizeDetail>)> {
     if raw.len() > limits.bytes {
-        return Err(DecodeError::TooLarge);
+        return Err((
+            DecodeError::TooLarge,
+            Some(SizeDetail::exact(raw.len(), limits.bytes, UNIT_BYTES)),
+        ));
     }
     let mut decoder = Decoder {
         raw,
         bytes: raw.as_bytes(),
         position: 0,
         elements: 0,
+        detail: None,
         limits,
     };
     decoder.skip_whitespace();
-    let value = decoder.value(0)?;
+    let value = match decoder.value(0) {
+        Ok(value) => value,
+        Err(error) => return Err((error, decoder.detail)),
+    };
     decoder.skip_whitespace();
     if decoder.position != decoder.bytes.len() {
-        return Err(DecodeError::TrailingData);
+        return Err((DecodeError::TrailingData, None));
     }
     Ok(value)
 }
@@ -65,7 +85,18 @@ struct Decoder<'a> {
     bytes: &'a [u8],
     position: usize,
     elements: usize,
+    /// Set at the first size refusal, so `decode_measured` can report it.
+    detail: Option<SizeDetail>,
     limits: DecodeLimits,
+}
+
+/// Whether a byte can begin a JSON value. `]`, `}`, `,` and end of input cannot,
+/// so a trailing comma or a run-off stays malformed rather than counting a value.
+fn starts_value(byte: u8) -> bool {
+    matches!(
+        byte,
+        b'{' | b'[' | b'"' | b't' | b'f' | b'n' | b'-' | b'0'..=b'9'
+    )
 }
 
 impl Decoder<'_> {
@@ -79,12 +110,87 @@ impl Decoder<'_> {
         self.bytes.get(self.position).copied()
     }
 
+    /// Whether the candidate the element limit stopped the walk at is confirmed as a
+    /// value (Issue #1087 review fix 3). A container opener is one; a scalar must be
+    /// one whole token, so `n]`, `-]`, `1e]` and an unterminated string are not. This
+    /// only looks: it moves no position and adds no count.
+    fn confirms_value(&self, byte: u8) -> bool {
+        match byte {
+            b'{' | b'[' => true,
+            b'"' => self.confirmed_string(),
+            b't' => self.bytes[self.position..].starts_with(b"true"),
+            b'f' => self.bytes[self.position..].starts_with(b"false"),
+            b'n' => self.bytes[self.position..].starts_with(b"null"),
+            _ => self.confirmed_number(),
+        }
+    }
+
+    /// Whether the candidate string's token is one: a closing quote is reached and
+    /// `serde_json` accepts the token's escapes. False for a run-off or an invalid
+    /// escape.
+    fn confirmed_string(&self) -> bool {
+        let mut end = self.position + 1;
+        loop {
+            match self.bytes.get(end).copied() {
+                Some(b'"') => {
+                    end += 1;
+                    break;
+                }
+                Some(b'\\') => end += 2,
+                Some(_) => end += 1,
+                None => return false,
+            }
+        }
+        self.raw
+            .get(self.position..end)
+            .is_some_and(|token| serde_json::from_str::<String>(token).is_ok())
+    }
+
+    /// Whether the candidate number's token parses as a JSON number, read with the
+    /// same token bounds the walk uses. A lone `-` or `1e` is not a number.
+    fn confirmed_number(&self) -> bool {
+        let mut end = self.position;
+        while matches!(
+            self.bytes.get(end).copied(),
+            Some(b'-' | b'+' | b'.' | b'e' | b'E' | b'0'..=b'9')
+        ) {
+            end += 1;
+        }
+        self.raw
+            .get(self.position..end)
+            .is_some_and(|token| serde_json::from_str::<serde_json::Number>(token).is_ok())
+    }
+
     fn value(&mut self, depth: usize) -> Result<Value, DecodeError> {
-        self.elements += 1;
-        if self.elements > self.limits.elements {
+        // Confirm a value starts here before counting it. End of input and a
+        // trailing comma's `]` or `}` are malformed, not a value past the limit,
+        // so the reported count never exceeds the values this walk confirmed.
+        let byte = self.peek().ok_or(DecodeError::Malformed)?;
+        if !starts_value(byte) {
+            return Err(DecodeError::Malformed);
+        }
+        let counted = self.elements + 1;
+        if counted > self.limits.elements {
+            // The walk stops at the first candidate past the element limit, so its
+            // count is a floor. Count the candidate only when it is confirmed as a
+            // value here: a container opener, or a scalar whose own token this decoder
+            // can check without reading past it. A run-off such as `n]`, `-]`, `1e]`
+            // or an unterminated string is not a value, so it is not counted and the
+            // floor stays at the count of values the walk confirmed.
+            let measured = if self.confirms_value(byte) {
+                counted
+            } else {
+                self.elements
+            };
+            self.detail = Some(SizeDetail::floor(
+                measured,
+                self.limits.elements,
+                UNIT_ELEMENTS,
+            ));
             return Err(DecodeError::TooManyElements);
         }
-        match self.peek().ok_or(DecodeError::Malformed)? {
+        self.elements = counted;
+        match byte {
             b'{' => self.object(depth + 1),
             b'[' => self.array(depth + 1),
             b'"' => self.string().map(Value::String),
@@ -97,6 +203,7 @@ impl Decoder<'_> {
 
     fn object(&mut self, depth: usize) -> Result<Value, DecodeError> {
         if depth > self.limits.depth {
+            self.detail = Some(SizeDetail::floor(depth, self.limits.depth, UNIT_LEVELS));
             return Err(DecodeError::TooDeep);
         }
         self.position += 1;
@@ -136,6 +243,7 @@ impl Decoder<'_> {
 
     fn array(&mut self, depth: usize) -> Result<Value, DecodeError> {
         if depth > self.limits.depth {
+            self.detail = Some(SizeDetail::floor(depth, self.limits.depth, UNIT_LEVELS));
             return Err(DecodeError::TooDeep);
         }
         self.position += 1;
@@ -319,6 +427,118 @@ mod tests {
         let exact = DecodeLimits { bytes: 2, ..LIMITS };
         assert!(decode("{}", exact).is_ok());
         assert_eq!(decode("{ }", exact), Err(DecodeError::TooLarge));
+    }
+
+    /// Issue #1087: the raw decode reports the limit and the measured value for each
+    /// size refusal. A count and a depth the walk stopped at are floors, so they say
+    /// `at least`; the byte count is the whole text and is exact.
+    #[test]
+    fn a_size_refusal_reports_the_limit_and_the_measured_value() {
+        use super::super::{SizeDetail, UNIT_BYTES, UNIT_ELEMENTS, UNIT_LEVELS};
+        use super::decode_measured;
+
+        for (raw, error, detail) in [
+            (
+                r#"{"a":{"b":[[]]}}"#,
+                DecodeError::TooDeep,
+                SizeDetail::floor(4, 3, UNIT_LEVELS),
+            ),
+            (
+                "[1,2,3,4,5,6,7,8]",
+                DecodeError::TooManyElements,
+                SizeDetail::floor(9, 8, UNIT_ELEMENTS),
+            ),
+        ] {
+            let (code, measured) = decode_measured(raw, LIMITS).unwrap_err();
+            assert_eq!(code, error, "{raw}");
+            assert_eq!(measured, Some(detail), "{raw}");
+        }
+        let exact = DecodeLimits { bytes: 2, ..LIMITS };
+        let (code, measured) = decode_measured("{ }", exact).unwrap_err();
+        assert_eq!(code, DecodeError::TooLarge);
+        assert_eq!(measured, Some(SizeDetail::exact(3, 2, UNIT_BYTES)));
+        // A refusal that is not about size carries no numbers.
+        let (code, measured) = decode_measured("{'a':1}", LIMITS).unwrap_err();
+        assert_eq!(code, DecodeError::Malformed);
+        assert_eq!(measured, None);
+    }
+
+    /// Issue #1087 review fix 1: at exactly the limit, a trailing comma or a run-off is
+    /// malformed, not a value past the limit. Before the fix the count added the position
+    /// it failed to read, so it reported `at least 9 elements, limit 8` with no 9th value.
+    #[test]
+    fn a_trailing_comma_or_ended_input_at_the_limit_is_malformed_not_a_count() {
+        use super::super::{SizeDetail, UNIT_ELEMENTS};
+        use super::decode_measured;
+
+        // `LIMITS.elements` is 8: an array plus seven items, or an object plus seven members,
+        // fills it. The position after the trailing comma, and the end of input, are not a
+        // value, so neither may be counted.
+        for raw in [
+            "[1,2,3,4,5,6,7,]",
+            "[1,2,3,4,5,6,7,   ]",
+            "[1,2,3,4,5,6,7",
+            r#"{"a":1,"b":2,"c":3,"d":4,"e":5,"f":6,"g":7,}"#,
+            r#"{"a":1,"b":2,"c":3,"d":4,"e":5,"f":6,"g":7"#,
+        ] {
+            let (code, measured) = decode_measured(raw, LIMITS).unwrap_err();
+            assert_eq!(code, DecodeError::Malformed, "{raw}");
+            assert_eq!(measured, None, "{raw}");
+        }
+        // The same documents without the trailing comma or run-off are accepted, unchanged.
+        assert!(decode("[1,2,3,4,5,6,7]", LIMITS).is_ok());
+        assert!(decode(r#"{"a":1,"b":2,"c":3,"d":4,"e":5,"f":6,"g":7}"#, LIMITS).is_ok());
+        // A genuine eighth item is still past the limit and is counted, as a floor.
+        let (code, measured) = decode_measured("[1,2,3,4,5,6,7,8]", LIMITS).unwrap_err();
+        assert_eq!(code, DecodeError::TooManyElements);
+        assert_eq!(measured, Some(SizeDetail::floor(9, 8, UNIT_ELEMENTS)));
+    }
+
+    /// Issue #1087 review fix 3: the candidate the element limit stops the walk at is
+    /// counted as a floor only when it is confirmed as a value. A run-off is not a value
+    /// (`n]`, `-]`, `1e]`, an unterminated string), so the floor stays at the values the
+    /// walk confirmed instead of inventing one more.
+    #[test]
+    fn only_a_confirmed_value_past_the_element_limit_is_counted() {
+        use super::super::{SizeDetail, UNIT_ELEMENTS};
+        use super::decode_measured;
+
+        // `LIMITS.elements` is 8: the root, the array, and six items fill it. The next
+        // item is the candidate the limit stops at.
+        let at_limit = r#"{"a":[1,1,1,1,1,1"#;
+        for ending in [r#",n]}"#, r#",-]}"#, r#",1e]}"#, r#","abc]}"#] {
+            let raw = format!("{at_limit}{ending}");
+            let (code, measured) = decode_measured(&raw, LIMITS).unwrap_err();
+            assert_eq!(code, DecodeError::TooManyElements, "{raw}");
+            assert_eq!(
+                measured,
+                Some(SizeDetail::floor(8, 8, UNIT_ELEMENTS)),
+                "{raw}"
+            );
+        }
+        // A candidate that is a value is still counted, as before.
+        for ending in [r#",1]}"#, r#",{}]}"#] {
+            let raw = format!("{at_limit}{ending}");
+            let (code, measured) = decode_measured(&raw, LIMITS).unwrap_err();
+            assert_eq!(code, DecodeError::TooManyElements, "{raw}");
+            assert_eq!(
+                measured,
+                Some(SizeDetail::floor(9, 8, UNIT_ELEMENTS)),
+                "{raw}"
+            );
+        }
+        // The limit exactly, an object at the limit, empty containers, and valid nesting
+        // are accepted, unchanged.
+        for raw in [
+            r#"{"a":[1,1,1,1,1,1]}"#,
+            r#"{"a":1,"b":2,"c":3,"d":4,"e":5,"f":6,"g":7}"#,
+            "{}",
+            "[]",
+            r#"{"a":[]}"#,
+            r#"{"a":{"b":[]}}"#,
+        ] {
+            assert!(decode(raw, LIMITS).is_ok(), "{raw}");
+        }
     }
 
     #[test]

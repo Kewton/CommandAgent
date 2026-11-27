@@ -1,0 +1,98 @@
+{
+  "issue": "#1087",
+  "kind": "synthetic",
+  "detail_format": "<measured> <unit>, limit <limit>, with \"at least \" prefixed when a count or depth is a floor because the walk stopped there",
+  "rows": [
+    {
+      "id": "depth on the raw decode path",
+      "route": "raw",
+      "shape": {"kind": "depth", "schema_depth": 32, "raw_depth": 33},
+      "code": "arguments_too_deep",
+      "detail": "at least 33 levels, limit 32"
+    },
+    {
+      "id": "elements on the raw decode path",
+      "route": "raw",
+      "shape": {"kind": "elements", "count": 513},
+      "code": "too_many_elements",
+      "detail": "at least 513 elements, limit 512"
+    },
+    {
+      "id": "bytes on the raw decode path",
+      "route": "raw",
+      "shape": {"kind": "bytes", "bytes": 65537},
+      "code": "arguments_too_large",
+      "detail": "65537 bytes, limit 65536"
+    },
+    {
+      "id": "depth on the validate path",
+      "route": "validate",
+      "shape": {"kind": "depth", "schema_depth": 32, "value_depth": 33},
+      "code": "arguments_too_deep",
+      "detail": "33 levels, limit 32"
+    },
+    {
+      "id": "elements on the validate path",
+      "route": "validate",
+      "shape": {"kind": "elements", "count": 513},
+      "code": "too_many_elements",
+      "detail": "513 elements, limit 512"
+    },
+    {
+      "id": "bytes on the validate path",
+      "route": "validate",
+      "shape": {"kind": "bytes", "value": "{\"s\":\"aaa\"}", "max_argument_bytes": 10},
+      "code": "arguments_too_large",
+      "detail": "11 bytes, limit 10"
+    }
+  ],
+  "malformed_at_limit": [
+    {
+      "id": "closing bracket after the value at the limit",
+      "ending": "close",
+      "note": "a value at the limit closed by its container is accepted, not refused"
+    },
+    {
+      "id": "trailing comma and closing bracket after the value at the limit",
+      "ending": "comma_close",
+      "note": "malformed_json; the count must not add a value the walk never read"
+    },
+    {
+      "id": "end of input after the value at the limit",
+      "ending": "end",
+      "note": "malformed_json; the count must not add a value the walk never read"
+    }
+  ],
+  "truncated_candidates": [
+    {
+      "id": "n run-off after the 512 values at the limit",
+      "ending": "n_run_off",
+      "detail": "at least 512 elements, limit 512",
+      "note": "`n]` is not null, so the walk stops at 512 confirmed values instead of inventing a 513th"
+    },
+    {
+      "id": "minus run-off after the 512 values at the limit",
+      "ending": "minus_run_off",
+      "detail": "at least 512 elements, limit 512",
+      "note": "`-]` is not a number, so it is not counted"
+    },
+    {
+      "id": "exponent run-off after the 512 values at the limit",
+      "ending": "exponent_run_off",
+      "detail": "at least 512 elements, limit 512",
+      "note": "`1e]` is not a number, so it is not counted"
+    },
+    {
+      "id": "unterminated string after the 512 values at the limit",
+      "ending": "unterminated_string",
+      "detail": "at least 512 elements, limit 512",
+      "note": "an unterminated string is not a value, so it is not counted"
+    },
+    {
+      "id": "a genuine 513th value after the 512 values at the limit",
+      "ending": "value",
+      "detail": "at least 513 elements, limit 512",
+      "note": "a candidate that is a value is still counted, as before"
+    }
+  ]
+}
