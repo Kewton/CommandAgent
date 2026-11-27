@@ -62,11 +62,14 @@ fixtures/size-limit-cases.json = [
   "\"code\": \"too_many_elements\"",
   "\"code\": \"arguments_too_large\"",
   "\"detail\": \"at least 513 elements, limit 512\"",
+  "\"detail\": \"at least 512 elements, limit 512\"",
   "\"detail\": \"65537 bytes, limit 65536\"",
   "\"route\": \"raw\"",
   "\"route\": \"validate\"",
   "\"ending\": \"comma_close\"",
-  "\"ending\": \"end\""
+  "\"ending\": \"end\"",
+  "\"ending\": \"n_run_off\"",
+  "\"ending\": \"unterminated_string\""
 ]
 fixtures/off-golden.json = [
   "\"id\": \"chat-native-recovery-and-last-value\"",

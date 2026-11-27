@@ -2029,6 +2029,74 @@ fn a_value_at_the_element_limit_is_accepted_and_an_ending_is_not_a_phantom_count
     set_env(REGISTRY_ENV, None);
 }
 
+/// Issue #1087 review fix 3, through the real tool: the candidate the element limit
+/// stops the walk at is counted only when it is confirmed as a value. `n]`, `-]`, `1e]`
+/// and an unterminated string are not, so the refusal reports the 512 values the walk
+/// confirmed instead of a phantom 513th. A genuine 513th value is still a floor of 513.
+#[test]
+fn an_unconfirmed_candidate_past_the_element_limit_is_not_counted() {
+    let _guard = lock();
+    let cases: Value = serde_json::from_str(SIZE_LIMIT_CASES).unwrap();
+    let schema = schema_declaration(closed(json!({
+        "a": {"type": "array", "items": {"type": "integer"}},
+    })));
+    // The root, the array, and 510 items fill the 512-element limit exactly.
+    let items = vec!["1"; 510].join(",");
+    for row in cases["truncated_candidates"].as_array().unwrap() {
+        let ending = match row["ending"].as_str().unwrap() {
+            "n_run_off" => "n]}",
+            "minus_run_off" => "-]}",
+            "exponent_run_off" => "1e]}",
+            "unterminated_string" => "\"abc]}",
+            "value" => "1]}",
+            other => panic!("unknown ending {other}"),
+        };
+        let raw = format!(r#"{{"a":[{items},{ending}"#);
+        let env = Env::new();
+        env.write_tool(schema.clone());
+        let run = session(
+            &env,
+            Wire::Native,
+            vec![Wire::Native.call(CONFIG_TOOL, &raw), text_reply("done")],
+            None,
+        );
+        let id = row["id"].as_str().unwrap();
+        assert_rejected(&env, Wire::Native, &run, "too_many_elements", id);
+        let feedback = run.last_message(1);
+        assert!(
+            !feedback.contains(&raw),
+            "{id}: the raw arguments came back"
+        );
+        assert_eq!(
+            size_violation(&feedback),
+            (
+                "too_many_elements".to_string(),
+                row["detail"].as_str().unwrap().to_string(),
+            ),
+            "{id}"
+        );
+    }
+
+    // Exactly the limit, an empty container, and valid nesting are accepted, unchanged.
+    for raw in [
+        format!(r#"{{"a":[{items}]}}"#),
+        "{}".to_string(),
+        r#"{"a":[]}"#.to_string(),
+        r#"{"a":[1,2,3]}"#.to_string(),
+    ] {
+        let env = Env::new();
+        env.write_tool(schema.clone());
+        let run = session(
+            &env,
+            Wire::Native,
+            vec![Wire::Native.call(CONFIG_TOOL, &raw), text_reply("done")],
+            None,
+        );
+        assert_eq!(run.executed, vec![parsed(&raw)], "{raw}");
+    }
+    set_env(REGISTRY_ENV, None);
+}
+
 // ---------------------------------------------------------------------------
 // Acceptance 2: the binding is the host's, adopted once.
 // ---------------------------------------------------------------------------

@@ -62,5 +62,37 @@
       "ending": "end",
       "note": "malformed_json; the count must not add a value the walk never read"
     }
+  ],
+  "truncated_candidates": [
+    {
+      "id": "n run-off after the 512 values at the limit",
+      "ending": "n_run_off",
+      "detail": "at least 512 elements, limit 512",
+      "note": "`n]` is not null, so the walk stops at 512 confirmed values instead of inventing a 513th"
+    },
+    {
+      "id": "minus run-off after the 512 values at the limit",
+      "ending": "minus_run_off",
+      "detail": "at least 512 elements, limit 512",
+      "note": "`-]` is not a number, so it is not counted"
+    },
+    {
+      "id": "exponent run-off after the 512 values at the limit",
+      "ending": "exponent_run_off",
+      "detail": "at least 512 elements, limit 512",
+      "note": "`1e]` is not a number, so it is not counted"
+    },
+    {
+      "id": "unterminated string after the 512 values at the limit",
+      "ending": "unterminated_string",
+      "detail": "at least 512 elements, limit 512",
+      "note": "an unterminated string is not a value, so it is not counted"
+    },
+    {
+      "id": "a genuine 513th value after the 512 values at the limit",
+      "ending": "value",
+      "detail": "at least 513 elements, limit 512",
+      "note": "a candidate that is a value is still counted, as before"
+    }
   ]
 }

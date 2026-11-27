@@ -110,6 +110,57 @@ impl Decoder<'_> {
         self.bytes.get(self.position).copied()
     }
 
+    /// Whether the candidate the element limit stopped the walk at is confirmed as a
+    /// value (Issue #1087 review fix 3). A container opener is one; a scalar must be
+    /// one whole token, so `n]`, `-]`, `1e]` and an unterminated string are not. This
+    /// only looks: it moves no position and adds no count.
+    fn confirms_value(&self, byte: u8) -> bool {
+        match byte {
+            b'{' | b'[' => true,
+            b'"' => self.confirmed_string(),
+            b't' => self.bytes[self.position..].starts_with(b"true"),
+            b'f' => self.bytes[self.position..].starts_with(b"false"),
+            b'n' => self.bytes[self.position..].starts_with(b"null"),
+            _ => self.confirmed_number(),
+        }
+    }
+
+    /// Whether the candidate string's token is one: a closing quote is reached and
+    /// `serde_json` accepts the token's escapes. False for a run-off or an invalid
+    /// escape.
+    fn confirmed_string(&self) -> bool {
+        let mut end = self.position + 1;
+        loop {
+            match self.bytes.get(end).copied() {
+                Some(b'"') => {
+                    end += 1;
+                    break;
+                }
+                Some(b'\\') => end += 2,
+                Some(_) => end += 1,
+                None => return false,
+            }
+        }
+        self.raw
+            .get(self.position..end)
+            .is_some_and(|token| serde_json::from_str::<String>(token).is_ok())
+    }
+
+    /// Whether the candidate number's token parses as a JSON number, read with the
+    /// same token bounds the walk uses. A lone `-` or `1e` is not a number.
+    fn confirmed_number(&self) -> bool {
+        let mut end = self.position;
+        while matches!(
+            self.bytes.get(end).copied(),
+            Some(b'-' | b'+' | b'.' | b'e' | b'E' | b'0'..=b'9')
+        ) {
+            end += 1;
+        }
+        self.raw
+            .get(self.position..end)
+            .is_some_and(|token| serde_json::from_str::<serde_json::Number>(token).is_ok())
+    }
+
     fn value(&mut self, depth: usize) -> Result<Value, DecodeError> {
         // Confirm a value starts here before counting it. End of input and a
         // trailing comma's `]` or `}` are malformed, not a value past the limit,
@@ -118,16 +169,27 @@ impl Decoder<'_> {
         if !starts_value(byte) {
             return Err(DecodeError::Malformed);
         }
-        self.elements += 1;
-        if self.elements > self.limits.elements {
-            // The walk stops here, so the count is a floor of the document's total.
+        let counted = self.elements + 1;
+        if counted > self.limits.elements {
+            // The walk stops at the first candidate past the element limit, so its
+            // count is a floor. Count the candidate only when it is confirmed as a
+            // value here: a container opener, or a scalar whose own token this decoder
+            // can check without reading past it. A run-off such as `n]`, `-]`, `1e]`
+            // or an unterminated string is not a value, so it is not counted and the
+            // floor stays at the count of values the walk confirmed.
+            let measured = if self.confirms_value(byte) {
+                counted
+            } else {
+                self.elements
+            };
             self.detail = Some(SizeDetail::floor(
-                self.elements,
+                measured,
                 self.limits.elements,
                 UNIT_ELEMENTS,
             ));
             return Err(DecodeError::TooManyElements);
         }
+        self.elements = counted;
         match byte {
             b'{' => self.object(depth + 1),
             b'[' => self.array(depth + 1),
@@ -430,6 +492,53 @@ mod tests {
         let (code, measured) = decode_measured("[1,2,3,4,5,6,7,8]", LIMITS).unwrap_err();
         assert_eq!(code, DecodeError::TooManyElements);
         assert_eq!(measured, Some(SizeDetail::floor(9, 8, UNIT_ELEMENTS)));
+    }
+
+    /// Issue #1087 review fix 3: the candidate the element limit stops the walk at is
+    /// counted as a floor only when it is confirmed as a value. A run-off is not a value
+    /// (`n]`, `-]`, `1e]`, an unterminated string), so the floor stays at the values the
+    /// walk confirmed instead of inventing one more.
+    #[test]
+    fn only_a_confirmed_value_past_the_element_limit_is_counted() {
+        use super::super::{SizeDetail, UNIT_ELEMENTS};
+        use super::decode_measured;
+
+        // `LIMITS.elements` is 8: the root, the array, and six items fill it. The next
+        // item is the candidate the limit stops at.
+        let at_limit = r#"{"a":[1,1,1,1,1,1"#;
+        for ending in [r#",n]}"#, r#",-]}"#, r#",1e]}"#, r#","abc]}"#] {
+            let raw = format!("{at_limit}{ending}");
+            let (code, measured) = decode_measured(&raw, LIMITS).unwrap_err();
+            assert_eq!(code, DecodeError::TooManyElements, "{raw}");
+            assert_eq!(
+                measured,
+                Some(SizeDetail::floor(8, 8, UNIT_ELEMENTS)),
+                "{raw}"
+            );
+        }
+        // A candidate that is a value is still counted, as before.
+        for ending in [r#",1]}"#, r#",{}]}"#] {
+            let raw = format!("{at_limit}{ending}");
+            let (code, measured) = decode_measured(&raw, LIMITS).unwrap_err();
+            assert_eq!(code, DecodeError::TooManyElements, "{raw}");
+            assert_eq!(
+                measured,
+                Some(SizeDetail::floor(9, 8, UNIT_ELEMENTS)),
+                "{raw}"
+            );
+        }
+        // The limit exactly, an object at the limit, empty containers, and valid nesting
+        // are accepted, unchanged.
+        for raw in [
+            r#"{"a":[1,1,1,1,1,1]}"#,
+            r#"{"a":1,"b":2,"c":3,"d":4,"e":5,"f":6,"g":7}"#,
+            "{}",
+            "[]",
+            r#"{"a":[]}"#,
+            r#"{"a":{"b":[]}}"#,
+        ] {
+            assert!(decode(raw, LIMITS).is_ok(), "{raw}");
+        }
     }
 
     #[test]
