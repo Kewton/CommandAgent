@@ -8,6 +8,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-27
+
+### Fixed
+
+- Compaction removes a reply's tool calls together with the outputs that
+  answer its call IDs, and serves the context budget first by removing
+  protected groups whole, oldest first. A long run no longer ends with
+  `OpenAI function_call call_id correlation invalid` after compaction left an
+  output without its call; the correlation check itself is unchanged (#1088).
+
+### Security
+
+- Upgrade `url` to 2.5.9 (and `form_urlencoded` to 1.2.3) to clear
+  RUSTSEC-2026-0592, a stack overflow in `Url::origin()` on nested `blob:`
+  URLs (#1091).
+
 ## [0.1.0] - 2026-11-22
 
 First stable release, graduating from the `v0.1.0-rc.*` tags. It includes
