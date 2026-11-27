@@ -187,7 +187,7 @@
       "expected": {
         "exit_code": 0,
         "stdout_contains": [
-          "commandagent 0.1.0"
+          "commandagent 0.1.1"
         ],
         "stderr_contains": [],
         "must_not_contain": [
