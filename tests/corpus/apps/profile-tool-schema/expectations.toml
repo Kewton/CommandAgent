@@ -79,7 +79,11 @@ fixtures/size-limit-cases.json = [
   "\"ending\": \"true_run_on\"",
   "\"ending\": \"empty_object\"",
   "\"ending\": \"empty_array\"",
-  "\"ending\": \"nested_array\""
+  "\"ending\": \"nested_array\"",
+  "\"ending\": \"[1,,2]]}\"",
+  "\"nest\": 31",
+  "\"nest\": 30",
+  "\"nest\": 31000"
 ]
 fixtures/off-golden.json = [
   "\"id\": \"chat-native-recovery-and-last-value\"",

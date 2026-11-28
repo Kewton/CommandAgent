@@ -2269,6 +2269,67 @@ fn an_incomplete_container_or_an_undelimited_scalar_past_the_element_limit_is_no
     set_env(REGISTRY_ENV, None);
 }
 
+/// Issue #1101 review fix 1, through the real tool: the candidate the element limit
+/// stops the walk at is a value only when it is grammatically complete and within the
+/// depth limit. `[1,,2]`, `{"a"}` and `["\q"]` are not, and a candidate nested past
+/// depth 32 is not; a candidate exactly at depth 32 and a genuine 513th value still are.
+#[test]
+fn a_malformed_or_too_deep_candidate_past_the_element_limit_is_not_counted() {
+    let _guard = lock();
+    let cases: Value = serde_json::from_str(SIZE_LIMIT_CASES).unwrap();
+    let schema = schema_declaration(closed(json!({
+        "a": {"type": "array", "items": {"type": "integer"}},
+    })));
+    // The root, the array, and 510 items fill the 512-element limit exactly.
+    let items = vec!["1"; 510].join(",");
+    let check = |raw: &str, id: &str, detail: &str| {
+        let env = Env::new();
+        env.write_tool(schema.clone());
+        let run = session(
+            &env,
+            Wire::Native,
+            vec![Wire::Native.call(CONFIG_TOOL, raw), text_reply("done")],
+            None,
+        );
+        assert_rejected(&env, Wire::Native, &run, "too_many_elements", id);
+        let feedback = run.last_message(1);
+        assert!(!feedback.contains(raw), "{id}: the raw arguments came back");
+        assert_eq!(
+            size_violation(&feedback),
+            ("too_many_elements".to_string(), detail.to_string()),
+            "{id}"
+        );
+    };
+    for row in cases["malformed_candidate_containers"].as_array().unwrap() {
+        let raw = format!(r#"{{"a":[{items},{}"#, row["ending"].as_str().unwrap());
+        check(
+            &raw,
+            row["id"].as_str().unwrap(),
+            row["detail"].as_str().unwrap(),
+        );
+    }
+    // Depth: the root is 1 and its array is 2, so `nest` nested arrays reach `nest + 2`.
+    for row in cases["deep_candidate_containers"].as_array().unwrap() {
+        let nest = row["nest"].as_u64().unwrap() as usize;
+        let raw = format!(
+            r#"{{"a":[{items},{}]]}}"#,
+            "[".repeat(nest) + &"]".repeat(nest)
+        );
+        check(
+            &raw,
+            row["id"].as_str().unwrap(),
+            row["detail"].as_str().unwrap(),
+        );
+    }
+    // A genuine 513th scalar is unchanged.
+    check(
+        &format!(r#"{{"a":[{items},1]}}"#),
+        "a genuine 513th value",
+        "at least 513 elements, limit 512",
+    );
+    set_env(REGISTRY_ENV, None);
+}
+
 // ---------------------------------------------------------------------------
 // Acceptance 2: the binding is the host's, adopted once.
 // ---------------------------------------------------------------------------

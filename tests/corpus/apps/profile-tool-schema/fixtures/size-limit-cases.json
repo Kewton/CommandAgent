@@ -162,5 +162,45 @@
       "detail": "at least 513 elements, limit 512",
       "note": "a completed nested container is the 513th value, as before"
     }
+  ],
+  "malformed_candidate_containers": [
+    {
+      "id": "an array with a doubled comma as the 513th candidate",
+      "ending": "[1,,2]]}",
+      "detail": "at least 512 elements, limit 512",
+      "note": "`[1,,2]` is not a completed array, so its brackets alone do not make it a value (Issue #1101 review fix 1)"
+    },
+    {
+      "id": "an object without a colon as the 513th candidate",
+      "ending": "{\"a\"}]}",
+      "detail": "at least 512 elements, limit 512",
+      "note": "`{\"a\"}` is missing its colon and value, so its grammar is not complete (Issue #1101 review fix 1)"
+    },
+    {
+      "id": "an array holding an invalid escape as the 513th candidate",
+      "ending": "[\"\\q\"]]}",
+      "detail": "at least 512 elements, limit 512",
+      "note": "`\"\\q\"` holds an escape JSON does not define, so the array is not a value (Issue #1101 review fix 1)"
+    }
+  ],
+  "deep_candidate_containers": [
+    {
+      "id": "a candidate one level past the depth limit",
+      "nest": 31,
+      "detail": "at least 512 elements, limit 512",
+      "note": "the root, its array, and 31 nested arrays reach depth 33 past the limit 32, so the candidate is not a value (Issue #1101 review fix 1)"
+    },
+    {
+      "id": "a candidate exactly at the depth limit",
+      "nest": 30,
+      "detail": "at least 513 elements, limit 512",
+      "note": "the root, its array, and 30 nested arrays reach depth 32, exactly the limit, so it is the 513th value (Issue #1101 review fix 1)"
+    },
+    {
+      "id": "a candidate running far past the depth limit",
+      "nest": 31000,
+      "detail": "at least 512 elements, limit 512",
+      "note": "confirmation stops at the depth limit, so a 31000-level candidate costs no more than one at 33 (Issue #1101 review fix 1)"
+    }
   ]
 }

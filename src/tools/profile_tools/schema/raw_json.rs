@@ -155,20 +155,22 @@ impl Decoder<'_> {
     }
 
     /// Whether the candidate the element limit stopped the walk at is confirmed as a
-    /// value (Issue #1087 review fix 3). A container must be whole — its matching
-    /// bracket is present — and a scalar must be one whole token, so `n]`, `-]`, `1e]`
-    /// and an unterminated string are not. Either kind also needs a delimiter after it,
-    /// so `nullx`, `0x` and `truex` are not values (Issue #1101). This only looks: it
-    /// moves no position and adds no count.
-    fn confirms_value(&self, byte: u8) -> bool {
-        match byte {
-            b'{' | b'[' => self.confirmed_container(),
-            b'"' => self.confirmed_string(),
-            b't' => self.confirmed_literal(b"true"),
-            b'f' => self.confirmed_literal(b"false"),
-            b'n' => self.confirmed_literal(b"null"),
-            _ => self.confirmed_number(),
-        }
+    /// value (Issue #1087 review fix 3). A container must be whole, grammatically
+    /// complete, and within the depth limit (Issue #1101 review fix 1); a scalar must be
+    /// one whole token, so `n]`, `-]`, `1e]` and an unterminated string are not. Either
+    /// kind also needs a delimiter after it, so `nullx`, `0x` and `truex` are not values
+    /// (Issue #1101). `depth` is the depth of the container the candidate sits in. This
+    /// only looks: it moves no position and adds no count.
+    fn confirms_value(&self, byte: u8, depth: usize) -> bool {
+        let end = match byte {
+            b'{' | b'[' => self.confirm_value(self.position, depth),
+            b'"' => self.confirm_string(self.position),
+            b't' => self.confirm_literal(self.position, b"true"),
+            b'f' => self.confirm_literal(self.position, b"false"),
+            b'n' => self.confirm_literal(self.position, b"null"),
+            _ => self.confirm_number(self.position),
+        };
+        end.is_some_and(|end| self.delimits_value(self.bytes.get(end).copied()))
     }
 
     /// Whether what follows a value ends it: whitespace, `,`, a closing bracket, or the
@@ -181,100 +183,132 @@ impl Decoder<'_> {
         )
     }
 
-    /// Whether the candidate container is whole: its opening bracket and its matching
-    /// closing bracket are both in the text, nested and with string extents read the
-    /// way the walk reads them, and a delimiter follows (Issue #1101). A lone `[` at the
-    /// end of input, or `{]`, is not a value. The interior grammar is not judged here,
-    /// because the walk never enters the container it stops at.
-    fn confirmed_container(&self) -> bool {
-        let mut openers = Vec::new();
-        let mut end = self.position;
-        loop {
-            match self.bytes.get(end).copied() {
-                Some(byte @ (b'{' | b'[')) => {
-                    openers.push(byte);
-                    end += 1;
-                }
-                Some(byte @ (b'}' | b']')) => {
-                    let expected = match openers.pop() {
-                        Some(b'{') => b'}',
-                        Some(_) => b']',
-                        None => return false,
-                    };
-                    if byte != expected {
-                        return false;
-                    }
-                    end += 1;
-                    if openers.is_empty() {
-                        break;
-                    }
-                }
-                Some(b'"') => {
-                    end += 1;
-                    loop {
-                        match self.bytes.get(end).copied() {
-                            Some(b'"') => {
-                                end += 1;
-                                break;
-                            }
-                            Some(b'\\') => end += 2,
-                            Some(_) => end += 1,
-                            None => return false,
-                        }
-                    }
-                }
-                Some(_) => end += 1,
-                None => return false,
-            }
+    /// The index after the JSON value that starts at `start`, if it is complete as JSON
+    /// and stays within the depth limit; `None` otherwise (Issue #1101 review fix 1).
+    /// `outer_depth` is the depth of the container the candidate sits in, so the value's
+    /// own containers are deeper. No value is built: a number is judged by its lexical
+    /// form (Issue #1100), and a string by the escapes `serde_json` accepts.
+    fn confirm_value(&self, start: usize, outer_depth: usize) -> Option<usize> {
+        match self.bytes.get(start).copied()? {
+            b'"' => self.confirm_string(start),
+            b't' => self.confirm_literal(start, b"true"),
+            b'f' => self.confirm_literal(start, b"false"),
+            b'n' => self.confirm_literal(start, b"null"),
+            b'-' | b'0'..=b'9' => self.confirm_number(start),
+            b'[' => self.confirm_array(start, outer_depth),
+            b'{' => self.confirm_object(start, outer_depth),
+            _ => None,
         }
-        self.delimits_value(self.bytes.get(end).copied())
     }
 
-    /// Whether the candidate string's token is one: a closing quote is reached,
-    /// `serde_json` accepts the token's escapes, and a delimiter follows. False for a
-    /// run-off, an invalid escape, or a run-on such as `"a"x`.
-    fn confirmed_string(&self) -> bool {
-        let mut end = self.position + 1;
+    /// The index of the first byte after `index` that is not whitespace.
+    fn skip_spaces(&self, mut index: usize) -> usize {
+        while matches!(
+            self.bytes.get(index).copied(),
+            Some(b' ' | b'\t' | b'\n' | b'\r')
+        ) {
+            index += 1;
+        }
+        index
+    }
+
+    /// The index after a complete array, its elements and nested containers included.
+    /// The container is one level deeper than `outer_depth`; a candidate that reaches
+    /// past the depth limit is not confirmed.
+    fn confirm_array(&self, start: usize, outer_depth: usize) -> Option<usize> {
+        let level = outer_depth + 1;
+        if level > self.limits.depth {
+            return None;
+        }
+        let mut end = self.skip_spaces(start + 1);
+        if self.bytes.get(end) == Some(&b']') {
+            return Some(end + 1);
+        }
         loop {
-            match self.bytes.get(end).copied() {
-                Some(b'"') => {
+            end = self.confirm_value(end, level)?;
+            end = self.skip_spaces(end);
+            match self.bytes.get(end).copied()? {
+                b',' => end = self.skip_spaces(end + 1),
+                b']' => return Some(end + 1),
+                _ => return None,
+            }
+        }
+    }
+
+    /// The index after a complete object: a quoted key, its colon, its value, and its
+    /// separators. Duplicate keys are not judged here, because the walk never enters the
+    /// candidate; only its grammar and its depth are.
+    fn confirm_object(&self, start: usize, outer_depth: usize) -> Option<usize> {
+        let level = outer_depth + 1;
+        if level > self.limits.depth {
+            return None;
+        }
+        let mut end = self.skip_spaces(start + 1);
+        if self.bytes.get(end) == Some(&b'}') {
+            return Some(end + 1);
+        }
+        loop {
+            if self.bytes.get(end) != Some(&b'"') {
+                return None;
+            }
+            end = self.confirm_string(end)?;
+            end = self.skip_spaces(end);
+            if self.bytes.get(end) != Some(&b':') {
+                return None;
+            }
+            end = self.skip_spaces(end + 1);
+            end = self.confirm_value(end, level)?;
+            end = self.skip_spaces(end);
+            match self.bytes.get(end).copied()? {
+                b',' => end = self.skip_spaces(end + 1),
+                b'}' => return Some(end + 1),
+                _ => return None,
+            }
+        }
+    }
+
+    /// The index after a complete string token, if `serde_json` accepts its escapes;
+    /// `None` for a run-off or an invalid escape such as `"\q"`. The delimiter after it
+    /// is the caller's business.
+    fn confirm_string(&self, start: usize) -> Option<usize> {
+        let mut end = start + 1;
+        loop {
+            match self.bytes.get(end).copied()? {
+                b'"' => {
                     end += 1;
                     break;
                 }
-                Some(b'\\') => end += 2,
-                Some(_) => end += 1,
-                None => return false,
+                b'\\' => end += 2,
+                _ => end += 1,
             }
         }
-        self.delimits_value(self.bytes.get(end).copied())
-            && self
-                .raw
-                .get(self.position..end)
-                .is_some_and(|token| serde_json::from_str::<String>(token).is_ok())
+        self.raw
+            .get(start..end)
+            .filter(|token| serde_json::from_str::<String>(token).is_ok())
+            .map(|_| end)
     }
 
-    /// Whether the candidate literal is its whole word and is delimited after it.
-    fn confirmed_literal(&self, text: &[u8]) -> bool {
-        self.bytes[self.position..].starts_with(text)
-            && self.delimits_value(self.bytes.get(self.position + text.len()).copied())
+    /// The index after a literal token, if `start` spells its whole word.
+    fn confirm_literal(&self, start: usize, text: &[u8]) -> Option<usize> {
+        let end = start + text.len();
+        (self.bytes.get(start..end) == Some(text)).then_some(end)
     }
 
-    /// Whether the candidate number's token is a JSON number, read with the same token
-    /// bounds the walk uses. A lone `-` or `1e` is not a number. The token's form is
-    /// checked on its bytes rather than by conversion, so a number outside the
-    /// `serde_json` range such as `1e400` is still a confirmed value; the decode itself
-    /// keeps converting and checking the range (Issue #1100). A delimiter must follow
-    /// the token, so `0x` is not a number (Issue #1101).
-    fn confirmed_number(&self) -> bool {
-        let mut end = self.position;
+    /// The index after a number token's run. The form is checked on the bytes rather
+    /// than by conversion, so a number outside the `serde_json` range such as `1e400` is
+    /// still a value (Issue #1100); its delimiter is the caller's business.
+    fn confirm_number(&self, start: usize) -> Option<usize> {
+        let mut end = start;
         while matches!(
             self.bytes.get(end).copied(),
             Some(b'-' | b'+' | b'.' | b'e' | b'E' | b'0'..=b'9')
         ) {
             end += 1;
         }
-        self.delimits_value(self.bytes.get(end).copied())
-            && self.raw.get(self.position..end).is_some_and(is_number_form)
+        self.raw
+            .get(start..end)
+            .filter(|token| is_number_form(token))
+            .map(|_| end)
     }
 
     fn value(&mut self, depth: usize) -> Result<Value, DecodeError> {
@@ -289,11 +323,13 @@ impl Decoder<'_> {
         if counted > self.limits.elements {
             // The walk stops at the first candidate past the element limit, so its
             // count is a floor. Count the candidate only when it is confirmed as a
-            // value here: a container opener, or a scalar whose own token this decoder
-            // can check without reading past it. A run-off such as `n]`, `-]`, `1e]`
-            // or an unterminated string is not a value, so it is not counted and the
-            // floor stays at the count of values the walk confirmed.
-            let measured = if self.confirms_value(byte) {
+            // value here: a container that is grammatically complete and within the
+            // depth limit, or a scalar whose own token this decoder can check without
+            // reading past it. A run-off such as `n]`, `-]`, `1e]`, an unterminated
+            // string, a malformed container or one deeper than the limit is not a value,
+            // so it is not counted and the floor stays at the count of values the walk
+            // confirmed.
+            let measured = if self.confirms_value(byte, depth) {
                 counted
             } else {
                 self.elements
@@ -697,7 +733,7 @@ mod tests {
     /// Issue #1101: a container is confirmed by its completed bracket pair, not by its
     /// opener, and a scalar needs a delimiter after it. `…,[` at the end of input and
     /// `…,{]` are not values, and neither is `nullx`, `0x` or `truex`; a scalar or an
-    /// empty or nested container that really is the 513th value is still counted.
+    /// empty container that really is the 513th value is still counted.
     #[test]
     fn only_a_completed_container_or_a_delimited_scalar_past_the_element_limit_is_counted() {
         use super::super::{SizeDetail, UNIT_ELEMENTS};
@@ -706,8 +742,9 @@ mod tests {
         // `LIMITS.elements` is 8: the root, the array, and six items fill it. The next
         // candidate is the one the limit stops at.
         let at_limit = r#"{"a":[1,1,1,1,1,1"#;
-        // Not a value: an opening bracket alone, a mismatched close, and scalars that
-        // run on past their own token.
+        // Not a value: an opening bracket alone, a mismatched close, a container whose
+        // grammar is broken, one deeper than the limit, and scalars that run on past
+        // their own token.
         for ending in [
             r#",["#,
             r#",{]"#,
@@ -717,6 +754,10 @@ mod tests {
             r#",0x]}"#,
             r#",1.5x]}"#,
             r#","abc"x]}"#,
+            r#",[1,,2]}"#,
+            r#",{"a"}]}"#,
+            r#",["\q"]]}"#,
+            r#",[[]]}"#,
         ] {
             let raw = format!("{at_limit}{ending}");
             let (code, measured) = decode_measured(&raw, LIMITS).unwrap_err();
@@ -727,7 +768,8 @@ mod tests {
                 "{raw}"
             );
         }
-        // A value: a scalar with its delimiter, an empty container, and a nested one.
+        // A value: a scalar with its delimiter, an empty object, and an empty array at
+        // the depth limit.
         for ending in [
             r#",1]}"#,
             r#",null]}"#,
@@ -735,7 +777,6 @@ mod tests {
             r#","abc"]}"#,
             r#",{}]}"#,
             r#",[]]}"#,
-            r#",[[]]}"#,
         ] {
             let raw = format!("{at_limit}{ending}");
             let (code, measured) = decode_measured(&raw, LIMITS).unwrap_err();
@@ -767,6 +808,78 @@ mod tests {
         ] {
             assert!(decode(raw, LIMITS).is_ok(), "{raw}");
         }
+    }
+
+    /// Issue #1101 review fix 1, blocker 1: the candidate container is confirmed by its
+    /// whole grammar, not by its brackets alone. A doubled comma, an object without a
+    /// colon, and an invalid escape inside a string are not values, so the floor stays
+    /// at 512; a well-formed candidate is still 513.
+    #[test]
+    fn a_malformed_candidate_container_past_the_element_limit_is_not_counted() {
+        use super::super::{SizeDetail, UNIT_ELEMENTS};
+        use super::decode_measured;
+
+        // `LIMITS.elements` is 8: the root, the array, and six items fill it.
+        let at_limit = r#"{"a":[1,1,1,1,1,1"#;
+        for ending in [
+            r#",[1,,2]]}"#,
+            r#",[1,2,]]}"#,
+            r#",{"a"}]}"#,
+            r#",{"a":}]}"#,
+            r#",{"a":1,}]}"#,
+            r#",["\q"]]}"#,
+            r#",["a" "b"]]}"#,
+        ] {
+            let raw = format!("{at_limit}{ending}");
+            let (code, measured) = decode_measured(&raw, LIMITS).unwrap_err();
+            assert_eq!(code, DecodeError::TooManyElements, "{raw}");
+            assert_eq!(
+                measured,
+                Some(SizeDetail::floor(8, 8, UNIT_ELEMENTS)),
+                "{raw}"
+            );
+        }
+        // A well-formed candidate is still the 513th value.
+        for ending in [r#",[1,2]]}"#, r#",{"a":1}]}"#, r#",[]]}"#, r#",{}]}"#] {
+            let raw = format!("{at_limit}{ending}");
+            let (code, measured) = decode_measured(&raw, LIMITS).unwrap_err();
+            assert_eq!(code, DecodeError::TooManyElements, "{raw}");
+            assert_eq!(
+                measured,
+                Some(SizeDetail::floor(9, 8, UNIT_ELEMENTS)),
+                "{raw}"
+            );
+        }
+    }
+
+    /// Issue #1101 review fix 1, blocker 2: the depth the walk has reached is counted in
+    /// when the candidate is confirmed, so a candidate that nests past the depth limit is
+    /// not a value while one whose deepest container sits exactly at the limit is.
+    #[test]
+    fn a_candidate_container_deeper_than_the_depth_limit_past_the_element_limit_is_not_counted() {
+        use super::super::{SizeDetail, UNIT_ELEMENTS};
+        use super::decode_measured;
+
+        // A depth limit of 5: the root object is 1, its array is 2, so a candidate's own
+        // containers start at 3.
+        let limits = DecodeLimits { depth: 5, ..LIMITS };
+        let at_limit = r#"{"a":[1,1,1,1,1,1"#;
+        // Three nested arrays take the whole document to depth 5, exactly the limit.
+        let at_depth = format!("{at_limit},[[[]]]}}");
+        let (code, measured) = decode_measured(&at_depth, limits).unwrap_err();
+        assert_eq!(code, DecodeError::TooManyElements, "{at_depth}");
+        assert_eq!(measured, Some(SizeDetail::floor(9, 8, UNIT_ELEMENTS)));
+        // One more level passes it, and the candidate is not a value.
+        let over_depth = format!("{at_limit},[[[[]]]]}}");
+        let (code, measured) = decode_measured(&over_depth, limits).unwrap_err();
+        assert_eq!(code, DecodeError::TooManyElements, "{over_depth}");
+        assert_eq!(measured, Some(SizeDetail::floor(8, 8, UNIT_ELEMENTS)));
+        // An unterminated deep run-off is not a value either, and it is not read far
+        // enough to be a stack cost: confirmation stops at the depth limit.
+        let run_off = format!("{at_limit},{}", "[".repeat(500));
+        let (code, measured) = decode_measured(&run_off, limits).unwrap_err();
+        assert_eq!(code, DecodeError::TooManyElements, "deep run-off");
+        assert_eq!(measured, Some(SizeDetail::floor(8, 8, UNIT_ELEMENTS)));
     }
 
     #[test]
