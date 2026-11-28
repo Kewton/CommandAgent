@@ -149,6 +149,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "body_truncated",
     "browser_interaction_probe",
     "browser_probe",
+    "budget_chars",
     "budget_closing",
     "budget_exhausted",
     "budget_id",
@@ -207,6 +208,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "completion_tokens",
     "completion_verify",
     "conflicting_declaration",
+    "context_budget",
     "context_truncation_suspected",
     "continues",
     "contract_attribute_repair_guidance",
@@ -508,6 +510,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "released",
     "remaining_calls",
     "remaining_calls_reached",
+    "remaining_chars",
     "remaining_iterations",
     "repair_applied",
     "repair_binding",
@@ -1977,10 +1980,12 @@ mod speculative_phase_plan_event_tests {
     }
 }
 
-/// Issue #1096: the `compaction_over_budget` event name is a fixed identifier, so a credential
-/// equal to it or to a fragment of it is refused at registration and the event scrub never
-/// renames it. The event's fields carry only counts, so there is nothing for the scrub to mask;
-/// the new name is the only identifier this Issue adds.
+/// Issue #1096: the `compaction_over_budget` event name and the three number keys it writes are
+/// fixed identifiers, so a credential equal to one of them or to a fragment of one is refused at
+/// registration and the event scrub never renames the name or a key. Without this, a synthetic
+/// registered value equal to a number key would rewrite that key to a marker and the GUI's event
+/// reader could not read the amount. The values under the keys are numbers, so there is nothing
+/// for the scrub to mask.
 #[cfg(test)]
 mod compaction_over_budget_field_tests {
     use serde_json::json;
@@ -1989,33 +1994,43 @@ mod compaction_over_budget_field_tests {
     use crate::sensitive_data::SecretCatalog;
 
     const EVENT: &str = "compaction_over_budget";
+    const KEYS: [&str; 3] = ["remaining_chars", "budget_chars", "context_budget"];
 
     #[test]
-    fn the_event_name_is_reserved_once_in_name_order() {
-        assert!(is_fixed_identifier(EVENT));
-        assert_eq!(
-            FIXED_IDENTIFIERS
+    fn the_event_name_and_its_keys_are_reserved_once_in_name_order() {
+        for word in [EVENT].into_iter().chain(KEYS) {
+            assert!(is_fixed_identifier(word), "{word}");
+            assert_eq!(
+                FIXED_IDENTIFIERS
+                    .iter()
+                    .filter(|fixed| **fixed == word)
+                    .count(),
+                1,
+                "{word}"
+            );
+            let at = FIXED_IDENTIFIERS
                 .iter()
-                .filter(|fixed| **fixed == EVENT)
-                .count(),
-            1
-        );
-        let at = FIXED_IDENTIFIERS
-            .iter()
-            .position(|fixed| *fixed == EVENT)
-            .unwrap();
-        assert!(FIXED_IDENTIFIERS[at - 1] < EVENT);
-        assert!(EVENT < FIXED_IDENTIFIERS[at + 1]);
+                .position(|fixed| *fixed == word)
+                .unwrap();
+            assert!(FIXED_IDENTIFIERS[at - 1] < word, "{word}");
+            assert!(word < FIXED_IDENTIFIERS[at + 1], "{word}");
+        }
     }
 
     #[test]
-    fn a_credential_equal_to_the_name_or_a_fragment_of_it_is_refused() {
+    fn a_credential_equal_to_a_name_or_key_or_a_fragment_of_one_is_refused() {
         for value in [
             EVENT,
             "compaction_over",
             "paction_over_bud",
             "over_budget",
             "action_over_bu",
+            "remaining_chars",
+            "maining_char",
+            "budget_chars",
+            "udget_char",
+            "context_budget",
+            "ntext_budget",
         ] {
             assert!(collides_with_fixed_identifier(value), "{value}");
             assert!(
@@ -2025,13 +2040,25 @@ mod compaction_over_budget_field_tests {
                 "{value}"
             );
         }
-        // A longer value that merely contains the name is not refused.
+        // A longer value that merely contains a name is not refused.
         let longer = format!("synthetic-1096-{EVENT}-0123456789");
         assert!(!collides_with_fixed_identifier(&longer));
     }
 
+    /// A synthetic credential that names a number key is refused at registration, so it never
+    /// reaches the catalog and cannot rewrite that key. A credential that is accepted leaves both
+    /// the keys and their counts intact in the saved event.
     #[test]
-    fn a_normal_credential_leaves_the_event_name_and_numbers_unchanged() {
+    fn a_colliding_value_is_refused_and_the_three_keys_keep_their_counts() {
+        for key in KEYS {
+            let mut refused = SecretCatalog::new();
+            assert!(
+                refused.register_credential("COMPAT_API_KEY", key).is_err(),
+                "{key} must be refused at registration"
+            );
+            assert!(refused.is_empty(), "{key}");
+        }
+
         let credential = "fake-credential-1096-not-a-real-key";
         let mut catalog = SecretCatalog::new();
         catalog
