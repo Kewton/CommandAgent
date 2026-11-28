@@ -190,6 +190,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "commit_failed",
     "committed_sha256",
     "community_profile_verification",
+    "compaction_over_budget",
     "compile_error_extraction",
     "compile_no_snapshot_narrow_retry",
     "compile_rollback_applied",
@@ -1973,5 +1974,82 @@ mod speculative_phase_plan_event_tests {
             assert_eq!(event["reason"], "gate_passed");
             assert_eq!(event.as_object().unwrap().len(), 4, "{event}");
         }
+    }
+}
+
+/// Issue #1096: the `compaction_over_budget` event name is a fixed identifier, so a credential
+/// equal to it or to a fragment of it is refused at registration and the event scrub never
+/// renames it. The event's fields carry only counts, so there is nothing for the scrub to mask;
+/// the new name is the only identifier this Issue adds.
+#[cfg(test)]
+mod compaction_over_budget_field_tests {
+    use serde_json::json;
+
+    use super::{FIXED_IDENTIFIERS, collides_with_fixed_identifier, is_fixed_identifier};
+    use crate::sensitive_data::SecretCatalog;
+
+    const EVENT: &str = "compaction_over_budget";
+
+    #[test]
+    fn the_event_name_is_reserved_once_in_name_order() {
+        assert!(is_fixed_identifier(EVENT));
+        assert_eq!(
+            FIXED_IDENTIFIERS
+                .iter()
+                .filter(|fixed| **fixed == EVENT)
+                .count(),
+            1
+        );
+        let at = FIXED_IDENTIFIERS
+            .iter()
+            .position(|fixed| *fixed == EVENT)
+            .unwrap();
+        assert!(FIXED_IDENTIFIERS[at - 1] < EVENT);
+        assert!(EVENT < FIXED_IDENTIFIERS[at + 1]);
+    }
+
+    #[test]
+    fn a_credential_equal_to_the_name_or_a_fragment_of_it_is_refused() {
+        for value in [
+            EVENT,
+            "compaction_over",
+            "paction_over_bud",
+            "over_budget",
+            "action_over_bu",
+        ] {
+            assert!(collides_with_fixed_identifier(value), "{value}");
+            assert!(
+                SecretCatalog::new()
+                    .register_credential("COMPAT_API_KEY", value)
+                    .is_err(),
+                "{value}"
+            );
+        }
+        // A longer value that merely contains the name is not refused.
+        let longer = format!("synthetic-1096-{EVENT}-0123456789");
+        assert!(!collides_with_fixed_identifier(&longer));
+    }
+
+    #[test]
+    fn a_normal_credential_leaves_the_event_name_and_numbers_unchanged() {
+        let credential = "fake-credential-1096-not-a-real-key";
+        let mut catalog = SecretCatalog::new();
+        catalog
+            .register_credential("COMPAT_API_KEY", credential)
+            .unwrap();
+        let mut value = json!({
+            "event": EVENT,
+            "remaining_chars": 5_000,
+            "budget_chars": 4_000,
+            "context_budget": 1_000,
+            "note": format!("echo {credential}"),
+        });
+        catalog.scrub_value_lenient(&mut value);
+        assert!(!value.to_string().contains(credential), "{value}");
+        assert_eq!(value["event"], EVENT);
+        assert_eq!(value["remaining_chars"], 5_000);
+        assert_eq!(value["budget_chars"], 4_000);
+        assert_eq!(value["context_budget"], 1_000);
+        assert_eq!(value.as_object().unwrap().len(), 5, "{value}");
     }
 }

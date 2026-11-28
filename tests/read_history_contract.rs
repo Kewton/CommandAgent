@@ -688,6 +688,53 @@ fn compaction_does_not_absorb_a_later_replys_output_into_an_earlier_run() {
     }
 }
 
+/// Issue #1097 (the judge's `judge_single_call_residual`): a reply with a single call whose
+/// output is not protected evidence used to keep the per-message rule. With the budget boundary
+/// inside the reply's text, the call message was removed alone and its output was left naming no
+/// call, so the history no longer correlated. The reply and its output now leave as one group, so
+/// every remaining call keeps exactly one output. Synthetic values only.
+#[test]
+fn compaction_removes_a_single_call_reply_and_its_unprotected_output_together() {
+    let call = ToolCall {
+        id: "call_p1".to_string(),
+        name: "SubmitConfig".to_string(),
+        arguments: json!({"mode": "fast"}),
+    };
+    let text = "The object is ready. ".repeat(40);
+    let mut messages = vec![
+        ConversationMessage::system("system"),
+        ConversationMessage::assistant(text.clone(), vec![call]),
+        ConversationMessage::tool_result("SubmitConfig", Some("call_p1"), "accepted by the fake"),
+        ConversationMessage::user("latest user"),
+        ConversationMessage::assistant("done".to_string(), Vec::new()),
+    ];
+    let total: usize = messages.iter().map(|m| m.content.len()).sum();
+    // The budget boundary falls inside the reply's text: removing the text alone brings the
+    // history under budget, which is what used to leave the output behind.
+    let budget = (total - text.len()).div_ceil(4);
+    assert!(total > budget * 4, "the fixture must start over budget");
+    assert!(
+        total - text.len() <= budget * 4,
+        "the text alone must bring the history within budget"
+    );
+
+    compact_if_needed(&mut messages, budget);
+
+    assert!(correlation_holds(&messages), "{messages:#?}");
+    let call_present = messages
+        .iter()
+        .any(|m| m.tool_calls.iter().any(|call| call.id == "call_p1"));
+    let output_present = messages
+        .iter()
+        .any(|m| m.tool_call_id.as_deref() == Some("call_p1"));
+    assert!(!call_present, "the single call leaves with its output");
+    assert_eq!(call_present, output_present, "{messages:#?}");
+    assert!(
+        messages.iter().any(|m| m.content == "latest user"),
+        "the latest user message must survive"
+    );
+}
+
 /// Issue #1088 (review blocker 2): when only protected runs are left, the budget is served first,
 /// so the oldest protected run is removed whole rather than sending a history far over budget.
 /// The removed run never splits: its calls leave with their outputs.
@@ -728,6 +775,101 @@ fn compaction_serves_the_budget_by_removing_the_oldest_protected_run_whole() {
         compacted <= base_result,
         "{compacted} is larger than the base result {base_result}"
     );
+    assert!(correlation_holds(&messages), "{messages:#?}");
+}
+
+/// Issue #1096 (reviewer's example): a 7-message history over a 4,000-byte budget used to stop at
+/// the four-message floor with a removable protected run (a Read call and its output) still in
+/// place, so it was sent about 1.8x over budget. At the floor the whole call-and-output run now
+/// leaves, so the budget is met or the overage is reported; either way the history correlates and
+/// neither pinned message and no half of a split run is lost. Synthetic values only.
+#[test]
+fn compaction_at_the_four_message_floor_removes_a_removable_protected_run() {
+    let call = ToolCall {
+        id: "call_r1".to_string(),
+        name: "Read".to_string(),
+        arguments: json!({"path": "src/notes.ts"}),
+    };
+    let mut messages = vec![
+        ConversationMessage::system("system"),
+        ConversationMessage::user("earlier question ".repeat(60)),
+        ConversationMessage::assistant("earlier answer ".repeat(60), Vec::new()),
+        ConversationMessage::assistant(String::new(), vec![call]),
+        ConversationMessage::tool_result(
+            "Read",
+            Some("call_r1"),
+            format!("src/notes.ts\n{}", "a line of the file\n".repeat(400)),
+        ),
+        ConversationMessage::user("latest user"),
+        ConversationMessage::assistant("tail note ".repeat(180), Vec::new()),
+    ];
+    let budget = 1_000;
+    let before: usize = messages.iter().map(|m| m.content.len()).sum();
+    // The old floor stopped with this removable protected run still present, over budget: the
+    // four messages that survive the text removals alone are over the 4,000-byte budget.
+    assert!(
+        before > budget * 4,
+        "the fixture must start over budget: {before}"
+    );
+
+    let outcome = compact_if_needed(&mut messages, budget);
+    let after: usize = messages.iter().map(|m| m.content.len()).sum();
+
+    assert_eq!(outcome.remaining_chars, after);
+    // The budget is met: the removable protected run went whole.
+    assert!(
+        after <= budget * 4,
+        "{after} is over the {} budget",
+        budget * 4
+    );
+    assert!(!outcome.over_budget, "{outcome:?}");
+    assert!(correlation_holds(&messages), "{messages:#?}");
+    assert!(
+        !messages
+            .iter()
+            .any(|m| m.tool_call_id.as_deref() == Some("call_r1")),
+        "the removable protected run's output must leave"
+    );
+    assert!(
+        !messages
+            .iter()
+            .any(|m| m.tool_calls.iter().any(|c| c.id == "call_r1")),
+        "the removable protected run's call must leave with its output"
+    );
+    assert_eq!(messages.first().map(|m| m.content.as_str()), Some("system"));
+    assert!(
+        messages.iter().any(|m| m.content == "latest user"),
+        "the latest user message must survive"
+    );
+}
+
+/// Issue #1096: when nothing removable is left and the history is still over budget (here the
+/// pinned head system message and the tail answer alone exceed it, and no call-and-output run
+/// remains), compaction must report the overage explicitly instead of sending it silently.
+#[test]
+fn compaction_reports_an_over_budget_history_it_cannot_reduce_further() {
+    let mut messages = vec![
+        ConversationMessage::system(format!("system {}", "s".repeat(2_000))),
+        ConversationMessage::user("latest user"),
+        ConversationMessage::assistant(format!("tail {}", "t".repeat(2_000)), Vec::new()),
+    ];
+    let budget = 16;
+    let before: usize = messages.iter().map(|m| m.content.len()).sum();
+    assert!(before > budget * 4, "the fixture must start over budget");
+
+    let outcome = compact_if_needed(&mut messages, budget);
+    let after: usize = messages.iter().map(|m| m.content.len()).sum();
+
+    assert!(
+        outcome.over_budget,
+        "an over-budget outcome must be reported"
+    );
+    assert_eq!(outcome.remaining_chars, after);
+    assert!(outcome.budget_chars < after);
+    // Nothing removable was split or dropped, and the pinned messages are untouched.
+    assert_eq!(messages.len(), 3, "{messages:#?}");
+    assert!(messages[0].content.starts_with("system "));
+    assert_eq!(messages[1].content, "latest user");
     assert!(correlation_holds(&messages), "{messages:#?}");
 }
 

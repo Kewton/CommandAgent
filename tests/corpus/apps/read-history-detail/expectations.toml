@@ -43,6 +43,18 @@ source-manifest.json = [
   "e49950f1bf1a95ed8cff0232fe38bb20baaaa911299a32fa3f55e1e47197dc1a",
   "14a37ae4de2ecc2ce47269f09ae94ac520662df6b36dd80a0e3660236fd21fcb"
 ]
+# Issue #1096: when a history cannot be compacted under budget, the overage is recorded as the
+# `compaction_over_budget` event through `eval_events::emit` before the request is built, so a GUI
+# that keeps only the event file still sees it. The corpus records that the event is declared and
+# emitted from the compaction leaf, with numbers only. The behavioural proof that the event lands
+# before the provider request is in tests/profile_tool_schema_responses.rs.
+../../../../src/minimal_loop/compact.rs = [
+  "\"compaction_over_budget\"",
+  "crate::eval_events::emit(",
+  "\"remaining_chars\"",
+  "\"budget_chars\"",
+  "\"context_budget\""
+]
 
 [fixture_ordered]
 fixtures/notes.ts = [

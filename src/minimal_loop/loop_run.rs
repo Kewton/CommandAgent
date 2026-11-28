@@ -28,7 +28,7 @@ use crate::tui::status::UiStatus;
 use crate::tui::{InteractionUi, NOOP_UI};
 
 use super::build_verifier::{BuildVerifierLifecycleObservation, BuildVerifierStatus};
-use super::compact::compact_if_needed;
+use super::compact::compact_and_record;
 use super::completion::{
     CompletionContract, format_verify_feedback_with_contract, target_implementation_files,
 };
@@ -677,7 +677,7 @@ fn run_session_planned(
                 config.max_iterations,
             );
         }
-        compact_if_needed(&mut session.messages, config.context_budget);
+        compact_and_record(&mut session.messages, config);
         let specs = registry.specs().to_vec();
         let request_tools = if native_tools_enabled {
             specs.clone()
