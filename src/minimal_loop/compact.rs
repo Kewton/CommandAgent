@@ -29,16 +29,15 @@ pub fn compact_if_needed(
     while total > approx_chars {
         let protected = protected_indices(messages);
         let pinned = pinned_indices(messages);
-        let groups = message_groups(messages, &protected);
+        let groups = message_groups(messages);
         // Issue #1088: a reply's tool calls and the outputs that answer them are removed as one
-        // run when the reply has several calls or one of its outputs is protected evidence, so a
-        // part never outlives the whole and `check_correlation` never sees a call without its
-        // output or an output that names no call. A run that holds protected evidence is spared
-        // while an unprotected run can go; when only protected runs are left and the history is
-        // still over budget, the oldest protected run is removed whole too, so the budget is
-        // served first. The head system message and the latest user message never go. A single
-        // call with unprotected outputs keeps the per-message rule; its split is the remaining
-        // limit recorded in `docs/dev/profile-tools.md`.
+        // run, so a part never outlives the whole and `check_correlation` never sees a call
+        // without its output or an output that names no call. Issue #1097: this holds for a
+        // single-call reply too, so a budget that falls inside the reply's text never keeps the
+        // output while dropping the call. A run that holds protected evidence is spared while an
+        // unprotected run can go; when only protected runs are left and the history is still over
+        // budget, the oldest protected run is removed whole too, so the budget is served first.
+        // The head system message and the latest user message never go.
         //
         // Issue #1096: the old count floor of four messages stopped here while a removable
         // protected run was still present. A whole call-and-output run that holds neither pinned
@@ -121,20 +120,19 @@ pub fn compact_and_record(
 }
 
 /// Whether a group is a call-and-output run: an assistant message with calls plus at least one
-/// output answered by it. A lone assistant call whose outputs were split off, or a lone tool
-/// output with no call, is not a run, so removing one never orphans the other.
+/// output answered by it. A lone assistant call with no output, or a lone tool output with no
+/// call, is not a run, so removing one never orphans the other.
 fn is_call_run(messages: &[ConversationMessage], group: &Range<usize>) -> bool {
     group.end - group.start >= 2
         && (group.start..group.end).any(|index| !messages[index].tool_calls.is_empty())
 }
 
 /// The message runs that must be kept or removed together. An assistant message whose calls must
-/// stay with their outputs forms one run with the contiguous tool outputs that answer it: a reply
-/// with two or more calls, or a reply with at least one protected output. An output belongs to the
-/// run only when its `tool_call_id` is one of that assistant's calls, so a later reply's output is
-/// never mistaken for this one's. Every other message is its own run, so a single call with
-/// unprotected outputs keeps the per-message rule.
-fn message_groups(messages: &[ConversationMessage], protected: &[usize]) -> Vec<Range<usize>> {
+/// stay with their outputs forms one run with the contiguous tool outputs that answer it, whether
+/// it has one call or several (Issue #1097). An output belongs to the run only when its
+/// `tool_call_id` is one of that assistant's calls, so a later reply's output is never mistaken
+/// for this one's. Every other message is its own run.
+fn message_groups(messages: &[ConversationMessage]) -> Vec<Range<usize>> {
     let mut groups = Vec::new();
     let mut start = 0;
     while start < messages.len() {
@@ -149,10 +147,6 @@ fn message_groups(messages: &[ConversationMessage], protected: &[usize]) -> Vec<
                     .is_some_and(|id| calls.iter().any(|call| call.id == id))
             {
                 end += 1;
-            }
-            let paired = calls.len() >= 2 || (start..end).any(|index| protected.contains(&index));
-            if !paired {
-                end = start + 1;
             }
         }
         groups.push(start..end);

@@ -462,11 +462,13 @@ Known limits of the Responses wire:
   without calling the provider.
 - The loop's compaction (`src/minimal_loop/compact.rs`) removes messages oldest first. Since
   Issue #1088 it removes a reply's calls and the contiguous outputs that answer them as one run,
-  so neither the calls nor the outputs outlive the other, when the reply has two or more calls or
-  when one of its outputs is protected evidence (a Read result, or an Edit/Bash error the history
-  protects). An output joins a run only when its `tool_call_id` answers one of that reply's calls,
-  so a later reply's output is never absorbed into an earlier one. The head system message and
-  the latest user message are never removed.
+  so neither the calls nor the outputs outlive the other. Since Issue #1097 this holds for every
+  reply, whether it has one call or several and whether or not an output is protected evidence:
+  a single call and its unprotected output leave together, so a budget that falls inside the
+  reply's text can no longer keep the output while dropping the call, and every call in the
+  history has exactly one output. An output joins a run only when its `tool_call_id` answers one
+  of that reply's calls, so a later reply's output is never absorbed into an earlier one. The head
+  system message and the latest user message are never removed.
   The budget is served first: while an unprotected run is over-budget it is removed oldest
   first; when only protected runs are left and the history is still over budget, the oldest
   protected run is removed whole too, so a history of protected evidence is not sent far over its
@@ -480,13 +482,10 @@ Known limits of the Responses wire:
   character budget and the context budget, never message text — *before* the request is built, and
   also warns on stderr. The event is what a GUI delegation sees: it keeps the event file and drops
   stderr, so without the event an over-budget request would be sent with no record. A compaction
-  that removes only text, a whole call-and-output run, or a call with its
-  output leaves the session going. The remaining limit: a reply with a single call whose output is
-  not protected evidence still keeps the per-message rule, so a budget that falls inside it can
-  keep the output and drop the call; then the history no longer correlates, and a session with a
-  schema tool on the Responses API ends with the correlation error, where Chat Completions sends
-  the same history as it is. Pairing that reply too is left to another Issue, because it changes
-  the digests of the single-call rows recorded in the requirement-plan golden fixture.
+  that removes only text, a whole call-and-output run, or a call with its output leaves the
+  session going. Since Issue #1097 a reply with a single call whose output is not protected
+  evidence is paired too, so the split that could leave an output without its call is gone: every
+  call in the compacted history keeps exactly one output.
 - When one reply has several calls and a write-required rejection stops one before the last,
   the loop leaves the batch there and the calls after it get no output; a session with a schema
   tool on the Responses API then ends with the correlation error before its next request, where

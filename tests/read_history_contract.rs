@@ -688,6 +688,53 @@ fn compaction_does_not_absorb_a_later_replys_output_into_an_earlier_run() {
     }
 }
 
+/// Issue #1097 (the judge's `judge_single_call_residual`): a reply with a single call whose
+/// output is not protected evidence used to keep the per-message rule. With the budget boundary
+/// inside the reply's text, the call message was removed alone and its output was left naming no
+/// call, so the history no longer correlated. The reply and its output now leave as one group, so
+/// every remaining call keeps exactly one output. Synthetic values only.
+#[test]
+fn compaction_removes_a_single_call_reply_and_its_unprotected_output_together() {
+    let call = ToolCall {
+        id: "call_p1".to_string(),
+        name: "SubmitConfig".to_string(),
+        arguments: json!({"mode": "fast"}),
+    };
+    let text = "The object is ready. ".repeat(40);
+    let mut messages = vec![
+        ConversationMessage::system("system"),
+        ConversationMessage::assistant(text.clone(), vec![call]),
+        ConversationMessage::tool_result("SubmitConfig", Some("call_p1"), "accepted by the fake"),
+        ConversationMessage::user("latest user"),
+        ConversationMessage::assistant("done".to_string(), Vec::new()),
+    ];
+    let total: usize = messages.iter().map(|m| m.content.len()).sum();
+    // The budget boundary falls inside the reply's text: removing the text alone brings the
+    // history under budget, which is what used to leave the output behind.
+    let budget = (total - text.len()).div_ceil(4);
+    assert!(total > budget * 4, "the fixture must start over budget");
+    assert!(
+        total - text.len() <= budget * 4,
+        "the text alone must bring the history within budget"
+    );
+
+    compact_if_needed(&mut messages, budget);
+
+    assert!(correlation_holds(&messages), "{messages:#?}");
+    let call_present = messages
+        .iter()
+        .any(|m| m.tool_calls.iter().any(|call| call.id == "call_p1"));
+    let output_present = messages
+        .iter()
+        .any(|m| m.tool_call_id.as_deref() == Some("call_p1"));
+    assert!(!call_present, "the single call leaves with its output");
+    assert_eq!(call_present, output_present, "{messages:#?}");
+    assert!(
+        messages.iter().any(|m| m.content == "latest user"),
+        "the latest user message must survive"
+    );
+}
+
 /// Issue #1088 (review blocker 2): when only protected runs are left, the budget is served first,
 /// so the oldest protected run is removed whole rather than sending a history far over budget.
 /// The removed run never splits: its calls leave with their outputs.
