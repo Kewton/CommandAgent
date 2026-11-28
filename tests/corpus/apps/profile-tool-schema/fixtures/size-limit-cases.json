@@ -202,5 +202,25 @@
       "detail": "at least 512 elements, limit 512",
       "note": "confirmation stops at the depth limit, so a 31000-level candidate costs no more than one at 33 (Issue #1101 review fix 1)"
     }
+  ],
+  "trailing_comma_at_limit": [
+    {
+      "id": "a trailing comma and the end of input after the 512 values at the limit",
+      "form": "array_comma_end",
+      "code": "malformed_json",
+      "note": "RFC 8259 has no trailing comma and there is no 513th value, so the refusal is malformed_json, not too_many_elements (Issue #1099)"
+    },
+    {
+      "id": "a trailing comma and the closing bracket after the 512 values at the limit",
+      "form": "array_comma_close",
+      "code": "malformed_json",
+      "note": "the walk reads the comma and then the `]`, which cannot start a value, so no 513th value exists (Issue #1099)"
+    },
+    {
+      "id": "a trailing comma and the closing brace inside an object after the 512 values at the limit",
+      "form": "object_comma_close",
+      "code": "malformed_json",
+      "note": "a member needs a quoted key after the comma, so no 513th value exists (Issue #1099)"
+    }
   ]
 }

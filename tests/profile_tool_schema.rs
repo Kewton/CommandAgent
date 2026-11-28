@@ -1845,9 +1845,8 @@ fn size_case_raw(shape: &Value) -> (Value, String) {
     (schema, raw)
 }
 
-/// The `(code, detail)` of the one violation a refusal carries, read from the
-/// model-facing text.
-fn size_violation(feedback: &str) -> (String, String) {
+/// The one violation's JSON, read from the model-facing text.
+fn violation_of(feedback: &str) -> Value {
     let data = feedback
         .split_once("profile_tool_refused: schema_violation: ")
         .unwrap_or_else(|| panic!("not a schema refusal: {feedback}"))
@@ -1857,7 +1856,13 @@ fn size_violation(feedback: &str) -> (String, String) {
         .next()
         .unwrap_or_else(|| panic!("no refusal JSON in: {data}"))
         .unwrap_or_else(|error| panic!("refusal is not JSON ({error}): {data}"));
-    let violation = &value["violations"][0];
+    value["violations"][0].clone()
+}
+
+/// The `(code, detail)` of the one violation a refusal carries, read from the
+/// model-facing text.
+fn size_violation(feedback: &str) -> (String, String) {
+    let violation = violation_of(feedback);
     (
         violation["code"].as_str().unwrap().to_string(),
         violation["detail"].as_str().unwrap().to_string(),
@@ -2026,6 +2031,101 @@ fn a_value_at_the_element_limit_is_accepted_and_an_ending_is_not_a_phantom_count
             );
         }
     }
+    set_env(REGISTRY_ENV, None);
+}
+
+/// Issue #1099: exactly 512 values followed by a trailing comma is `malformed_json`
+/// in each of its three forms — `…,` at the end of input, `…,]`, and `…,}` inside an
+/// object. RFC 8259 has no trailing comma and there is no 513th value, so the walk
+/// stops at the comma, which leaves nothing to count; `malformed_json` is the code
+/// that says this, not `too_many_elements`. The limits, the `>` comparison, the order
+/// the codes are checked in, and the codes for valid JSON are unchanged.
+#[test]
+fn a_trailing_comma_after_the_512_values_at_the_limit_is_malformed_json() {
+    let _guard = lock();
+    let cases: Value = serde_json::from_str(SIZE_LIMIT_CASES).unwrap();
+    let schema = schema_declaration(closed(json!({
+        "a": {"type": "array", "items": {"type": "integer"}},
+    })));
+    // An array document's element count is the root, the array, and its items. The
+    // root, its array, and 510 items fill the 512-element limit exactly.
+    let items = vec!["1"; 510].join(",");
+    // An object document counts the same way: the root, and 511 members. A member's
+    // key is part of its member, so 511 members plus the root is 512.
+    let members = (0..511)
+        .map(|index| format!(r#""k{index}":0"#))
+        .collect::<Vec<_>>()
+        .join(",");
+    let at_limit = format!(r#"{{"a":[{items}]}}"#);
+    for row in cases["trailing_comma_at_limit"].as_array().unwrap() {
+        let raw = match row["form"].as_str().unwrap() {
+            "array_comma_end" => format!("{{\"a\":[{items},"),
+            "array_comma_close" => format!("{{\"a\":[{items},]}}"),
+            "object_comma_close" => format!("{{{members},}}"),
+            other => panic!("unknown form {other}"),
+        };
+        let env = Env::new();
+        env.write_tool(schema.clone());
+        let run = session(
+            &env,
+            Wire::Native,
+            vec![Wire::Native.call(CONFIG_TOOL, &raw), text_reply("done")],
+            None,
+        );
+        let id = row["id"].as_str().unwrap();
+        assert_rejected(&env, Wire::Native, &run, row["code"].as_str().unwrap(), id);
+        let feedback = run.last_message(1);
+        assert!(
+            !feedback.contains(&raw),
+            "{id}: the raw arguments came back"
+        );
+        let violation = violation_of(&feedback);
+        assert_eq!(violation["code"], row["code"].as_str().unwrap(), "{id}");
+        assert!(
+            violation.get("detail").is_none(),
+            "{id}: malformed_json carries no size detail"
+        );
+    }
+
+    // Valid JSON at the limit and a genuine 513th value are unchanged.
+    let env = Env::new();
+    env.write_tool(schema.clone());
+    let run = session(
+        &env,
+        Wire::Native,
+        vec![
+            Wire::Native.call(CONFIG_TOOL, &at_limit),
+            text_reply("done"),
+        ],
+        None,
+    );
+    assert_eq!(run.executed, vec![parsed(&at_limit)], "exactly the limit");
+    let over_limit = format!(r#"{{"a":[{items},1]}}"#);
+    let env = Env::new();
+    env.write_tool(schema.clone());
+    let run = session(
+        &env,
+        Wire::Native,
+        vec![
+            Wire::Native.call(CONFIG_TOOL, &over_limit),
+            text_reply("done"),
+        ],
+        None,
+    );
+    assert_rejected(
+        &env,
+        Wire::Native,
+        &run,
+        "too_many_elements",
+        "a genuine 513th value",
+    );
+    assert_eq!(
+        size_violation(&run.last_message(1)),
+        (
+            "too_many_elements".to_string(),
+            "at least 513 elements, limit 512".to_string(),
+        )
+    );
     set_env(REGISTRY_ENV, None);
 }
 

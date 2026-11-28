@@ -81,6 +81,9 @@ fixtures/size-limit-cases.json = [
   "\"ending\": \"empty_array\"",
   "\"ending\": \"nested_array\"",
   "\"ending\": \"[1,,2]]}\"",
+  "\"form\": \"array_comma_end\"",
+  "\"form\": \"array_comma_close\"",
+  "\"form\": \"object_comma_close\"",
   "\"nest\": 31",
   "\"nest\": 30",
   "\"nest\": 31000"
