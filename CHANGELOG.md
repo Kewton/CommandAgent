@@ -10,9 +10,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- Refuse exactly 512 raw JSON values followed by a trailing comma as
-  `malformed_json` instead of `too_many_elements`, in each form: the end of
-  input, a closing `]`, and a closing `}` inside an object (#1099).
+- Refuse exactly 512 raw JSON values followed by a trailing comma at the end of
+  input, or before a closing `]`, as `malformed_json` instead of
+  `too_many_elements`. The same input before a closing `}` inside an object was
+  already `malformed_json` and is now pinned by a test (#1099).
 
 ## [0.1.1] - 2026-11-27
 
