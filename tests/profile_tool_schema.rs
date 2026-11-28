@@ -2169,6 +2169,167 @@ fn a_number_outside_the_serde_json_range_at_the_element_limit_is_counted() {
     set_env(REGISTRY_ENV, None);
 }
 
+/// Issue #1101, through the real tool: at the element limit an opening bracket alone
+/// (`…,[` at the end of input) and an unbalanced container (`…,{]`) are not values, and
+/// a scalar needs a delimiter after it (`nullx`, `0x`, `truex` are not values). Each
+/// refusal reports the 512 confirmed values instead of a phantom 513th, while a
+/// completed container or a delimited scalar is still the 513th value.
+#[test]
+fn an_incomplete_container_or_an_undelimited_scalar_past_the_element_limit_is_not_counted() {
+    let _guard = lock();
+    let cases: Value = serde_json::from_str(SIZE_LIMIT_CASES).unwrap();
+    let schema = schema_declaration(closed(json!({
+        "a": {"type": "array", "items": {"type": "integer"}},
+    })));
+    // The root, the array, and 510 items fill the 512-element limit exactly.
+    let items = vec!["1"; 510].join(",");
+    for section in ["incomplete_containers", "undelimited_scalars"] {
+        for row in cases[section].as_array().unwrap() {
+            let ending = match row["ending"].as_str().unwrap() {
+                "open_bracket_end" => "[",
+                "open_brace_mismatch" => "{]}",
+                "null_run_on" => "nullx]}",
+                "zero_run_on" => "0x]}",
+                "true_run_on" => "truex]}",
+                other => panic!("unknown ending {other}"),
+            };
+            let raw = format!(r#"{{"a":[{items},{ending}"#);
+            let env = Env::new();
+            env.write_tool(schema.clone());
+            let run = session(
+                &env,
+                Wire::Native,
+                vec![Wire::Native.call(CONFIG_TOOL, &raw), text_reply("done")],
+                None,
+            );
+            let id = row["id"].as_str().unwrap();
+            assert_rejected(&env, Wire::Native, &run, "too_many_elements", id);
+            let feedback = run.last_message(1);
+            assert!(
+                !feedback.contains(&raw),
+                "{id}: the raw arguments came back"
+            );
+            assert_eq!(
+                size_violation(&feedback),
+                (
+                    "too_many_elements".to_string(),
+                    row["detail"].as_str().unwrap().to_string(),
+                ),
+                "{id}"
+            );
+        }
+    }
+
+    // A completed container is still the 513th value, as before.
+    for row in cases["completed_candidates"].as_array().unwrap() {
+        let ending = match row["ending"].as_str().unwrap() {
+            "empty_object" => "{}",
+            "empty_array" => "[]",
+            "nested_array" => "[[]]",
+            other => panic!("unknown ending {other}"),
+        };
+        let raw = format!(r#"{{"a":[{items},{ending}]}}"#);
+        let env = Env::new();
+        env.write_tool(schema.clone());
+        let run = session(
+            &env,
+            Wire::Native,
+            vec![Wire::Native.call(CONFIG_TOOL, &raw), text_reply("done")],
+            None,
+        );
+        let id = row["id"].as_str().unwrap();
+        assert_rejected(&env, Wire::Native, &run, "too_many_elements", id);
+        assert_eq!(
+            size_violation(&run.last_message(1)),
+            (
+                "too_many_elements".to_string(),
+                row["detail"].as_str().unwrap().to_string(),
+            ),
+            "{id}"
+        );
+    }
+
+    // Exactly the limit and valid JSON are accepted, unchanged.
+    for raw in [
+        format!(r#"{{"a":[{items}]}}"#),
+        "{}".to_string(),
+        r#"{"a":[]}"#.to_string(),
+        r#"{"a":[1,2,3]}"#.to_string(),
+    ] {
+        let env = Env::new();
+        env.write_tool(schema.clone());
+        let run = session(
+            &env,
+            Wire::Native,
+            vec![Wire::Native.call(CONFIG_TOOL, &raw), text_reply("done")],
+            None,
+        );
+        assert_eq!(run.executed, vec![parsed(&raw)], "{raw}");
+    }
+    set_env(REGISTRY_ENV, None);
+}
+
+/// Issue #1101 review fix 1, through the real tool: the candidate the element limit
+/// stops the walk at is a value only when it is grammatically complete and within the
+/// depth limit. `[1,,2]`, `{"a"}` and `["\q"]` are not, and a candidate nested past
+/// depth 32 is not; a candidate exactly at depth 32 and a genuine 513th value still are.
+#[test]
+fn a_malformed_or_too_deep_candidate_past_the_element_limit_is_not_counted() {
+    let _guard = lock();
+    let cases: Value = serde_json::from_str(SIZE_LIMIT_CASES).unwrap();
+    let schema = schema_declaration(closed(json!({
+        "a": {"type": "array", "items": {"type": "integer"}},
+    })));
+    // The root, the array, and 510 items fill the 512-element limit exactly.
+    let items = vec!["1"; 510].join(",");
+    let check = |raw: &str, id: &str, detail: &str| {
+        let env = Env::new();
+        env.write_tool(schema.clone());
+        let run = session(
+            &env,
+            Wire::Native,
+            vec![Wire::Native.call(CONFIG_TOOL, raw), text_reply("done")],
+            None,
+        );
+        assert_rejected(&env, Wire::Native, &run, "too_many_elements", id);
+        let feedback = run.last_message(1);
+        assert!(!feedback.contains(raw), "{id}: the raw arguments came back");
+        assert_eq!(
+            size_violation(&feedback),
+            ("too_many_elements".to_string(), detail.to_string()),
+            "{id}"
+        );
+    };
+    for row in cases["malformed_candidate_containers"].as_array().unwrap() {
+        let raw = format!(r#"{{"a":[{items},{}"#, row["ending"].as_str().unwrap());
+        check(
+            &raw,
+            row["id"].as_str().unwrap(),
+            row["detail"].as_str().unwrap(),
+        );
+    }
+    // Depth: the root is 1 and its array is 2, so `nest` nested arrays reach `nest + 2`.
+    for row in cases["deep_candidate_containers"].as_array().unwrap() {
+        let nest = row["nest"].as_u64().unwrap() as usize;
+        let raw = format!(
+            r#"{{"a":[{items},{}]]}}"#,
+            "[".repeat(nest) + &"]".repeat(nest)
+        );
+        check(
+            &raw,
+            row["id"].as_str().unwrap(),
+            row["detail"].as_str().unwrap(),
+        );
+    }
+    // A genuine 513th scalar is unchanged.
+    check(
+        &format!(r#"{{"a":[{items},1]}}"#),
+        "a genuine 513th value",
+        "at least 513 elements, limit 512",
+    );
+    set_env(REGISTRY_ENV, None);
+}
+
 // ---------------------------------------------------------------------------
 // Acceptance 2: the binding is the host's, adopted once.
 // ---------------------------------------------------------------------------
