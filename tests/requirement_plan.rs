@@ -38,6 +38,12 @@ const GUIDANCE_MARKER: &str = "作業を始める前に一度だけ、この返�
 const NOTE_MARKER: &str = "[requirement plan note v1:";
 const CONTINUE_MARKER: &str = "Continue the original request.";
 
+/// The canonical length every scenario's workspace root is padded to, so a tool result that
+/// records `<root>/file` has the same byte length on macOS and Linux (see
+/// [`Scenario::fixed_length_root`]). This is what the golden's compaction rows were recorded
+/// against; it must stay constant.
+const FIXED_ROOT_LEN: usize = 120;
+
 /// Every env mutation in this binary happens while this lock is held.
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
@@ -345,6 +351,27 @@ impl Scenario {
             .collect()
     }
 
+    /// A workspace root whose canonical length is fixed regardless of the host.
+    ///
+    /// A tool result records the path it acted on (`wrote <root>/greeting.txt`), so the root's
+    /// length feeds the compaction budget. A temp dir is a different length on macOS (below the
+    /// symlinked `/var`…, canonicalized to `/private/var/…`) and on Linux (`/tmp/…`), which moves
+    /// a turn across the 240-character budget of the compaction rows and changes whether the
+    /// over-budget event fires. The row's canonical root is padded up to [`FIXED_ROOT_LEN`] with
+    /// nested subdirectories (every host's temp dir is shorter than that) so the history's byte
+    /// lengths — and so the event sequence — are the same everywhere. The comparison against the
+    /// golden is not loosened.
+    fn fixed_length_root(&self, dir: &Path) -> PathBuf {
+        let mut root = dir.canonicalize().unwrap();
+        while root.as_os_str().len() < FIXED_ROOT_LEN {
+            let pad = (FIXED_ROOT_LEN - root.as_os_str().len()).min(8);
+            let extended = root.join("r".repeat(pad));
+            std::fs::create_dir(&extended).unwrap();
+            root = extended;
+        }
+        root
+    }
+
     fn run(&self) -> Trace {
         self.run_with(|client| client)
     }
@@ -377,7 +404,7 @@ impl Scenario {
         let dir = tempfile::tempdir().unwrap();
         // macOS hands out temp dirs below a symlinked /var; use the canonical
         // path so the workspace root is the same kind of path as on Linux.
-        let root = dir.path().canonicalize().unwrap();
+        let root = self.fixed_length_root(dir.path());
         for (path, content) in &self.seed {
             let target = root.join(path);
             if let Some(parent) = target.parent() {
