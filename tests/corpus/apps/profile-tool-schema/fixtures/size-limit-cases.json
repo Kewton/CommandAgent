@@ -63,6 +63,20 @@
       "note": "malformed_json; the count must not add a value the walk never read"
     }
   ],
+  "out_of_range_numbers": [
+    {
+      "id": "an exponent out of the f64 range after the 512 values at the limit",
+      "ending": "1e400]}",
+      "detail": "at least 513 elements, limit 512",
+      "note": "`1e400` is a JSON number though no f64 holds it, so its token is confirmed by its lexical form and it counts as the 513th value"
+    },
+    {
+      "id": "an incomplete exponent after the 512 values at the limit",
+      "ending": "1e]}",
+      "detail": "at least 512 elements, limit 512",
+      "note": "`1e` is not a number, so it is not counted"
+    }
+  ],
   "truncated_candidates": [
     {
       "id": "n run-off after the 512 values at the limit",

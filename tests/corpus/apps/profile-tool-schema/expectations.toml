@@ -69,7 +69,9 @@ fixtures/size-limit-cases.json = [
   "\"ending\": \"comma_close\"",
   "\"ending\": \"end\"",
   "\"ending\": \"n_run_off\"",
-  "\"ending\": \"unterminated_string\""
+  "\"ending\": \"unterminated_string\"",
+  "\"ending\": \"1e400]}\"",
+  "\"ending\": \"1e]}\""
 ]
 fixtures/off-golden.json = [
   "\"id\": \"chat-native-recovery-and-last-value\"",

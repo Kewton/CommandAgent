@@ -2097,6 +2097,78 @@ fn an_unconfirmed_candidate_past_the_element_limit_is_not_counted() {
     set_env(REGISTRY_ENV, None);
 }
 
+/// Issue #1100: a number at the element limit is confirmed by its JSON lexical form,
+/// not by conversion. `1e400` is a JSON number that no `f64` holds, so it is the
+/// confirmed 513th value; `1e`, an incomplete exponent, is not a number and stays at 512.
+#[test]
+fn a_number_outside_the_serde_json_range_at_the_element_limit_is_counted() {
+    let _guard = lock();
+    let cases: Value = serde_json::from_str(SIZE_LIMIT_CASES).unwrap();
+    let schema = schema_declaration(closed(json!({
+        "a": {"type": "array", "items": {"type": "number"}},
+    })));
+    // The root, the array, and 510 items fill the 512-element limit exactly.
+    let items = vec!["1"; 510].join(",");
+    for row in cases["out_of_range_numbers"].as_array().unwrap() {
+        let ending = row["ending"].as_str().unwrap();
+        let raw = format!(r#"{{"a":[{items},{ending}"#);
+        let env = Env::new();
+        env.write_tool(schema.clone());
+        let run = session(
+            &env,
+            Wire::Native,
+            vec![Wire::Native.call(CONFIG_TOOL, &raw), text_reply("done")],
+            None,
+        );
+        let id = row["id"].as_str().unwrap();
+        assert_rejected(&env, Wire::Native, &run, "too_many_elements", id);
+        let feedback = run.last_message(1);
+        assert!(
+            !feedback.contains(&raw),
+            "{id}: the raw arguments came back"
+        );
+        assert_eq!(
+            size_violation(&feedback),
+            (
+                "too_many_elements".to_string(),
+                row["detail"].as_str().unwrap().to_string(),
+            ),
+            "{id}"
+        );
+    }
+
+    // A genuine 513th value, exactly the limit, and valid JSON are unchanged.
+    let genuine = format!(r#"{{"a":[{items},1]}}"#);
+    for (raw, accepted) in [
+        (genuine.as_str(), false),
+        (r#"{"a":[1,2,3]}"#, true),
+        (r#"{}"#, true),
+    ] {
+        let env = Env::new();
+        env.write_tool(schema.clone());
+        let run = session(
+            &env,
+            Wire::Native,
+            vec![Wire::Native.call(CONFIG_TOOL, raw), text_reply("done")],
+            None,
+        );
+        if accepted {
+            assert_eq!(run.executed, vec![parsed(raw)], "{raw}");
+        } else {
+            assert_rejected(&env, Wire::Native, &run, "too_many_elements", raw);
+            assert_eq!(
+                size_violation(&run.last_message(1)),
+                (
+                    "too_many_elements".to_string(),
+                    "at least 513 elements, limit 512".to_string(),
+                ),
+                "{raw}"
+            );
+        }
+    }
+    set_env(REGISTRY_ENV, None);
+}
+
 // ---------------------------------------------------------------------------
 // Acceptance 2: the binding is the host's, adopted once.
 // ---------------------------------------------------------------------------
