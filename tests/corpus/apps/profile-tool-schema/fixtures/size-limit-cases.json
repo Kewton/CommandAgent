@@ -108,5 +108,59 @@
       "detail": "at least 513 elements, limit 512",
       "note": "a candidate that is a value is still counted, as before"
     }
+  ],
+  "incomplete_containers": [
+    {
+      "id": "an opening bracket ending the input after the 512 values at the limit",
+      "ending": "open_bracket_end",
+      "detail": "at least 512 elements, limit 512",
+      "note": "`[` alone opens a container the walk never sees closed, so it is not a value (Issue #1101)"
+    },
+    {
+      "id": "a mismatched close after the 512 values at the limit",
+      "ending": "open_brace_mismatch",
+      "detail": "at least 512 elements, limit 512",
+      "note": "`{]` closes a brace that `{` opened with the wrong bracket, so the container is not complete (Issue #1101)"
+    }
+  ],
+  "undelimited_scalars": [
+    {
+      "id": "a null run-on after the 512 values at the limit",
+      "ending": "null_run_on",
+      "detail": "at least 512 elements, limit 512",
+      "note": "`nullx` is not the value `null` because no delimiter follows it (Issue #1101)"
+    },
+    {
+      "id": "a zero run-on after the 512 values at the limit",
+      "ending": "zero_run_on",
+      "detail": "at least 512 elements, limit 512",
+      "note": "`0x` is not the number `0` because no delimiter follows it (Issue #1101)"
+    },
+    {
+      "id": "a true run-on after the 512 values at the limit",
+      "ending": "true_run_on",
+      "detail": "at least 512 elements, limit 512",
+      "note": "`truex` is not the value `true` because no delimiter follows it (Issue #1101)"
+    }
+  ],
+  "completed_candidates": [
+    {
+      "id": "an empty object as the 513th value at the limit",
+      "ending": "empty_object",
+      "detail": "at least 513 elements, limit 512",
+      "note": "a completed container is the 513th value, as before"
+    },
+    {
+      "id": "an empty array as the 513th value at the limit",
+      "ending": "empty_array",
+      "detail": "at least 513 elements, limit 512",
+      "note": "a completed container is the 513th value, as before"
+    },
+    {
+      "id": "a nested array as the 513th value at the limit",
+      "ending": "nested_array",
+      "detail": "at least 513 elements, limit 512",
+      "note": "a completed nested container is the 513th value, as before"
+    }
   ]
 }

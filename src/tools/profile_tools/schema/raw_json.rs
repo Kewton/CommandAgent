@@ -155,23 +155,84 @@ impl Decoder<'_> {
     }
 
     /// Whether the candidate the element limit stopped the walk at is confirmed as a
-    /// value (Issue #1087 review fix 3). A container opener is one; a scalar must be
-    /// one whole token, so `n]`, `-]`, `1e]` and an unterminated string are not. This
-    /// only looks: it moves no position and adds no count.
+    /// value (Issue #1087 review fix 3). A container must be whole — its matching
+    /// bracket is present — and a scalar must be one whole token, so `n]`, `-]`, `1e]`
+    /// and an unterminated string are not. Either kind also needs a delimiter after it,
+    /// so `nullx`, `0x` and `truex` are not values (Issue #1101). This only looks: it
+    /// moves no position and adds no count.
     fn confirms_value(&self, byte: u8) -> bool {
         match byte {
-            b'{' | b'[' => true,
+            b'{' | b'[' => self.confirmed_container(),
             b'"' => self.confirmed_string(),
-            b't' => self.bytes[self.position..].starts_with(b"true"),
-            b'f' => self.bytes[self.position..].starts_with(b"false"),
-            b'n' => self.bytes[self.position..].starts_with(b"null"),
+            b't' => self.confirmed_literal(b"true"),
+            b'f' => self.confirmed_literal(b"false"),
+            b'n' => self.confirmed_literal(b"null"),
             _ => self.confirmed_number(),
         }
     }
 
-    /// Whether the candidate string's token is one: a closing quote is reached and
-    /// `serde_json` accepts the token's escapes. False for a run-off or an invalid
-    /// escape.
+    /// Whether what follows a value ends it: whitespace, `,`, a closing bracket, or the
+    /// end of input. A scalar that runs on into another token is not the value its
+    /// prefix spells.
+    fn delimits_value(&self, next: Option<u8>) -> bool {
+        matches!(
+            next,
+            None | Some(b' ' | b'\t' | b'\n' | b'\r' | b',' | b'}' | b']')
+        )
+    }
+
+    /// Whether the candidate container is whole: its opening bracket and its matching
+    /// closing bracket are both in the text, nested and with string extents read the
+    /// way the walk reads them, and a delimiter follows (Issue #1101). A lone `[` at the
+    /// end of input, or `{]`, is not a value. The interior grammar is not judged here,
+    /// because the walk never enters the container it stops at.
+    fn confirmed_container(&self) -> bool {
+        let mut openers = Vec::new();
+        let mut end = self.position;
+        loop {
+            match self.bytes.get(end).copied() {
+                Some(byte @ (b'{' | b'[')) => {
+                    openers.push(byte);
+                    end += 1;
+                }
+                Some(byte @ (b'}' | b']')) => {
+                    let expected = match openers.pop() {
+                        Some(b'{') => b'}',
+                        Some(_) => b']',
+                        None => return false,
+                    };
+                    if byte != expected {
+                        return false;
+                    }
+                    end += 1;
+                    if openers.is_empty() {
+                        break;
+                    }
+                }
+                Some(b'"') => {
+                    end += 1;
+                    loop {
+                        match self.bytes.get(end).copied() {
+                            Some(b'"') => {
+                                end += 1;
+                                break;
+                            }
+                            Some(b'\\') => end += 2,
+                            Some(_) => end += 1,
+                            None => return false,
+                        }
+                    }
+                }
+                Some(_) => end += 1,
+                None => return false,
+            }
+        }
+        self.delimits_value(self.bytes.get(end).copied())
+    }
+
+    /// Whether the candidate string's token is one: a closing quote is reached,
+    /// `serde_json` accepts the token's escapes, and a delimiter follows. False for a
+    /// run-off, an invalid escape, or a run-on such as `"a"x`.
     fn confirmed_string(&self) -> bool {
         let mut end = self.position + 1;
         loop {
@@ -185,16 +246,25 @@ impl Decoder<'_> {
                 None => return false,
             }
         }
-        self.raw
-            .get(self.position..end)
-            .is_some_and(|token| serde_json::from_str::<String>(token).is_ok())
+        self.delimits_value(self.bytes.get(end).copied())
+            && self
+                .raw
+                .get(self.position..end)
+                .is_some_and(|token| serde_json::from_str::<String>(token).is_ok())
+    }
+
+    /// Whether the candidate literal is its whole word and is delimited after it.
+    fn confirmed_literal(&self, text: &[u8]) -> bool {
+        self.bytes[self.position..].starts_with(text)
+            && self.delimits_value(self.bytes.get(self.position + text.len()).copied())
     }
 
     /// Whether the candidate number's token is a JSON number, read with the same token
     /// bounds the walk uses. A lone `-` or `1e` is not a number. The token's form is
     /// checked on its bytes rather than by conversion, so a number outside the
     /// `serde_json` range such as `1e400` is still a confirmed value; the decode itself
-    /// keeps converting and checking the range (Issue #1100).
+    /// keeps converting and checking the range (Issue #1100). A delimiter must follow
+    /// the token, so `0x` is not a number (Issue #1101).
     fn confirmed_number(&self) -> bool {
         let mut end = self.position;
         while matches!(
@@ -203,7 +273,8 @@ impl Decoder<'_> {
         ) {
             end += 1;
         }
-        self.raw.get(self.position..end).is_some_and(is_number_form)
+        self.delimits_value(self.bytes.get(end).copied())
+            && self.raw.get(self.position..end).is_some_and(is_number_form)
     }
 
     fn value(&mut self, depth: usize) -> Result<Value, DecodeError> {
@@ -621,6 +692,81 @@ mod tests {
         // Within the limit the value is still converted: `1e400` has no `serde_json`
         // number, so it is refused as before. Only the count at the limit reads the form.
         assert_eq!(decode("1e400", LIMITS), Err(DecodeError::Malformed));
+    }
+
+    /// Issue #1101: a container is confirmed by its completed bracket pair, not by its
+    /// opener, and a scalar needs a delimiter after it. `…,[` at the end of input and
+    /// `…,{]` are not values, and neither is `nullx`, `0x` or `truex`; a scalar or an
+    /// empty or nested container that really is the 513th value is still counted.
+    #[test]
+    fn only_a_completed_container_or_a_delimited_scalar_past_the_element_limit_is_counted() {
+        use super::super::{SizeDetail, UNIT_ELEMENTS};
+        use super::decode_measured;
+
+        // `LIMITS.elements` is 8: the root, the array, and six items fill it. The next
+        // candidate is the one the limit stops at.
+        let at_limit = r#"{"a":[1,1,1,1,1,1"#;
+        // Not a value: an opening bracket alone, a mismatched close, and scalars that
+        // run on past their own token.
+        for ending in [
+            r#",["#,
+            r#",{]"#,
+            r#",nullx]}"#,
+            r#",truex]}"#,
+            r#",falsex]}"#,
+            r#",0x]}"#,
+            r#",1.5x]}"#,
+            r#","abc"x]}"#,
+        ] {
+            let raw = format!("{at_limit}{ending}");
+            let (code, measured) = decode_measured(&raw, LIMITS).unwrap_err();
+            assert_eq!(code, DecodeError::TooManyElements, "{raw}");
+            assert_eq!(
+                measured,
+                Some(SizeDetail::floor(8, 8, UNIT_ELEMENTS)),
+                "{raw}"
+            );
+        }
+        // A value: a scalar with its delimiter, an empty container, and a nested one.
+        for ending in [
+            r#",1]}"#,
+            r#",null]}"#,
+            r#",true]}"#,
+            r#","abc"]}"#,
+            r#",{}]}"#,
+            r#",[]]}"#,
+            r#",[[]]}"#,
+        ] {
+            let raw = format!("{at_limit}{ending}");
+            let (code, measured) = decode_measured(&raw, LIMITS).unwrap_err();
+            assert_eq!(code, DecodeError::TooManyElements, "{raw}");
+            assert_eq!(
+                measured,
+                Some(SizeDetail::floor(9, 8, UNIT_ELEMENTS)),
+                "{raw}"
+            );
+        }
+        // Whitespace delimits a scalar too.
+        for ending in [",1 }", ",null ]", ",true\n"] {
+            let raw = format!("{at_limit}{ending}");
+            let (code, measured) = decode_measured(&raw, LIMITS).unwrap_err();
+            assert_eq!(code, DecodeError::TooManyElements, "{raw}");
+            assert_eq!(
+                measured,
+                Some(SizeDetail::floor(9, 8, UNIT_ELEMENTS)),
+                "{raw}"
+            );
+        }
+        // Exactly the limit and valid JSON are accepted, unchanged.
+        for raw in [
+            r#"{"a":[1,1,1,1,1,1]}"#,
+            "{}",
+            "[]",
+            r#"{"a":[]}"#,
+            r#"{"a":[1,2,3]}"#,
+        ] {
+            assert!(decode(raw, LIMITS).is_ok(), "{raw}");
+        }
     }
 
     #[test]

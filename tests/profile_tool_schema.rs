@@ -2169,6 +2169,106 @@ fn a_number_outside_the_serde_json_range_at_the_element_limit_is_counted() {
     set_env(REGISTRY_ENV, None);
 }
 
+/// Issue #1101, through the real tool: at the element limit an opening bracket alone
+/// (`…,[` at the end of input) and an unbalanced container (`…,{]`) are not values, and
+/// a scalar needs a delimiter after it (`nullx`, `0x`, `truex` are not values). Each
+/// refusal reports the 512 confirmed values instead of a phantom 513th, while a
+/// completed container or a delimited scalar is still the 513th value.
+#[test]
+fn an_incomplete_container_or_an_undelimited_scalar_past_the_element_limit_is_not_counted() {
+    let _guard = lock();
+    let cases: Value = serde_json::from_str(SIZE_LIMIT_CASES).unwrap();
+    let schema = schema_declaration(closed(json!({
+        "a": {"type": "array", "items": {"type": "integer"}},
+    })));
+    // The root, the array, and 510 items fill the 512-element limit exactly.
+    let items = vec!["1"; 510].join(",");
+    for section in ["incomplete_containers", "undelimited_scalars"] {
+        for row in cases[section].as_array().unwrap() {
+            let ending = match row["ending"].as_str().unwrap() {
+                "open_bracket_end" => "[",
+                "open_brace_mismatch" => "{]}",
+                "null_run_on" => "nullx]}",
+                "zero_run_on" => "0x]}",
+                "true_run_on" => "truex]}",
+                other => panic!("unknown ending {other}"),
+            };
+            let raw = format!(r#"{{"a":[{items},{ending}"#);
+            let env = Env::new();
+            env.write_tool(schema.clone());
+            let run = session(
+                &env,
+                Wire::Native,
+                vec![Wire::Native.call(CONFIG_TOOL, &raw), text_reply("done")],
+                None,
+            );
+            let id = row["id"].as_str().unwrap();
+            assert_rejected(&env, Wire::Native, &run, "too_many_elements", id);
+            let feedback = run.last_message(1);
+            assert!(
+                !feedback.contains(&raw),
+                "{id}: the raw arguments came back"
+            );
+            assert_eq!(
+                size_violation(&feedback),
+                (
+                    "too_many_elements".to_string(),
+                    row["detail"].as_str().unwrap().to_string(),
+                ),
+                "{id}"
+            );
+        }
+    }
+
+    // A completed container is still the 513th value, as before.
+    for row in cases["completed_candidates"].as_array().unwrap() {
+        let ending = match row["ending"].as_str().unwrap() {
+            "empty_object" => "{}",
+            "empty_array" => "[]",
+            "nested_array" => "[[]]",
+            other => panic!("unknown ending {other}"),
+        };
+        let raw = format!(r#"{{"a":[{items},{ending}]}}"#);
+        let env = Env::new();
+        env.write_tool(schema.clone());
+        let run = session(
+            &env,
+            Wire::Native,
+            vec![Wire::Native.call(CONFIG_TOOL, &raw), text_reply("done")],
+            None,
+        );
+        let id = row["id"].as_str().unwrap();
+        assert_rejected(&env, Wire::Native, &run, "too_many_elements", id);
+        assert_eq!(
+            size_violation(&run.last_message(1)),
+            (
+                "too_many_elements".to_string(),
+                row["detail"].as_str().unwrap().to_string(),
+            ),
+            "{id}"
+        );
+    }
+
+    // Exactly the limit and valid JSON are accepted, unchanged.
+    for raw in [
+        format!(r#"{{"a":[{items}]}}"#),
+        "{}".to_string(),
+        r#"{"a":[]}"#.to_string(),
+        r#"{"a":[1,2,3]}"#.to_string(),
+    ] {
+        let env = Env::new();
+        env.write_tool(schema.clone());
+        let run = session(
+            &env,
+            Wire::Native,
+            vec![Wire::Native.call(CONFIG_TOOL, &raw), text_reply("done")],
+            None,
+        );
+        assert_eq!(run.executed, vec![parsed(&raw)], "{raw}");
+    }
+    set_env(REGISTRY_ENV, None);
+}
+
 // ---------------------------------------------------------------------------
 // Acceptance 2: the binding is the host's, adopted once.
 // ---------------------------------------------------------------------------
