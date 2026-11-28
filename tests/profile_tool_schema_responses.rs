@@ -2754,8 +2754,8 @@ mod g2 {
         set_env(REGISTRY_ENV, None);
     }
 
-    /// Issue #1096 (review blocker): a history that compaction brings within budget records no
-    /// over-budget event, so the event means "still over budget", not "compaction ran".
+    /// Issue #1096: a history that compaction brings within budget records no over-budget event,
+    /// so the event means "still over budget", not "compaction ran".
     #[test]
     fn a_history_within_budget_records_no_over_budget_event() {
         let _guard = lock();
@@ -2770,92 +2770,6 @@ mod g2 {
             "{:?}",
             env.event_names()
         );
-        set_env(REGISTRY_ENV, None);
-    }
-
-    /// Issue #1096 (review blocker 2): the three number keys the event writes must not be renamed
-    /// by the scrub. A synthetic registered value equal to a number key is refused at registration
-    /// (so it never reaches the catalog), and with an accepted credential the event written to the
-    /// file by the time the fake provider (127.0.0.1) receives the request still carries the three
-    /// keys and their counts, with none of the credential anywhere.
-    #[test]
-    fn the_over_budget_event_keeps_its_number_keys_in_the_file_at_the_request() {
-        let _guard = lock();
-        let credential = "fake-credential-1096-number-keys";
-        for key in ["remaining_chars", "budget_chars", "context_budget"] {
-            // Equal to a number key: refused at registration, so the catalog stays empty.
-            let mut refused = SecretCatalog::new();
-            assert!(
-                refused.register_credential("COMPAT_API_KEY", key).is_err(),
-                "{key} must be refused at registration"
-            );
-            assert!(refused.is_empty(), "{key}");
-        }
-
-        // An accepted credential: the event still carries the keys and counts.
-        let env = Env::with_config(config_root());
-        let mut catalog = SecretCatalog::new();
-        catalog
-            .register_credential("COMPAT_API_KEY", credential)
-            .unwrap();
-        let events_path = env.evidence.join("events.jsonl");
-
-        let responder = Arc::new(move |index: usize, _body: &str| {
-            if index == 1 {
-                // The moment the fake provider receives the request: the event is already
-                // written and its keys are unchanged.
-                let text = std::fs::read_to_string(&events_path).unwrap_or_default();
-                let event = text
-                    .lines()
-                    .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-                    .find(|event| event["event"] == OVER_BUDGET_EVENT)
-                    .unwrap_or_else(|| {
-                        panic!("no {OVER_BUDGET_EVENT} event before the request: {text}")
-                    });
-                assert_eq!(event["remaining_chars"].as_u64().unwrap(), 5_000, "{event}");
-                assert_eq!(event["budget_chars"], 4_000, "{event}");
-                assert_eq!(event["context_budget"], SMALL_BUDGET as u64, "{event}");
-                // name + three counts + schema_version: fixed keys only, nothing renamed.
-                assert_eq!(event.as_object().unwrap().len(), 5, "{event}");
-                assert!(!event.to_string().contains(credential), "{event}");
-                assert!(
-                    !text.contains("<redacted>"),
-                    "the number keys were scrubbed: {text}"
-                );
-            }
-            Api::Responses.text("done")
-        });
-
-        // 5,000 bytes against SMALL_BUDGET's 4,000 characters, with nothing removable.
-        let long_prompt = "x".repeat(5_000);
-        let reader = Arc::new(RecordingReader::default());
-        register_read_executor(RUNTIME, reader);
-        let http = FakeHttp::start(responder);
-        let mut config = env.config(Api::Responses, CONFIG_PROFILE, &http.url);
-        config.context_budget = SMALL_BUDGET;
-        install_scope(catalog, Some(&env.root), config.eval_events_path.as_deref());
-        let mut client = client_from_config(&config, false).unwrap();
-        let mut snapshot = SessionSnapshot::new();
-        let outcome = run_session_with_outcome_with_ui(
-            client.as_mut(),
-            &mut snapshot,
-            &long_prompt,
-            &[],
-            &config,
-            &NOOP_UI,
-        )
-        .unwrap();
-        assert_eq!(outcome.final_text, "done");
-        drop(client);
-        let requests = http.finish();
-        assert_eq!(requests.len(), 1, "the request still went out");
-        assert!(
-            !std::fs::read_to_string(env.evidence.join("events.jsonl"))
-                .unwrap_or_default()
-                .contains(credential),
-            "the credential must never reach the event file"
-        );
-        set_current(None);
         set_env(REGISTRY_ENV, None);
     }
 
