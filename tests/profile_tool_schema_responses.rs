@@ -928,6 +928,7 @@ mod g2 {
         Action, Config, ConfigFieldSources, NarrationMode, OllamaThink, PlanPreset, PromptLayout,
         Provider,
     };
+    use commandagent::minimal_loop::compact::OVER_BUDGET_EVENT;
     use commandagent::minimal_loop::loop_run::run_session_with_outcome_with_ui;
     use commandagent::providers::client_from_config;
     use commandagent::sensitive_data::{SecretCatalog, install_scope, set_current};
@@ -2706,6 +2707,68 @@ mod g2 {
                 .map(|(id, _)| id.as_str())
                 .collect::<Vec<_>>(),
             ["call_r1"]
+        );
+        set_env(REGISTRY_ENV, None);
+    }
+
+    /// Issue #1096 (review blocker): a history that cannot be compacted under budget used to be
+    /// reported on stderr only, which a GUI delegation drops. With the latest user prompt alone
+    /// over the budget and no group to remove, the over-budget state is now recorded as a
+    /// structured event through `eval_events::emit` *before* the fake provider (127.0.0.1)
+    /// receives the request, so it is visible without reading stderr. Numbers only: no message
+    /// text. Synthetic values.
+    #[test]
+    fn an_uncompactable_history_records_the_over_budget_event_before_the_request() {
+        let _guard = lock();
+        let env = Env::with_config(config_root());
+        // 5,000 bytes against SMALL_BUDGET = 1,000 tokens = 4,000 characters: over budget with
+        // only the pinned latest user message in the history, so nothing is removable.
+        let long_prompt = "x".repeat(5_000);
+        let api = Api::Responses;
+        let (results, requests) = sessions(&env, api, &[&long_prompt], Vec::new());
+        assert_eq!(results[0].as_deref(), Ok("done"), "{results:?}");
+        assert_eq!(requests.len(), 1, "the request still went out");
+
+        let events = env.events();
+        let over_budget = events
+            .iter()
+            .position(|event| event["event"] == OVER_BUDGET_EVENT)
+            .unwrap_or_else(|| panic!("no {OVER_BUDGET_EVENT} event: {events:?}"));
+        let first_request = events
+            .iter()
+            .position(|event| event["event"] == "provider_request")
+            .unwrap_or_else(|| panic!("no provider_request event: {events:?}"));
+        assert!(
+            over_budget < first_request,
+            "the overage must be recorded before the request"
+        );
+        let event = &events[over_budget];
+        assert!(
+            event["remaining_chars"].as_u64().unwrap() > 4_000,
+            "{event}"
+        );
+        assert_eq!(event["budget_chars"], 4_000, "{event}");
+        assert_eq!(event["context_budget"], SMALL_BUDGET as u64, "{event}");
+        // Numbers and the fixed name only: the prompt text never reaches the event.
+        assert!(!event.to_string().contains("xxxxxxxxxx"), "{event}");
+        set_env(REGISTRY_ENV, None);
+    }
+
+    /// Issue #1096: a history that compaction brings within budget records no over-budget event,
+    /// so the event means "still over budget", not "compaction ran".
+    #[test]
+    fn a_history_within_budget_records_no_over_budget_event() {
+        let _guard = lock();
+        let env = Env::with_config(config_root());
+        let api = Api::Responses;
+        let (results, _requests) = sessions(&env, api, &[PROMPT], Vec::new());
+        assert_eq!(results[0].as_deref(), Ok("done"), "{results:?}");
+        assert!(
+            !env.event_names()
+                .iter()
+                .any(|name| name == OVER_BUDGET_EVENT),
+            "{:?}",
+            env.event_names()
         );
         set_env(REGISTRY_ENV, None);
     }

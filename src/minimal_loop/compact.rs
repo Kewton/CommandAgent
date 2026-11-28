@@ -1,5 +1,8 @@
 use std::ops::Range;
 
+use serde_json::json;
+
+use crate::config::Config;
 use crate::state::ConversationMessage;
 
 /// What one compaction pass left behind, so the over-budget fallback is observable as well as
@@ -87,6 +90,34 @@ pub fn compact_if_needed(
         budget_chars: approx_chars,
         over_budget,
     }
+}
+
+/// The event recorded when a history cannot be compacted under budget (Issue #1096). It is a
+/// fixed identifier so the secret scrub never renames it.
+pub const OVER_BUDGET_EVENT: &str = "compaction_over_budget";
+
+/// Issue #1096: compacts through [`compact_if_needed`], then, when the history is still over
+/// budget, records that state as one structured event through the existing `eval_events::emit`
+/// path *before* the caller builds the request. A GUI that keeps only the event file (and drops
+/// stderr) then still sees the overage rather than sending it silently. The event carries only
+/// numbers, never message text. The stderr warning stays.
+pub fn compact_and_record(
+    messages: &mut Vec<ConversationMessage>,
+    config: &Config,
+) -> CompactionOutcome {
+    let outcome = compact_if_needed(messages, config.context_budget);
+    if outcome.over_budget {
+        crate::eval_events::emit(
+            config.eval_events_path.as_deref(),
+            json!({
+                "event": OVER_BUDGET_EVENT,
+                "remaining_chars": outcome.remaining_chars,
+                "budget_chars": outcome.budget_chars,
+                "context_budget": config.context_budget,
+            }),
+        );
+    }
+    outcome
 }
 
 /// Whether a group is a call-and-output run: an assistant message with calls plus at least one

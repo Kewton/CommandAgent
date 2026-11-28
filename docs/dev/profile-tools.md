@@ -475,8 +475,12 @@ Known limits of the Responses wire:
   the head system message nor the latest user message is still removed, so a run is never split
   and the budget is met before the floor. Compaction no longer sends a history silently over its
   budget: when nothing removable is left and it is still over budget (for example a lone message
-  whose only counterpart is a pinned message), it reports the overage on stderr before the request
-  is built. A compaction that removes only text, a whole call-and-output run, or a call with its
+  whose only counterpart is a pinned message), it records a structured `compaction_over_budget`
+  event through the existing `eval_events::emit` path — with only the remaining characters, the
+  character budget and the context budget, never message text — *before* the request is built, and
+  also warns on stderr. The event is what a GUI delegation sees: it keeps the event file and drops
+  stderr, so without the event an over-budget request would be sent with no record. A compaction
+  that removes only text, a whole call-and-output run, or a call with its
   output leaves the session going. The remaining limit: a reply with a single call whose output is
   not protected evidence still keeps the per-message rule, so a budget that falls inside it can
   keep the output and drop the call; then the history no longer correlates, and a session with a
