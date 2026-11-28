@@ -470,7 +470,13 @@ Known limits of the Responses wire:
   The budget is served first: while an unprotected run is over-budget it is removed oldest
   first; when only protected runs are left and the history is still over budget, the oldest
   protected run is removed whole too, so a history of protected evidence is not sent far over its
-  budget. A compaction that removes only text, a whole call-and-output run, or a call with its
+  budget. Since Issue #1096 there is no message-count floor that stops this while a removable run
+  remains: at (and below) the four-message floor a whole call-and-output run that holds neither
+  the head system message nor the latest user message is still removed, so a run is never split
+  and the budget is met before the floor. Compaction no longer sends a history silently over its
+  budget: when nothing removable is left and it is still over budget (for example a lone message
+  whose only counterpart is a pinned message), it reports the overage on stderr before the request
+  is built. A compaction that removes only text, a whole call-and-output run, or a call with its
   output leaves the session going. The remaining limit: a reply with a single call whose output is
   not protected evidence still keeps the per-message rule, so a budget that falls inside it can
   keep the output and drop the call; then the history no longer correlates, and a session with a

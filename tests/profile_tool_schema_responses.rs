@@ -2599,11 +2599,12 @@ mod g2 {
         (call_id.to_string(), json!({"path": path}).to_string())
     }
 
-    /// Two long Reads: before the third request the compaction serves the budget by removing the
-    /// oldest protected run whole. Issue #1088: the first Read leaves with its call, so no output
-    /// outlives its call and none is left with a call missing; the newest call and its output
-    /// stay. The history still correlates, and both wires send a third request: on Responses with
-    /// a schema tool the session goes on instead of ending with the correlation error.
+    /// Two long Reads, each alone larger than the budget: before the third request the compaction
+    /// serves the budget by removing the protected runs whole, oldest first, and at the
+    /// four-message floor it keeps removing a removable call-and-output run rather than stopping
+    /// over budget (Issue #1096). No output outlives its call and none is left with its call
+    /// missing, so the history still correlates and both wires send a third request: on Responses
+    /// with a schema tool the session goes on instead of ending with the correlation error.
     #[test]
     fn compaction_keeps_a_call_with_its_protected_output_and_the_responses_session_goes_on() {
         let _guard = lock();
@@ -2640,9 +2641,16 @@ mod g2 {
                 .collect::<Vec<_>>();
             // Every call that is sent is answered, and every answer names a sent call.
             assert_eq!(called, answered, "{api:?}");
-            // The oldest protected run went whole; the newest call keeps its output.
+            // Each Read alone is over the budget, so both runs leave whole rather than be split
+            // or sent over budget; the prompt the session is answering survives.
             assert!(!called.contains(&"call_r1".to_string()), "{called:?}");
-            assert!(called.contains(&"call_r2".to_string()), "{called:?}");
+            assert!(!called.contains(&"call_r2".to_string()), "{called:?}");
+            assert!(
+                messages
+                    .iter()
+                    .any(|message| message["role"] == "user" && message["content"] == PROMPT),
+                "{api:?}"
+            );
             assert!(
                 !env.event_names()
                     .iter()

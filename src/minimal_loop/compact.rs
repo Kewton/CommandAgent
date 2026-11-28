@@ -2,10 +2,28 @@ use std::ops::Range;
 
 use crate::state::ConversationMessage;
 
-pub fn compact_if_needed(messages: &mut Vec<ConversationMessage>, context_budget: usize) {
+/// What one compaction pass left behind, so the over-budget fallback is observable as well as
+/// reported. Not `#[must_use]`: the loop ahead of the request calls compaction for its effect.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CompactionOutcome {
+    /// The history's remaining character count after the pass.
+    pub remaining_chars: usize,
+    /// The character budget the pass aimed at (`context_budget * 4`).
+    pub budget_chars: usize,
+    /// `true` when nothing removable was left and the history is still over budget.
+    pub over_budget: bool,
+}
+
+/// Compacts `messages` toward `context_budget`. When nothing removable is left and the history
+/// is still over budget, the overage is reported on stderr here, before the caller builds the
+/// request, so it is never sent silently.
+pub fn compact_if_needed(
+    messages: &mut Vec<ConversationMessage>,
+    context_budget: usize,
+) -> CompactionOutcome {
     let approx_chars = context_budget.saturating_mul(4);
     let mut total: usize = messages.iter().map(|m| m.content.len()).sum();
-    while total > approx_chars && messages.len() > 4 {
+    while total > approx_chars {
         let protected = protected_indices(messages);
         let pinned = pinned_indices(messages);
         let groups = message_groups(messages, &protected);
@@ -18,15 +36,32 @@ pub fn compact_if_needed(messages: &mut Vec<ConversationMessage>, context_budget
         // served first. The head system message and the latest user message never go. A single
         // call with unprotected outputs keeps the per-message rule; its split is the remaining
         // limit recorded in `docs/dev/profile-tools.md`.
-        let group = groups
-            .iter()
-            .find(|group| group.start >= 1 && !group_holds(group, &protected))
-            .or_else(|| {
-                groups
-                    .iter()
-                    .find(|group| group.start >= 1 && !group_holds(group, &pinned))
-            })
-            .cloned();
+        //
+        // Issue #1096: the old count floor of four messages stopped here while a removable
+        // protected run was still present. A whole call-and-output run that holds neither pinned
+        // message is now removed at the floor too, so the budget is served before the floor; the
+        // floor only spares a lone message that has no counterpart to leave with it. A run is a
+        // paired call and output, so removing it never orphans the other half, and the latest
+        // user message and head system message stay. When nothing removable is left the overage
+        // is reported rather than sent silently.
+        let group = if messages.len() > 4 {
+            groups
+                .iter()
+                .find(|group| group.start >= 1 && !group_holds(group, &protected))
+                .or_else(|| {
+                    groups
+                        .iter()
+                        .find(|group| group.start >= 1 && !group_holds(group, &pinned))
+                })
+                .cloned()
+        } else {
+            groups
+                .iter()
+                .find(|group| {
+                    group.start >= 1 && !group_holds(group, &pinned) && is_call_run(messages, group)
+                })
+                .cloned()
+        };
         let Some(group) = group else {
             break;
         };
@@ -39,6 +74,27 @@ pub fn compact_if_needed(messages: &mut Vec<ConversationMessage>, context_budget
         }
         total = total.saturating_sub(removed_chars);
     }
+    let over_budget = total > approx_chars;
+    if over_budget {
+        eprintln!(
+            "warning: conversation history is over its compaction budget: {total} characters > \
+             {approx_chars} (context budget {context_budget} tokens); no removable group is left, \
+             so the request is sent as it is"
+        );
+    }
+    CompactionOutcome {
+        remaining_chars: total,
+        budget_chars: approx_chars,
+        over_budget,
+    }
+}
+
+/// Whether a group is a call-and-output run: an assistant message with calls plus at least one
+/// output answered by it. A lone assistant call whose outputs were split off, or a lone tool
+/// output with no call, is not a run, so removing one never orphans the other.
+fn is_call_run(messages: &[ConversationMessage], group: &Range<usize>) -> bool {
+    group.end - group.start >= 2
+        && (group.start..group.end).any(|index| !messages[index].tool_calls.is_empty())
 }
 
 /// The message runs that must be kept or removed together. An assistant message whose calls must
