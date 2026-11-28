@@ -99,6 +99,50 @@ fn starts_value(byte: u8) -> bool {
     )
 }
 
+/// The RFC 8259 form of a number token — `[ minus ] int [ frac ] [ exp ]` — decided on
+/// its bytes alone. It checks the grammar, never the value: neither the exponent's
+/// magnitude nor the digits' count is bounded here, because converting a value and
+/// checking its range are the decode's business (Issue #1100).
+fn is_number_form(token: &str) -> bool {
+    let bytes = token.as_bytes();
+    let mut index = 0;
+    if bytes.get(index) == Some(&b'-') {
+        index += 1;
+    }
+    match bytes.get(index).copied() {
+        Some(b'0') => index += 1,
+        Some(b'1'..=b'9') => {
+            index += 1;
+            while matches!(bytes.get(index).copied(), Some(b'0'..=b'9')) {
+                index += 1;
+            }
+        }
+        _ => return false,
+    }
+    if bytes.get(index) == Some(&b'.') {
+        index += 1;
+        if !matches!(bytes.get(index).copied(), Some(b'0'..=b'9')) {
+            return false;
+        }
+        while matches!(bytes.get(index).copied(), Some(b'0'..=b'9')) {
+            index += 1;
+        }
+    }
+    if matches!(bytes.get(index).copied(), Some(b'e' | b'E')) {
+        index += 1;
+        if matches!(bytes.get(index).copied(), Some(b'+' | b'-')) {
+            index += 1;
+        }
+        if !matches!(bytes.get(index).copied(), Some(b'0'..=b'9')) {
+            return false;
+        }
+        while matches!(bytes.get(index).copied(), Some(b'0'..=b'9')) {
+            index += 1;
+        }
+    }
+    index == bytes.len()
+}
+
 impl Decoder<'_> {
     fn skip_whitespace(&mut self) {
         while matches!(self.peek(), Some(b' ' | b'\t' | b'\n' | b'\r')) {
@@ -146,8 +190,11 @@ impl Decoder<'_> {
             .is_some_and(|token| serde_json::from_str::<String>(token).is_ok())
     }
 
-    /// Whether the candidate number's token parses as a JSON number, read with the
-    /// same token bounds the walk uses. A lone `-` or `1e` is not a number.
+    /// Whether the candidate number's token is a JSON number, read with the same token
+    /// bounds the walk uses. A lone `-` or `1e` is not a number. The token's form is
+    /// checked on its bytes rather than by conversion, so a number outside the
+    /// `serde_json` range such as `1e400` is still a confirmed value; the decode itself
+    /// keeps converting and checking the range (Issue #1100).
     fn confirmed_number(&self) -> bool {
         let mut end = self.position;
         while matches!(
@@ -156,9 +203,7 @@ impl Decoder<'_> {
         ) {
             end += 1;
         }
-        self.raw
-            .get(self.position..end)
-            .is_some_and(|token| serde_json::from_str::<serde_json::Number>(token).is_ok())
+        self.raw.get(self.position..end).is_some_and(is_number_form)
     }
 
     fn value(&mut self, depth: usize) -> Result<Value, DecodeError> {
@@ -539,6 +584,43 @@ mod tests {
         ] {
             assert!(decode(raw, LIMITS).is_ok(), "{raw}");
         }
+    }
+
+    /// Issue #1100: at the element limit the candidate number is confirmed by its JSON
+    /// lexical form on the raw bytes, not by a conversion, so `1e400` — a number no
+    /// `f64` holds — is counted as the value past the limit, while an incomplete `1e` is
+    /// not. A value within the limit is still converted and range-checked as before.
+    #[test]
+    fn a_number_outside_the_serde_json_range_is_counted_when_it_is_the_value_past_the_limit() {
+        use super::super::{SizeDetail, UNIT_ELEMENTS};
+        use super::decode_measured;
+
+        // `LIMITS.elements` is 8: the root, the array, and six items fill it. The next
+        // token is the candidate the limit stops at.
+        let at_limit = r#"{"a":[1,1,1,1,1,1"#;
+        for ending in [r#",1e400]}"#, r#",1e+400]}"#, r#",-1.5e400]}"#] {
+            let raw = format!("{at_limit}{ending}");
+            let (code, measured) = decode_measured(&raw, LIMITS).unwrap_err();
+            assert_eq!(code, DecodeError::TooManyElements, "{raw}");
+            assert_eq!(
+                measured,
+                Some(SizeDetail::floor(9, 8, UNIT_ELEMENTS)),
+                "{raw}"
+            );
+        }
+        for ending in [r#",1e]}"#, r#",1e+]}"#, r#",1.]}"#, r#",01]}"#] {
+            let raw = format!("{at_limit}{ending}");
+            let (code, measured) = decode_measured(&raw, LIMITS).unwrap_err();
+            assert_eq!(code, DecodeError::TooManyElements, "{raw}");
+            assert_eq!(
+                measured,
+                Some(SizeDetail::floor(8, 8, UNIT_ELEMENTS)),
+                "{raw}"
+            );
+        }
+        // Within the limit the value is still converted: `1e400` has no `serde_json`
+        // number, so it is refused as before. Only the count at the limit reads the form.
+        assert_eq!(decode("1e400", LIMITS), Err(DecodeError::Malformed));
     }
 
     #[test]
